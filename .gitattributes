@@ -1,0 +1,4 @@
+*.ply filter=lfs diff=lfs merge=lfs -text
+*.ksplat filter=lfs diff=lfs merge=lfs -text
+*.spz filter=lfs diff=lfs merge=lfs -text
+*.rad filter=lfs diff=lfs merge=lfs -text

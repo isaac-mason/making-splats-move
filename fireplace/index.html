@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A living fire in a Gaussian-splat boiler room: splat-space lighting, heat shimmer, drifting dust and embers."
+    />
+    <title>fireplace</title>
+    <!-- Loader styles inlined so the flame is styled on first paint (no flash of
+         unstyled SVG before the bundled CSS loads). -->
+    <style>
+      #loading {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 50% 45%, #1a0f08 0%, #070402 70%);
+        transition: opacity 0.6s ease;
+      }
+      #loading.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #loading .flame {
+        overflow: visible;
+        filter: drop-shadow(0 0 12px rgba(255, 110, 30, 0.5));
+      }
+      #loading .flame-part {
+        fill: url(#flameGrad);
+        transform-box: fill-box;
+        transform-origin: 50% 100%; /* flicker from each flame's own base */
+        animation: flame-flicker 1s ease-in-out infinite;
+      }
+      #loading .flame-c {
+        animation-duration: 0.9s;
+      }
+      #loading .flame-l {
+        animation-duration: 1.3s;
+        animation-delay: -0.4s;
+      }
+      #loading .flame-r {
+        animation-duration: 0.7s;
+        animation-delay: -0.8s;
+      }
+      @keyframes flame-flicker {
+        0% {
+          transform: scale(1, 1) skewX(0deg);
+        }
+        25% {
+          transform: scale(0.94, 1.08) skewX(4deg);
+        }
+        50% {
+          transform: scale(1.05, 0.96) skewX(-3deg);
+        }
+        75% {
+          transform: scale(0.97, 1.05) skewX(2deg);
+        }
+        100% {
+          transform: scale(1, 1) skewX(0deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="loading">
+      <svg class="flame" viewBox="0 0 72 60" width="92" height="77" role="img" aria-label="Loading">
+        <defs>
+          <linearGradient id="flameGrad" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0" stop-color="#ff4d00" />
+            <stop offset="0.55" stop-color="#ff9b2e" />
+            <stop offset="1" stop-color="#ffe27a" />
+          </linearGradient>
+        </defs>
+        <path
+          class="flame-part flame-l"
+          d="M20 24 C15 33 14 40 17 47 C18 50 19 52 20 54 C21 52 23 49 24 46 C27 40 25 33 20 24 Z"
+        />
+        <path
+          class="flame-part flame-r"
+          d="M52 22 C47 31 46 39 49 46 C50 49 51 52 52 54 C53 52 55 49 56 45 C59 38 57 31 52 22 Z"
+        />
+        <path
+          class="flame-part flame-c"
+          d="M36 8 C28 22 27 32 31 42 C33 48 35 52 36 54 C37 52 39 48 41 42 C45 32 44 22 36 8 Z"
+        />
+      </svg>
+    </div>
+    <script type="module" src="/src/index.ts"></script>
+  </body>
+</html>
