@@ -19,6 +19,14 @@
     },
     "devDependencies": {
         "@biomejs/biome": "2.5.0",
+        "@types/three": "^0.185.0",
+        "three": "^0.185.1",
         "typescript": "~6.0.2"
+    },
+    "pnpm": {
+        "overrides": {
+            "three": "$three",
+            "@types/three": "$@types/three"
+        }
     }
 }

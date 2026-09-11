@@ -14,10 +14,10 @@
     },
     "dependencies": {
         "@sparkjsdev/spark": "^2.1.0",
-        "three": "^0.184.0"
+        "three": "^0.185.1"
     },
     "devDependencies": {
-        "@types/three": "^0.184.1",
+        "@types/three": "^0.185.0",
         "typescript": "~6.0.2",
         "vite": "^8.0.12"
     }
