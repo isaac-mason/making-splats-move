@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Wind-swayed trees in a Gaussian-splat city: a per-splat sway modifier masked by authored volumes."
+    />
+    <title>wind</title>
+    <!-- Loader styles inlined so the overlay is styled on first paint (no flash
+         of unstyled content before the bundled CSS loads). -->
+    <style>
+      #loading {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 50% 45%, #0b1020 0%, #04060c 70%);
+        transition: opacity 0.6s ease;
+      }
+      #loading.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      /* Three little leaves bouncing in sequence, like loading dots. */
+      #loading .loader {
+        display: flex;
+        align-items: flex-end;
+        gap: 14px;
+      }
+      #loading .leaf {
+        width: 30px;
+        height: auto;
+        overflow: visible;
+        transform-origin: 50% 100%; /* flutter/pivot at the stem base */
+        filter: drop-shadow(0 4px 5px rgba(0, 0, 0, 0.35));
+        animation: leaf-hop 1.4s ease-in-out infinite;
+      }
+      #loading .leaf:nth-child(2) {
+        animation-delay: 0.16s;
+      }
+      #loading .leaf:nth-child(3) {
+        animation-delay: 0.32s;
+      }
+      @keyframes leaf-hop {
+        0%,
+        70%,
+        100% {
+          transform: translateY(0) rotate(-6deg) scale(0.92);
+          opacity: 0.4;
+        }
+        35% {
+          transform: translateY(-14px) rotate(6deg) scale(1);
+          opacity: 1;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #loading .leaf {
+          animation-duration: 3s;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="loading">
+      <div class="loader" role="img" aria-label="Loading">
+        <svg class="leaf" viewBox="0 0 100 128" aria-hidden="true">
+          <defs>
+            <linearGradient id="leafFill1" x1="0" y1="0" x2="0.35" y2="1">
+              <stop offset="0" stop-color="#aede6f" />
+              <stop offset="1" stop-color="#4a9b4e" />
+            </linearGradient>
+          </defs>
+          <path d="M50 104 Q49 117 45 126" fill="none" stroke="#6b8f3d" stroke-width="4" stroke-linecap="round" />
+          <path d="M50 8 C 22 36 22 82 50 106 C 78 82 78 36 50 8 Z" fill="url(#leafFill1)" />
+          <path d="M50 16 Q50 60 50 102" fill="none" stroke="#3f7e3f" stroke-width="2.4" stroke-linecap="round" opacity="0.6" />
+        </svg>
+        <svg class="leaf" viewBox="0 0 100 128" aria-hidden="true">
+          <defs>
+            <linearGradient id="leafFill2" x1="0" y1="0" x2="0.35" y2="1">
+              <stop offset="0" stop-color="#aede6f" />
+              <stop offset="1" stop-color="#4a9b4e" />
+            </linearGradient>
+          </defs>
+          <path d="M50 104 Q49 117 45 126" fill="none" stroke="#6b8f3d" stroke-width="4" stroke-linecap="round" />
+          <path d="M50 8 C 22 36 22 82 50 106 C 78 82 78 36 50 8 Z" fill="url(#leafFill2)" />
+          <path d="M50 16 Q50 60 50 102" fill="none" stroke="#3f7e3f" stroke-width="2.4" stroke-linecap="round" opacity="0.6" />
+        </svg>
+        <svg class="leaf" viewBox="0 0 100 128" aria-hidden="true">
+          <defs>
+            <linearGradient id="leafFill3" x1="0" y1="0" x2="0.35" y2="1">
+              <stop offset="0" stop-color="#aede6f" />
+              <stop offset="1" stop-color="#4a9b4e" />
+            </linearGradient>
+          </defs>
+          <path d="M50 104 Q49 117 45 126" fill="none" stroke="#6b8f3d" stroke-width="4" stroke-linecap="round" />
+          <path d="M50 8 C 22 36 22 82 50 106 C 78 82 78 36 50 8 Z" fill="url(#leafFill3)" />
+          <path d="M50 16 Q50 60 50 102" fill="none" stroke="#3f7e3f" stroke-width="2.4" stroke-linecap="round" opacity="0.6" />
+        </svg>
+      </div>
+    </div>
+    <script type="module" src="/src/index.ts"></script>
+  </body>
+</html>

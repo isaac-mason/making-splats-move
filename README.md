@@ -8,7 +8,7 @@ static splat scene and giving it life, in the browser, with [Spark][spark] and
 | Example | What it does |
 | --- | --- |
 | [`fireplace/`](fireplace) | A living fire in a splat boiler room: splat-space lighting, heat shimmer, drifting dust and embers. |
-| _(tbd)_ | |
+| [`wind/`](wind) | Trees swaying in a splat city: a per-splat sway modifier, masked to the foliage by authored volumes. |
 | _(tbd)_ | |
 
 Each example is a standalone Vite app in its own top-level directory, with its own
