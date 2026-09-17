@@ -9,14 +9,14 @@ import * as THREE from 'three';
 
 const { dynoBlock, defineGsplat, unindentLines } = dyno;
 
-const COUNT = 2500;
+const COUNT = 1400;
 
 // World-space box the dust fills (roughly the boiler-room interior).
-const BOUNDS_MIN = new THREE.Vector3(-2.3, 0.2, -4);
-const BOUNDS_MAX = new THREE.Vector3(1, 2.5, 1);
+const BOUNDS_MIN = new THREE.Vector3(-1.8, 0.1, -9.2);
+const BOUNDS_MAX = new THREE.Vector3(1.7, 1.9, -5.8);
 
-const MOTE_SCALE = 0.0016; // base gaussian size (metres); jittered per mote
-const BASE_OPACITY = 1; // low → the gaussian falloff shows (soft, feathered motes, not solid balls)
+const MOTE_SCALE = 0.0009; // base gaussian size (metres); jittered per mote
+const BASE_OPACITY = 0.55; // low → the gaussian falloff shows (soft, feathered motes, not solid balls)
 const BASE_COLOR = new THREE.Color(0.85, 0.7, 0.5); // warm, self-visible; the SDF adds extra glow near the fire
 
 const SWAY = 0.06; // horizontal drift amplitude (metres)
@@ -79,6 +79,10 @@ export function initDust(): Dust {
             }
         },
     });
+
+    // Never let a click land on a dust mote — the debug raycast is for measuring
+    // the scene, and 2,500 motes floating in front of it will always win.
+    mesh.raycast = () => {};
 
     return { mesh };
 }

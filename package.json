@@ -11,7 +11,7 @@
         "node": ">=24"
     },
     "scripts": {
-        "dev": "pnpm --filter fireplace dev",
+        "dev": "pnpm --filter fire dev",
         "build": "pnpm -r build",
         "lint": "biome check .",
         "format": "biome format --write .",

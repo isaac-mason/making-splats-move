@@ -14,9 +14,6 @@
 # public/ so Vite serves it. Defaults to "assets/anime-city.spz" and RAD output
 # (Spark's native LOD format), producing "public/anime-city-lod.rad".
 #
-# NOTE: this example ships only the built .rad — the 66MB source .spz is not in the
-# repo (see the README). Drop it in assets/ before running this.
-#
 # Examples:
 #   scripts/build-lod.sh
 #   scripts/build-lod.sh assets/anime-city.spz

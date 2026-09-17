@@ -1,16 +1,15 @@
 {
-    "name": "fireplace",
+    "name": "dust",
     "private": true,
     "version": "0.0.0",
-    "description": "A Gaussian-splat boiler room with a living fire: splat-space lighting, heat shimmer, drifting dust and embers.",
+    "description": "Procedural dust motes drifting through a Gaussian-splat greenhouse — atmosphere from a stateless GPU particle generator.",
     "license": "MIT",
     "author": "Isaac Mason",
     "type": "module",
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build",
-        "preview": "vite preview",
-        "build:lod": "scripts/build-lod.sh"
+        "preview": "vite preview"
     },
     "dependencies": {
         "@sparkjsdev/spark": "^2.1.0",

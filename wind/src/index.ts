@@ -1,11 +1,27 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import { attachDebugRaycast, createDebugOverlay, updateDebugOverlay } from './debug';
+import { createDebugOverlay, updateDebugOverlay } from './debug';
 import { applyPerformance, initPerformance } from './performance';
 import { CAMERA_POSITION, CAMERA_TARGET } from './scene';
 import { createSplat } from './splat';
+import { initStats, tickStats } from './stats';
 import './style.css';
+import { applyDrawTimeWind, createDrawTimeUniforms, tickDrawTimeWind } from './wind-drawtime';
+import { createWindEditor } from './wind-editor';
+
+// Two ways to move the same splats, and you can switch between them live.
+//
+// The default displaces splats in Spark's draw-time splat shader, which never
+// touches the splat buffer. `?generator=1` instead uses a dyno objectModifier —
+// the idiomatic Spark approach, and the one most of Spark's own examples use.
+//
+// The modifier path costs far more than it looks: moving a splat invalidates its
+// sort order, so Spark re-sorts, and sorting means reading depths back from the
+// GPU. That readback stalls the pipeline for tens of milliseconds on alternating
+// frames. The draw-time path never marks the buffer dirty, so none of it fires.
+// The README has the numbers and the caveats.
+const DRAW_TIME = !new URLSearchParams(window.location.search).has('generator');
 
 function init() {
     const scene = new THREE.Scene();
@@ -21,9 +37,24 @@ function init() {
     app.appendChild(renderer.domElement);
 
     // SparkRenderer + the scene's SplatMesh, with the wind modifier attached.
-    // Splats are self-lit, and nothing else in this scene is a mesh, so there are
-    // no three.js lights here at all.
-    const { spark, mesh: splat } = createSplat(scene, renderer);
+    // Splats are self-lit, and the only other meshes are unlit debug wireframes,
+    // so there are no three.js lights in this scene at all.
+    //
+    // The draw-time path needs its uniforms to exist before the renderer is built
+    // (they're merged into the splat material at construction), and then patches
+    // the compiled shader afterwards.
+    const drawTimeUniforms = DRAW_TIME ? createDrawTimeUniforms() : undefined;
+    const {
+        spark,
+        mesh: splat,
+        wind: generatorWind,
+    } = createSplat(scene, renderer, {
+        extraUniforms: drawTimeUniforms,
+        wind: !DRAW_TIME,
+    });
+    const wind = drawTimeUniforms ? applyDrawTimeWind(spark, splat, drawTimeUniforms) : generatorWind;
+    if (!wind) throw new Error('wind was not created');
+    console.log(`wind path: ${DRAW_TIME ? 'draw-time shader patch' : 'generator modifier (?generator=1)'}`);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -32,13 +63,16 @@ function init() {
 
     // Runtime perf/quality settings (LOD budget, …); the debug panel tweaks these.
     const perf = initPerformance();
+    const stats = initStats();
 
-    // Debug panel: toggle with the backtick (`) key. Wind-sphere wireframes, LOD
-    // sliders, click-to-raycast, and a click-to-copy camera readout.
+    // Debug panel: toggle with the backtick (`) key. LOD sliders, a click-to-copy
+    // camera readout, and the wind edit-mode switch.
     const debug = createDebugOverlay(perf);
-    scene.add(debug.raycastMarker);
-    scene.add(debug.windSpheres);
-    attachDebugRaycast(debug, camera, scene, renderer.domElement);
+
+    // Authoring UI for the wind volumes: gizmo, sphere list, live parameters, and
+    // a JSON box to copy the result back into src/wind.ts. Off until toggled.
+    const windEditor = createWindEditor({ wind, scene, camera, controls, domElement: renderer.domElement });
+    debug.onEditWind = (enabled) => windEditor.setEnabled(enabled);
 
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -46,12 +80,14 @@ function init() {
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    return { scene, camera, renderer, spark, splat, controls, perf, debug };
+    return { scene, camera, renderer, spark, splat, wind, controls, perf, debug, windEditor, stats, drawTimeUniforms };
 }
 
 type State = ReturnType<typeof init>;
 
-function update(state: State) {
+function update(state: State, elapsed: number) {
+    tickStats(state.stats);
+    if (state.drawTimeUniforms) tickDrawTimeWind(state.spark, state.drawTimeUniforms, elapsed);
     state.controls.update();
 
     // Push runtime perf settings (LOD budget, …) onto the renderer.
@@ -87,8 +123,10 @@ async function start() {
     let loaderUp = true;
     const startedAt = performance.now();
 
+    const startedAtMs = performance.now();
+
     function loop() {
-        update(state); // renders the frame, which drives Spark's sort + LOD streaming
+        update(state, (performance.now() - startedAtMs) / 1000); // renders the frame, driving Spark's sort + LOD streaming
 
         if (loaderUp) {
             const now = performance.now();

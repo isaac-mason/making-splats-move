@@ -11,12 +11,12 @@
 #   scripts/build-lod.sh [input-file] [-- <extra build-lod args>]
 #
 # Source splats live in assets/ (not served); the built LOD file is moved into
-# public/ so Vite serves it. Defaults to "assets/boiler-room.spz" and RAD output
-# (Spark's native LOD format), producing "public/boiler-room-lod.rad".
+# public/ so Vite serves it. Defaults to "assets/campfire.spz" and RAD output
+# (Spark's native LOD format), producing "public/campfire-lod.rad".
 #
 # Examples:
 #   scripts/build-lod.sh
-#   scripts/build-lod.sh assets/boiler-room.spz
+#   scripts/build-lod.sh assets/campfire.spz
 #   scripts/build-lod.sh assets/foo.spz -- --quick --max-sh=2
 set -euo pipefail
 
@@ -29,7 +29,7 @@ SPARK_VERSION="${SPARK_VERSION:-v2.1.0}"
 VENDOR_DIR="vendor/spark"
 MANIFEST="$VENDOR_DIR/rust/build-lod/Cargo.toml"
 
-INPUT="${1:-assets/boiler-room.spz}"
+INPUT="${1:-assets/campfire.spz}"
 OUTPUT_DIR="public"
 # Drop the consumed positional arg; the rest are passed through to build-lod.
 shift || true

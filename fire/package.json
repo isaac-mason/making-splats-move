@@ -1,0 +1,24 @@
+{
+    "name": "fire",
+    "private": true,
+    "version": "0.0.0",
+    "description": "A living campfire under a starry sky: splat-space lighting, heat shimmer, drifting embers and a procedural flame.",
+    "license": "MIT",
+    "author": "Isaac Mason",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "preview": "vite preview",
+        "build:lod": "scripts/build-lod.sh"
+    },
+    "dependencies": {
+        "@sparkjsdev/spark": "^2.1.0",
+        "three": "^0.185.1"
+    },
+    "devDependencies": {
+        "@types/three": "^0.185.0",
+        "typescript": "~6.0.2",
+        "vite": "^8.0.12"
+    }
+}

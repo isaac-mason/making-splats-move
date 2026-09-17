@@ -7,9 +7,9 @@ static splat scene and giving it life, in the browser, with [Spark][spark] and
 
 | Example | What it does |
 | --- | --- |
-| [`fireplace/`](fireplace) | A living fire in a splat boiler room: splat-space lighting, heat shimmer, drifting dust and embers. |
-| [`wind/`](wind) | Trees swaying in a splat city: a per-splat sway modifier, masked to the foliage by authored volumes. |
-| _(tbd)_ | |
+| [`fire/`](fire) | A campfire under a starry sky: a procedural splat flame, splat-space lighting, heat shimmer and embers. |
+| [`wind/`](wind) | Trees swaying in a splat city: foliage displaced in Spark's draw-time splat shader, with an edit mode for placing the volumes. |
+| [`dust/`](dust) | Dust motes drifting through a splat greenhouse: a stateless procedural particle generator. |
 
 Each example is a standalone Vite app in its own top-level directory, with its own
 `package.json` and assets — so you can copy one out and run it on its own.
@@ -22,7 +22,7 @@ in LFS — see [Assets](#assets)).
 ```bash
 git lfs install       # once per machine
 pnpm install
-pnpm dev              # runs fireplace/ → http://localhost:5173
+pnpm dev              # runs fire/ → http://localhost:5173
 ```
 
 Other commands:
@@ -36,7 +36,7 @@ pnpm check            # biome check --write (autofix)
 To work on one example directly:
 
 ```bash
-pnpm --filter fireplace dev
+pnpm --filter fire dev
 ```
 
 ## Assets

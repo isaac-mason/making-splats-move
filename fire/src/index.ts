@@ -4,14 +4,16 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { attachDebugRaycast, createDebugOverlay, updateDebugOverlay } from './debug';
 import { initDust } from './dust';
+import { initEmbers, updateEmbers } from './embers';
 import { initFire, stokeFire, updateFire } from './fire';
+import { initFlame, updateFlame } from './flame';
 import { initFurnace, updateFurnace } from './furnace';
 import { initHeat, updateHeat } from './heat';
 import { attachInteraction } from './interaction';
 import { initLighting, updateLighting } from './lighting';
 import { applyPerformance, initPerformance } from './performance';
 import { CAMERA_POSITION, CAMERA_TARGET, SPLAT_URL } from './scene';
-import { initSparks, updateSparks } from './sparks';
+import { initSmoke, updateSmoke } from './smoke';
 import './style.css';
 
 function init() {
@@ -34,18 +36,20 @@ function init() {
     // 120, coneFoveate 0.4).
     const spark = new SparkRenderer({
         renderer,
-        enableLod: true,
-        enableLodFetching: true,
         coneFov0: 120,
         coneFov: 160,
         coneFoveate: 0.5,
     });
+    // SparkRenderer is itself a Mesh with quad geometry sitting at the origin, so
+    // a debug raycast through it reports hits on a flat plane at z=0 rather than on
+    // the scene. It isn't the splat mesh (that raycasts separately), so opting it
+    // out costs nothing.
+    spark.raycast = () => {};
     scene.add(spark);
 
-    // paged: true is REQUIRED for a .rad (LOD-paged) asset — Spark only decodes .rad
-    // through its PagedSplats path. Without it the mesh falls back to PackedSplats,
-    // which has no .rad decoder, so nothing streams in. rootUrl is taken from `url`.
-    const splat = new SplatMesh({ url: SPLAT_URL, paged: true });
+    // A plain .spz, so every splat is resident and drawn each frame. See the
+    // README for baking an LOD-paged .rad instead.
+    const splat = new SplatMesh({ url: SPLAT_URL });
     scene.add(splat);
 
     // Heat shimmer: wobble the scene splats near the fire (see heat.ts).
@@ -79,8 +83,19 @@ function init() {
     const dust = initDust();
     scene.add(dust.mesh);
 
-    const sparks = initSparks();
-    scene.add(sparks.points);
+    // The flame body: real splats, so the grate and the iron shell occlude it.
+    const flame = initFlame();
+    scene.add(flame.object);
+
+    // Smoke above it — its own generator, since it behaves almost opposite to the
+    // flame (long-lived, expanding, cooling to nothing).
+    const smoke = initSmoke();
+    scene.add(smoke.object);
+
+    // Embers as splats, so they sort with the flame and the scene instead of
+    // drawing on top of both.
+    const embers = initEmbers();
+    scene.add(embers.object);
 
     // The fire tends itself: resting burn, self-crackles, and an ember trickle.
     const fire = initFire(furnace);
@@ -88,7 +103,7 @@ function init() {
     // Tap anywhere to throw another log on — unless the debug panel has taken clicks
     // over for raycasting.
     attachInteraction(renderer.domElement, {
-        onStoke: () => stokeFire(fire, furnace, sparks),
+        onStoke: () => stokeFire(fire, furnace),
         enabled: () => !debug.enabled,
     });
 
@@ -98,7 +113,24 @@ function init() {
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    return { scene, camera, renderer, spark, splat, controls, debug, perf, furnace, lighting, heat, dust, sparks, fire };
+    return {
+        scene,
+        camera,
+        renderer,
+        spark,
+        splat,
+        controls,
+        debug,
+        perf,
+        furnace,
+        lighting,
+        heat,
+        dust,
+        flame,
+        smoke,
+        embers,
+        fire,
+    };
 }
 
 type State = ReturnType<typeof init>;
@@ -106,10 +138,12 @@ type State = ReturnType<typeof init>;
 function update(state: State, dt: number, time: number) {
     // Drive the shared fire signal first so every system reads this frame's value.
     state.furnace.override = state.debug.furnaceOverride;
-    updateFire(state.fire, state.furnace, state.sparks, dt);
+    updateFire(state.fire, state.furnace, dt);
     updateFurnace(state.furnace, dt);
 
-    updateSparks(state.sparks, dt);
+    updateFlame(state.flame, state.furnace);
+    updateSmoke(state.smoke, state.furnace, dt);
+    updateEmbers(state.embers, state.furnace);
     state.controls.update();
     updateLighting(state.lighting, state.furnace, time, state.debug.showLights);
     updateHeat(state.heat, state.furnace);

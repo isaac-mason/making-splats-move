@@ -3,13 +3,15 @@ import type * as THREE from 'three';
 
 import { getSparkQualityOptions } from './performance';
 import { SPLAT_URL } from './scene';
-import { applyWind } from './wind';
+import { applyWind, type Wind } from './wind';
 
 export type Splat = {
     /** Drives splat sorting + LOD streaming; also carries the runtime perf knobs. */
     spark: SparkRenderer;
     /** The scene's Gaussian-splat mesh. */
     mesh: SplatMesh;
+    /** Handle on the wind modifier — null when the draw-time spike owns the wind. */
+    wind: Wind | null;
 };
 
 /**
@@ -17,7 +19,11 @@ export type Splat = {
  * Everything splat-specific (LOD cone, quality budget, wind modifier) lives here so
  * index.ts stays about wiring systems together.
  */
-export function createSplat(scene: THREE.Scene, renderer: THREE.WebGLRenderer): Splat {
+export function createSplat(
+    scene: THREE.Scene,
+    renderer: THREE.WebGLRenderer,
+    options: { extraUniforms?: Record<string, { value: unknown }>; wind?: boolean } = {},
+): Splat {
     // SparkRenderer drives splat sorting and LOD streaming/updates for the .rad file.
     // Widen the LOD foveation cone so splats near the screen corners stay full-res
     // (defaults: coneFov0 90, coneFov 120, coneFoveate 0.4).
@@ -28,6 +34,8 @@ export function createSplat(scene: THREE.Scene, renderer: THREE.WebGLRenderer): 
         coneFoveate: 0.5,
         // Per-platform LOD paging + spread budget (iOS < other mobile < desktop).
         ...getSparkQualityOptions(),
+        // Carries the draw-time wind's uniforms; undefined on the modifier path.
+        extraUniforms: options.extraUniforms,
     });
     scene.add(spark);
 
@@ -40,9 +48,9 @@ export function createSplat(scene: THREE.Scene, renderer: THREE.WebGLRenderer): 
 
     scene.add(mesh);
 
-    // Wind/sway: a per-splat vertex modifier (Spark's answer to PlayCanvas's
-    // gsplatModifyVS). Currently a height-masked global sway — see src/wind.ts.
-    applyWind(mesh);
+    // Wind/sway via a dyno objectModifier — see src/wind.ts. Skipped on the
+    // default draw-time path, which patches the splat shader instead.
+    const wind = options.wind === false ? null : applyWind(mesh);
 
-    return { spark, mesh };
+    return { spark, mesh, wind };
 }

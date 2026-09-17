@@ -1,4 +1,5 @@
 # Each example is its own standalone Vite app in a top-level directory.
 packages:
-    - 'fireplace'
+    - 'fire'
     - 'wind'
+    - 'dust'

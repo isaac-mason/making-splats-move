@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Procedural dust motes drifting through a Gaussian-splat greenhouse."
+    />
+    <title>dust</title>
+    <!-- Loader styles inlined so the overlay is styled on first paint (no flash
+         of unstyled content before the bundled CSS loads). -->
+    <style>
+      #loading {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 50% 40%, #241d12 0%, #0b0906 72%);
+        transition: opacity 0.6s ease;
+      }
+      #loading.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      /* Motes drifting up through a shaft of light. */
+      #loading .motes {
+        position: relative;
+        width: 90px;
+        height: 90px;
+      }
+      #loading .mote {
+        position: absolute;
+        bottom: 0;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: radial-gradient(circle, #fff6df 0%, rgba(255, 236, 196, 0.15) 70%, transparent 100%);
+        animation: mote-rise 3.2s ease-in-out infinite;
+      }
+      #loading .mote:nth-child(1) {
+        left: 10%;
+        animation-delay: 0s;
+      }
+      #loading .mote:nth-child(2) {
+        left: 34%;
+        animation-delay: -0.9s;
+      }
+      #loading .mote:nth-child(3) {
+        left: 58%;
+        animation-delay: -1.8s;
+      }
+      #loading .mote:nth-child(4) {
+        left: 80%;
+        animation-delay: -2.5s;
+      }
+      @keyframes mote-rise {
+        0% {
+          transform: translateY(0) scale(0.6);
+          opacity: 0;
+        }
+        25% {
+          opacity: 1;
+        }
+        75% {
+          opacity: 0.8;
+        }
+        100% {
+          transform: translateY(-84px) scale(1.1);
+          opacity: 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #loading .mote {
+          animation-duration: 7s;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="loading">
+      <div class="motes" role="img" aria-label="Loading">
+        <span class="mote"></span>
+        <span class="mote"></span>
+        <span class="mote"></span>
+        <span class="mote"></span>
+      </div>
+    </div>
+    <script type="module" src="/src/index.ts"></script>
+  </body>
+</html>

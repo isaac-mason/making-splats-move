@@ -1,8 +1,7 @@
 import type { SparkRenderer } from '@sparkjsdev/spark';
-import * as THREE from 'three';
+import type * as THREE from 'three';
 
 import type { Performance } from './performance';
-import { WIND_SPHERES } from './wind';
 
 export type DebugOverlay = {
     element: HTMLDivElement;
@@ -12,21 +11,14 @@ export type DebugOverlay = {
     fields: {
         cam: HTMLSpanElement;
         look: HTMLSpanElement;
-        hit: HTMLSpanElement;
         splats: HTMLSpanElement;
     };
     /** Whether the text panel is shown (toggled with the backtick key). */
     enabled: boolean;
-    /** Whether the authored wind spheres are drawn (toggled by the checkbox). */
-    showWindSpheres: boolean;
-    /** Wireframe spheres visualizing WIND_SPHERES (src/wind.ts). Add to your scene. */
-    windSpheres: THREE.Group;
-    /** Raycaster used for click-to-raycast against the scene. */
-    raycaster: THREE.Raycaster;
-    /** Marker placed at the last raycast hit point. Add to your scene. */
-    raycastMarker: THREE.Mesh;
-    /** World-space point of the last raycast hit, or null if nothing's been hit. */
-    lastHit: THREE.Vector3 | null;
+    /** Whether wind edit mode is on (toggled by the checkbox). */
+    editWind: boolean;
+    /** Called when the edit-mode checkbox flips; index.ts hooks the wind editor up here. */
+    onEditWind?: (enabled: boolean) => void;
 };
 
 function createCheckbox(label: string, onChange: (checked: boolean) => void): HTMLLabelElement {
@@ -99,9 +91,9 @@ function makeCopyable(value: HTMLSpanElement): void {
 }
 
 // Minimal debug overlay (plain DOM): a readout of the camera pose and splat counts
-// (toggle with the backtick `), the authored-wind-sphere wireframes, and the LOD
-// budget sliders. The coordinate rows are click-to-copy, so orbiting to a framing
-// you like and pasting the values back into scene.ts is the authoring loop.
+// (toggle with the backtick `), the wind edit-mode switch, and the LOD budget
+// sliders. The coordinate rows are click-to-copy, so orbiting to a framing you like
+// and pasting the values back into scene.ts is the authoring loop.
 export function createDebugOverlay(perf: Performance): DebugOverlay {
     const element = document.createElement('div');
     element.style.cssText = [
@@ -118,51 +110,16 @@ export function createDebugOverlay(perf: Performance): DebugOverlay {
         'z-index:1000',
     ].join(';');
 
-    // Wireframe spheres visualizing the authored wind volumes. Positions/radii are in
-    // native splat units — the same space the modifier runs in, and (since the mesh is
-    // unscaled here) world space too.
-    const windSpheres = new THREE.Group();
-    windSpheres.visible = false;
-    // transparent:true so it renders in the post-opaque pass, *after* the
-    // alpha-blended splats; depthTest/Write off + high renderOrder keep it drawn
-    // on top of everything regardless of scene depth.
-    const windSphereMat = new THREE.MeshBasicMaterial({
-        color: 0x33ddff,
-        wireframe: true,
-        transparent: true,
-        depthTest: false,
-        depthWrite: false,
-    });
-    for (const s of WIND_SPHERES) {
-        const sphere = new THREE.Mesh(new THREE.SphereGeometry(s.radius, 20, 14), windSphereMat);
-        sphere.position.set(s.center[0], s.center[1], s.center[2]);
-        sphere.renderOrder = 999;
-        sphere.raycast = () => {}; // don't let click-to-raycast hit the debug volume
-        windSpheres.add(sphere);
-    }
-
-    // Marker drawn at the last raycast hit. Non-raycastable so clicks don't hit it.
-    const raycastMarker = new THREE.Mesh(
-        new THREE.SphereGeometry(0.05, 16, 12),
-        new THREE.MeshBasicMaterial({ color: 0xff3366, depthTest: false, depthWrite: false, transparent: true }),
-    );
-    raycastMarker.visible = false;
-    raycastMarker.renderOrder = 1000;
-    raycastMarker.frustumCulled = false;
-    raycastMarker.raycast = () => {};
-
-    // Readout rows. The Vec3 lines (cam / look / hit) are click-to-copy — cam +
-    // look give you the orbit camera's pose to paste back.
+    // Readout rows. The Vec3 lines are click-to-copy — cam + look give you the orbit
+    // camera's pose to paste straight back into scene.ts.
     const text = document.createElement('div');
     text.style.cssText = 'display:flex;flex-direction:column';
     const camRow = createReadoutRow('cam');
     const lookRow = createReadoutRow('look');
-    const hitRow = createReadoutRow('hit');
     const splatsRow = createReadoutRow('splats');
     makeCopyable(camRow.value);
     makeCopyable(lookRow.value);
-    makeCopyable(hitRow.value);
-    text.append(camRow.row, lookRow.row, hitRow.row, splatsRow.row);
+    text.append(camRow.row, lookRow.row, splatsRow.row);
 
     const overlay: DebugOverlay = {
         element,
@@ -170,20 +127,15 @@ export function createDebugOverlay(perf: Performance): DebugOverlay {
         fields: {
             cam: camRow.value,
             look: lookRow.value,
-            hit: hitRow.value,
             splats: splatsRow.value,
         },
         enabled: false,
-        showWindSpheres: false,
-        windSpheres,
-        raycaster: new THREE.Raycaster(),
-        raycastMarker,
-        lastHit: null,
+        editWind: false,
     };
 
-    const windSphereCheckbox = createCheckbox('wind sphere debug', (checked) => {
-        overlay.showWindSpheres = checked;
-        windSpheres.visible = checked;
+    const windEditCheckbox = createCheckbox('wind edit mode', (checked) => {
+        overlay.editWind = checked;
+        overlay.onEditWind?.(checked);
     });
 
     const lodSlider = createRange('lod scale', { min: 0.2, max: 2, step: 0.05, value: perf.lodScale }, (value) => {
@@ -195,46 +147,17 @@ export function createDebugOverlay(perf: Performance): DebugOverlay {
         perf.lodRenderScale = value;
     });
 
-    element.append(windSphereCheckbox, lodSlider, renderScaleSlider, overlay.text);
+    element.append(windEditCheckbox, lodSlider, renderScaleSlider, overlay.text);
     document.body.appendChild(element);
 
     window.addEventListener('keydown', (event) => {
         if (event.key === '`') {
             overlay.enabled = !overlay.enabled;
             element.style.display = overlay.enabled ? 'flex' : 'none';
-            // Raycast is a panel feature — hide its marker when the panel closes.
-            if (!overlay.enabled) overlay.raycastMarker.visible = false;
         }
     });
 
     return overlay;
-}
-
-// Wire up click-to-raycast against the scene (e.g. the splat). On each click the
-// marker jumps to the hit point and overlay.lastHit is updated.
-export function attachDebugRaycast(
-    overlay: DebugOverlay,
-    camera: THREE.Camera,
-    scene: THREE.Scene,
-    domElement: HTMLElement,
-): void {
-    const ndc = new THREE.Vector2();
-
-    domElement.addEventListener('click', (event) => {
-        if (!overlay.enabled) return; // only raycast while the debug panel is open
-
-        const rect = domElement.getBoundingClientRect();
-        ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-        overlay.raycaster.setFromCamera(ndc, camera);
-        const hit = overlay.raycaster.intersectObjects(scene.children, true)[0];
-        if (!hit) return;
-
-        overlay.lastHit = hit.point.clone();
-        overlay.raycastMarker.position.copy(hit.point);
-        overlay.raycastMarker.visible = true;
-    });
 }
 
 export function updateDebugOverlay(
@@ -246,12 +169,10 @@ export function updateDebugOverlay(
     if (!overlay.enabled) return;
 
     const p = camera.position;
-    const h = overlay.lastHit;
     const active = spark.activeSplats.toLocaleString();
     const max = spark.maxSplats.toLocaleString();
     const f = overlay.fields;
     f.cam.textContent = `${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}`;
     f.look.textContent = `${target.x.toFixed(2)}, ${target.y.toFixed(2)}, ${target.z.toFixed(2)}`;
-    f.hit.textContent = h ? `${h.x.toFixed(2)}, ${h.y.toFixed(2)}, ${h.z.toFixed(2)}` : '-';
     f.splats.textContent = `${active} / ${max}  (lod x${spark.lodSplatScale.toFixed(2)})`;
 }

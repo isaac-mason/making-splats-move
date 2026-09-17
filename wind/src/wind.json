@@ -1,0 +1,20 @@
+{
+    "params": {
+        "strength": 0.18,
+        "speed": 1.0,
+        "direction": 45,
+        "gustiness": 0.4,
+        "flutter": 0.3,
+        "waveTravel": 2.5,
+        "softEdge": 0.2
+    },
+    "spheres": [
+        { "center": [0, 7.27, 6.65], "radius": 6, "tree": 0 },
+        { "center": [0, 11.13, 5], "radius": 5, "tree": 0 },
+        { "center": [4.39, 7.5, -9.04], "radius": 4, "tree": 1 },
+        { "center": [4.39, 10, -9.04], "radius": 4, "tree": 1 },
+        { "center": [-21.98, 6.97, 1.63], "radius": 5.5, "tree": 2 },
+        { "center": [-29.04, 5.87, -0.81], "radius": 4.25, "tree": 3 },
+        { "center": [-21.73, 6.51, -10.89], "radius": 4.75, "tree": 4 }
+    ]
+}
