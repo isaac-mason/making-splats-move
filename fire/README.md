@@ -227,7 +227,7 @@ for measuring the world-space landmarks in `src/scene.ts`.
 The scene came from [Marble](https://marble.worldlabs.ai/) (World Labs' 3D-world
 generator), exported as a `.spz` splat.
 
-- `assets/campfire.spz` — the source splat (28 MB), not served.
+- `assets/campfire.spz` — the source splat (28 MB). Not served: only the LOD file is.
 - `public/campfire-lod.rad` — the LOD-paged build (39 MB), what the browser loads.
 
 Rebuild the `.rad` from the source with (needs a [Rust toolchain][rust] —

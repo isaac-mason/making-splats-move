@@ -87,7 +87,7 @@ new one, so OrbitControls only ever sees the camera where it put it.
 The greenhouse came from [Marble](https://marble.worldlabs.ai/) (World Labs'
 3D-world generator).
 
-- `assets/greenhouse.spz` — the source splat (7 MB), not served.
+- `assets/greenhouse.spz` — the source splat (7 MB). Not served: only the LOD file is.
 - `public/greenhouse-lod.rad` — the LOD-paged build (12 MB), what the browser loads.
 
 Rebuild the `.rad` from the source with (needs a [Rust toolchain][rust] —
