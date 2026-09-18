@@ -78,17 +78,45 @@ new one, so OrbitControls only ever sees the camera where it put it.
 | `src/dust.ts` | The generator: the mote kernel and every tunable. |
 | `src/camera-drift.ts` | The cursor lean. |
 | `src/scene.ts` | Asset URL, camera framing, and the volume the dust fills. |
+| `scripts/build-lod.sh` | Bakes the LOD-paged `.rad` from `assets/` into `public/`. |
 | `src/splat.ts` | SparkRenderer + SplatMesh setup. |
 | `src/performance.ts` | LOD + quality budget, tuned per platform. |
 
 ## Assets
 
-`public/greenhouse.spz` came from [Marble](https://marble.worldlabs.ai/) (World
-Labs' 3D-world generator).
+The greenhouse came from [Marble](https://marble.worldlabs.ai/) (World Labs'
+3D-world generator).
 
-It's a plain `.spz`, not an LOD-paged `.rad`, so every splat is resident and drawn
-every frame. Fine at this size, and it keeps the example to one file you can point
-at your own export — see [`wind/`](../wind) for the LOD-paged route.
+- `assets/greenhouse.spz` — the source splat (7 MB), not served.
+- `public/greenhouse-lod.rad` — the LOD-paged build (12 MB), what the browser loads.
+
+Rebuild the `.rad` from the source with (needs a [Rust toolchain][rust] —
+`build-lod` ships only in Spark's source repo, so the script shallow-clones it into
+a gitignored `vendor/`):
+
+```bash
+pnpm build:lod
+```
+
+The `.rad` is *bigger* than the `.spz` it came from, and that's the point: it
+carries a level-of-detail pyramid rather than one flat list, so the renderer has a
+cheap version of distant geometry to fall back to. A flat `.spz` has nothing to
+choose between, so every splat stays resident and is drawn every frame — which
+means the whole paging budget in `src/performance.ts` (`pagedExtSplats`,
+`maxPagedSplats`, the per-platform tiers) has nothing to act on.
+
+Two things are easy to get wrong:
+
+- **`paged: true` on the `SplatMesh` *streams* the `.rad`** rather than loading it
+  resident. It isn't needed to read the file: `.rad` is an auto-detected format, and
+  the LOD tree is encoded in it, so `new SplatMesh({ url })` alone already gives you
+  LOD (Spark's docs note `lod: true` is unnecessary for a `.rad` for the same
+  reason). What the flag buys is instant start and the paging budget —
+  `pagedExtSplats` / `maxPagedSplats` only exist once a `SplatPager` does.
+- **Paging uses HTTP range requests** to pull pages out of the `.rad`, so whatever
+  serves it has to support them. This applies only when paged.
+
+[rust]: https://rustup.rs/
 
 > Animated splats re-sort every frame, and sorting means a GPU readback. A
 > `SplatGenerator` regenerates by definition, so unlike `wind` this example can't

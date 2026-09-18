@@ -14,9 +14,10 @@ export type Splat = {
 /**
  * Build the SparkRenderer and load the scene's SplatMesh, adding both to the scene.
  *
- * This asset is a plain `.spz`, not an LOD-paged `.rad`, so every splat is resident
- * and drawn every frame — fine at this size, and it keeps the example to one file
- * you can point at your own export. See the README for building a `.rad` instead.
+ * The asset is an LOD-paged `.rad` (see the README's asset pipeline), which is what
+ * the paging budget in src/performance.ts is for — `pagedExtSplats` and
+ * `maxPagedSplats` have nothing to do against a flat `.spz`, because a flat file
+ * carries no cheaper version of anything to fall back to.
  */
 export function createSplat(scene: THREE.Scene, renderer: THREE.WebGLRenderer): Splat {
     const spark = new SparkRenderer({
@@ -28,7 +29,14 @@ export function createSplat(scene: THREE.Scene, renderer: THREE.WebGLRenderer): 
     });
     scene.add(spark);
 
-    const mesh = new SplatMesh({ url: SPLAT_URL });
+    // `paged: true` STREAMS the .rad rather than loading it resident, and that's all
+    // it does — the file loads and gives you LOD either way, because `.rad` is an
+    // auto-detected format (SplatLoader maps the extension to SplatFileType.RAD) and
+    // the LOD tree is encoded in the file. What the flag buys is instant start plus
+    // the paging machinery: SplatPager, and with it the `pagedExtSplats` /
+    // `maxPagedSplats` budget. Pages are pulled with HTTP range requests, so
+    // whatever serves this has to support them.
+    const mesh = new SplatMesh({ url: SPLAT_URL, paged: true });
     mesh.scale.setScalar(SPLAT_SCALE);
     scene.add(mesh);
 

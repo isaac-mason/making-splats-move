@@ -8,7 +8,11 @@ export type Vec3 = [number, number, number];
 
 // --- Assets (served from public/) ---
 const BASE = import.meta.env.BASE_URL;
-export const SPLAT_URL = `${BASE}greenhouse.spz`;
+// LOD-encoded Spark asset (built by `pnpm build:lod` from assets/greenhouse.spz).
+// The .rad format is what makes the paging budget in src/performance.ts mean
+// anything — a flat .spz has no cheaper version of anything to fall back to, so
+// every splat is resident and drawn every frame however the budget is set.
+export const SPLAT_URL = `${BASE}greenhouse-lod.rad`;
 
 // This splat is authored small; scaling it up gives the dust room to work at
 // sensible world-unit sizes instead of thousandths.
