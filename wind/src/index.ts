@@ -8,21 +8,16 @@ import { CAMERA_POSITION, CAMERA_TARGET } from './scene';
 import { createSplat } from './splat';
 import { initStats, tickStats } from './stats';
 import './style.css';
-import { applyDrawTimeWind, createDrawTimeUniforms, tickDrawTimeWind } from './wind-drawtime';
+import { applyWind, createWindUniforms, type WindPath } from './wind';
 import { createWindEditor } from './wind-editor';
 
-// Two ways to move the same splats, and you can switch between them live.
+// Two ways to move the same splats, both in src/wind.ts, switchable live.
 //
-// The default displaces splats in Spark's draw-time splat shader, which never
-// touches the splat buffer. `?generator=1` instead uses a dyno objectModifier —
-// the idiomatic Spark approach, and the one most of Spark's own examples use.
-//
-// The modifier path costs far more than it looks: moving a splat invalidates its
-// sort order, so Spark re-sorts, and sorting means reading depths back from the
-// GPU. That readback stalls the pipeline for tens of milliseconds on alternating
-// frames. The draw-time path never marks the buffer dirty, so none of it fires.
-// The README has the numbers and the caveats.
-const DRAW_TIME = !new URLSearchParams(window.location.search).has('generator');
+// The default patches Spark's draw-time splat shader and never touches the splat
+// buffer. `?generator=1` uses a dyno objectModifier — the idiomatic approach, and
+// far more expensive: moving a splat invalidates its sort order, and sorting means
+// a GPU depth readback. The README has the numbers.
+const WIND_PATH: WindPath = new URLSearchParams(window.location.search).has('generator') ? 'generator' : 'draw-time';
 
 function init() {
     const scene = new THREE.Scene();
@@ -41,21 +36,12 @@ function init() {
     // Splats are self-lit, and the only other meshes are unlit debug wireframes,
     // so there are no three.js lights in this scene at all.
     //
-    // The draw-time path needs its uniforms to exist before the renderer is built
-    // (they're merged into the splat material at construction), and then patches
-    // the compiled shader afterwards.
-    const drawTimeUniforms = DRAW_TIME ? createDrawTimeUniforms() : undefined;
-    const {
-        spark,
-        mesh: splat,
-        wind: generatorWind,
-    } = createSplat(scene, renderer, {
-        extraUniforms: drawTimeUniforms,
-        wind: !DRAW_TIME,
-    });
-    const wind = drawTimeUniforms ? applyDrawTimeWind(spark, splat, drawTimeUniforms) : generatorWind;
-    if (!wind) throw new Error('wind was not created');
-    console.log(`wind path: ${DRAW_TIME ? 'draw-time shader patch' : 'generator modifier (?generator=1)'}`);
+    // The uniforms have to exist before the renderer: the draw-time path's are
+    // merged into the splat material at construction.
+    const windUniforms = createWindUniforms(WIND_PATH);
+    const { spark, mesh: splat } = createSplat(scene, renderer, { extraUniforms: windUniforms });
+    const wind = applyWind(WIND_PATH, spark, splat, windUniforms);
+    console.log(`wind path: ${WIND_PATH}`);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     // Off by default. The shipped camera is the fixed framing plus the parallax
@@ -107,14 +93,14 @@ function init() {
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    return { scene, camera, renderer, spark, splat, wind, controls, drift, perf, debug, windEditor, stats, drawTimeUniforms };
+    return { scene, camera, renderer, spark, splat, wind, controls, drift, perf, debug, windEditor, stats };
 }
 
 type State = ReturnType<typeof init>;
 
 function update(state: State, time: number, dt: number) {
     tickStats(state.stats);
-    if (state.drawTimeUniforms) tickDrawTimeWind(state.spark, state.drawTimeUniforms, time);
+    state.wind.tick(time);
     // Replaces controls.update(): the tilt has to be applied after it, since
     // update() rewrites the camera's orientation from position and target every
     // frame. While free-look is on the tilt stands down, so the two never fight.

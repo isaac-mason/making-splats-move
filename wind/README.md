@@ -54,7 +54,7 @@ feather zones, where sway is low anyway.
 | Where | Spark's draw-time splat shader | a dyno `objectModifier` |
 | Splat buffer | never regenerated | regenerated every frame |
 | Sort | stale by one displacement | always correct |
-| File | [`src/wind-drawtime.ts`](src/wind-drawtime.ts) | [`src/wind.ts`](src/wind.ts) |
+| File | [`src/wind.ts` (draw-time path)](src/wind.ts) | [`src/wind.ts`](src/wind.ts) |
 
 **The modifier path is the idiomatic one** — it's what most of Spark's own examples
 do, it composes, and its sort is always right. It's kept, one URL flag away, and
@@ -181,7 +181,7 @@ doesn't. Press **`` ` ``** for the debug panel, tick **wind edit mode**:
 | --- | --- |
 | `src/wind.json` | The authored volumes and wind parameters — the editor's own format. |
 | `src/wind-sway.ts` | The sway kernel as GLSL, shared by both paths. |
-| `src/wind-drawtime.ts` | Default path: patches Spark's splat shader. |
+| `src/wind.ts` (draw-time path) | Default path: patches Spark's splat shader. |
 | `src/wind.ts` | `?generator=1` path: a dyno `objectModifier`. Owns the shared types. |
 | `src/wind-editor.ts` | Edit mode: gizmo, volume list, sliders, JSON round-trip. |
 | `src/splat.ts` | SparkRenderer + SplatMesh setup. |

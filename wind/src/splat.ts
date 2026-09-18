@@ -3,15 +3,12 @@ import type * as THREE from 'three';
 
 import { getSparkQualityOptions } from './performance';
 import { SPLAT_URL } from './scene';
-import { applyWind, type Wind } from './wind';
 
 export type Splat = {
     /** Drives splat sorting + LOD streaming; also carries the runtime perf knobs. */
     spark: SparkRenderer;
     /** The scene's Gaussian-splat mesh. */
     mesh: SplatMesh;
-    /** Handle on the wind modifier — null when the draw-time spike owns the wind. */
-    wind: Wind | null;
 };
 
 /**
@@ -22,7 +19,7 @@ export type Splat = {
 export function createSplat(
     scene: THREE.Scene,
     renderer: THREE.WebGLRenderer,
-    options: { extraUniforms?: Record<string, { value: unknown }>; wind?: boolean } = {},
+    options: { extraUniforms?: Record<string, { value: unknown }> } = {},
 ): Splat {
     // SparkRenderer drives splat sorting and LOD streaming/updates for the .rad file.
     // Widen the LOD foveation cone so splats near the screen corners stay full-res
@@ -48,9 +45,5 @@ export function createSplat(
 
     scene.add(mesh);
 
-    // Wind/sway via a dyno objectModifier — see src/wind.ts. Skipped on the
-    // default draw-time path, which patches the splat shader instead.
-    const wind = options.wind === false ? null : applyWind(mesh);
-
-    return { spark, mesh, wind };
+    return { spark, mesh };
 }
