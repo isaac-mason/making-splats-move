@@ -112,9 +112,9 @@ function init() {
 
 type State = ReturnType<typeof init>;
 
-function update(state: State, elapsed: number, dt: number) {
+function update(state: State, time: number, dt: number) {
     tickStats(state.stats);
-    if (state.drawTimeUniforms) tickDrawTimeWind(state.spark, state.drawTimeUniforms, elapsed);
+    if (state.drawTimeUniforms) tickDrawTimeWind(state.spark, state.drawTimeUniforms, time);
     // Replaces controls.update(): the tilt has to be applied after it, since
     // update() rewrites the camera's orientation from position and target every
     // frame. While free-look is on the tilt stands down, so the two never fight.

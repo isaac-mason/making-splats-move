@@ -153,7 +153,7 @@ function init() {
 
 type State = ReturnType<typeof init>;
 
-function update(state: State, dt: number, time: number) {
+function update(state: State, time: number, dt: number) {
     // Drive the shared fire signal first so every system reads this frame's value.
     state.furnace.override = state.debug.furnaceOverride;
     updateFire(state.fire, state.furnace, dt);
@@ -209,7 +209,7 @@ async function start() {
         const dt = Math.min((now - lastTime) / 1000, MAX_DT);
         lastTime = now;
         elapsed += dt;
-        update(state, dt, elapsed); // renders the frame, which drives Spark's sort + LOD streaming
+        update(state, elapsed, dt); // renders the frame, which drives Spark's sort + LOD streaming
 
         if (loaderUp) {
             const active = state.spark.activeSplats;
