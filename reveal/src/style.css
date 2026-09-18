@@ -1,0 +1,18 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    overflow: hidden;
+    background: #04060c;
+    font:
+        13px / 1.4 system-ui,
+        -apple-system,
+        sans-serif;
+    color: #e8ebf2;
+}
+
+canvas {
+    display: block;
+}

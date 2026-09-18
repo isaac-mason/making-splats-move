@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A Gaussian-splat city assembling itself out of a single point as it finishes loading."
+    />
+    <title>reveal</title>
+    <!-- Inlined so the overlay is styled on first paint, before the bundle loads. -->
+    <style>
+      body {
+        margin: 0;
+        background: #04060c;
+      }
+      #loading {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: radial-gradient(circle at 50% 45%, #0b1020 0%, #04060c 70%);
+        font: 12px/1 ui-monospace, monospace;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: rgba(232, 235, 242, 0.55);
+        transition: opacity 0.35s ease;
+      }
+      #loading.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #loading .bar {
+        width: 220px;
+        height: 2px;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.1);
+        overflow: hidden;
+      }
+      #loading .bar-fill {
+        width: 0%;
+        height: 100%;
+        border-radius: 2px;
+        background: linear-gradient(90deg, #6f7dd6, #a8b6ff);
+        transition: width 0.25s ease, opacity 0.4s ease;
+      }
+      /* A slow pulse, so a stalled download still looks alive. */
+      #loading .dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: #a8b6ff;
+        animation: pulse 1.6s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: scale(0.6);
+          opacity: 0.35;
+        }
+        50% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #loading .dot {
+          animation-duration: 4s;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="loading" role="status" aria-live="polite">
+      <div class="dot" aria-hidden="true"></div>
+      <div class="bar" aria-hidden="true"><div class="bar-fill"></div></div>
+      <div class="label">0%</div>
+    </div>
+    <script type="module" src="/src/index.ts"></script>
+  </body>
+</html>
