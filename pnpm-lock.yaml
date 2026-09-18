@@ -25,6 +25,31 @@ importers:
         specifier: ~6.0.2
         version: 6.0.3
 
+  avatars:
+    dependencies:
+      '@sparkjsdev/spark':
+        specifier: ^2.1.0
+        version: 2.1.0(three@0.185.1)
+      crashcat:
+        specifier: ^0.0.5
+        version: 0.0.5(three@0.185.1)
+      mathcat:
+        specifier: ^0.0.14
+        version: 0.0.14
+      three:
+        specifier: ^0.185.1
+        version: 0.185.1
+    devDependencies:
+      '@types/three':
+        specifier: ^0.185.0
+        version: 0.185.4
+      typescript:
+        specifier: ~6.0.2
+        version: 6.0.3
+      vite:
+        specifier: ^8.0.12
+        version: 8.3.0
+
   dust:
     dependencies:
       '@sparkjsdev/spark':
@@ -45,6 +70,25 @@ importers:
         version: 8.3.0
 
   fire:
+    dependencies:
+      '@sparkjsdev/spark':
+        specifier: ^2.1.0
+        version: 2.1.0(three@0.185.1)
+      three:
+        specifier: ^0.185.1
+        version: 0.185.1
+    devDependencies:
+      '@types/three':
+        specifier: ^0.185.0
+        version: 0.185.4
+      typescript:
+        specifier: ~6.0.2
+        version: 6.0.3
+      vite:
+        specifier: ^8.0.12
+        version: 8.3.0
+
+  skin:
     dependencies:
       '@sparkjsdev/spark':
         specifier: ^2.1.0
@@ -263,6 +307,14 @@ packages:
   '@types/webxr@0.5.24':
     resolution: {integrity: sha512-h8fgEd/DpoS9CBrjEQXR+dIDraopAEfu4wYVNY2tEPwk60stPWhvZMf4Foo5FakuQ7HFZoa8WceaWFervK2Ovg==}
 
+  crashcat@0.0.5:
+    resolution: {integrity: sha512-8BcoWz5sfUxUTCzFlBImHNsWei4Wso18MOHkjeZjgEGCq+SPlbYr65USCCeVsEOTq1GM6Aai/HHvmgfpKw61dQ==}
+    peerDependencies:
+      three: ^0.185.1
+    peerDependenciesMeta:
+      three:
+        optional: true
+
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
@@ -357,6 +409,12 @@ packages:
   lightningcss@1.33.0:
     resolution: {integrity: sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==}
     engines: {node: '>= 12.0.0'}
+
+  mathcat@0.0.13:
+    resolution: {integrity: sha512-d5KhlEP3p6/ACSGpgwSBPCiiubdVXYb95mkK/rfQd5DirqHjMTYpvX5AP3vZXiQGO4y9DomRgSjOYwXW3dhA+w==}
+
+  mathcat@0.0.14:
+    resolution: {integrity: sha512-70enjjLHu2xk/xQqrfhAU/kr1qcOxghPqgBHUDfWMZB+4x1Th/SoRbTVI9hiF0jfPLT/SJ46F098hm3k0fZ71w==}
 
   meshoptimizer@1.1.1:
     resolution: {integrity: sha512-oRFNWJRDA/WTrVj7NWvqa5HqE1t9MYDj2VaWirQCzCCrAd2GHrqR/sQezCxiWATPNlKTcRaPRHPJwIRoPBAp5g==}
@@ -549,6 +607,12 @@ snapshots:
 
   '@types/webxr@0.5.24': {}
 
+  crashcat@0.0.5(three@0.185.1):
+    dependencies:
+      mathcat: 0.0.13
+    optionalDependencies:
+      three: 0.185.1
+
   detect-libc@2.1.2: {}
 
   fdir@6.5.0(picomatch@4.0.7):
@@ -608,6 +672,10 @@ snapshots:
       lightningcss-linux-x64-musl: 1.33.0
       lightningcss-win32-arm64-msvc: 1.33.0
       lightningcss-win32-x64-msvc: 1.33.0
+
+  mathcat@0.0.13: {}
+
+  mathcat@0.0.14: {}
 
   meshoptimizer@1.1.1: {}
 

@@ -1,0 +1,25 @@
+{
+    "name": "avatars",
+    "private": true,
+    "version": "0.0.0",
+    "description": "Procedural rigged avatars built from Gaussian splats, skinned with Spark.",
+    "license": "MIT",
+    "author": "Isaac Mason",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "@sparkjsdev/spark": "^2.1.0",
+        "crashcat": "^0.0.5",
+        "mathcat": "^0.0.14",
+        "three": "^0.185.1"
+    },
+    "devDependencies": {
+        "@types/three": "^0.185.0",
+        "typescript": "~6.0.2",
+        "vite": "^8.0.12"
+    }
+}
