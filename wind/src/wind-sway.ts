@@ -1,6 +1,6 @@
 /**
  * The sway kernel, as GLSL, shared by both wind paths — the dyno generator
- * modifier (src/wind.ts) and the draw-time shader patch (src/wind-drawtime.ts).
+ * modifier and the draw-time shader patch, both in src/wind.ts.
  * One copy, because two copies of the same maths drift the moment you tune one.
  *
  * The model is ported from PlayCanvas's GsplatTrees (playcanvas/engine#9022),
