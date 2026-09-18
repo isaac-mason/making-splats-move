@@ -2,9 +2,10 @@ import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { type CameraMove, initCameraMove, updateCameraMove } from './camera-move';
+import { createDebugOverlay, type DebugOverlay, updateDebugOverlay } from './debug';
 import { finishLoading, initLoading, type Loading, setLoadingProgress } from './loading';
-import { armReveal, initReveal, type Reveal, updateReveal } from './reveal';
-import { CAMERA_POSITION, CAMERA_TARGET, SPLAT_URL } from './scene';
+import { armReveal, initReveal, type Reveal, replayReveal, updateReveal } from './reveal';
+import { CAMERA_POSITION, CAMERA_TARGET, SKY, SPLAT_URL } from './scene';
 import { url } from './url';
 import './style.css';
 
@@ -28,12 +29,13 @@ type State = {
     reveal: Reveal;
     move: CameraMove;
     loading: Loading;
+    debug: DebugOverlay;
     mesh: SplatMesh;
 };
 
 function init(): State {
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x04060c);
+    scene.background = new THREE.Color(SKY);
 
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.copy(url.vector('cam') ?? new THREE.Vector3(...CAMERA_POSITION));
@@ -62,6 +64,7 @@ function init(): State {
     scene.add(mesh);
 
     const reveal = initReveal(mesh, url.vector('origin'));
+    const debug = createDebugOverlay(() => replayReveal(reveal));
     mesh.initialized.then(() => armReveal(reveal));
 
     window.addEventListener('resize', () => {
@@ -70,7 +73,7 @@ function init(): State {
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    return { scene, camera, renderer, controls, spark, reveal, move: initCameraMove(renderer.domElement), loading, mesh };
+    return { scene, camera, renderer, controls, spark, reveal, move: initCameraMove(renderer.domElement), loading, debug, mesh };
 }
 
 function update(state: State, dt: number): void {
@@ -83,6 +86,7 @@ function update(state: State, dt: number): void {
     if (state.reveal.running && !wasRunning) finishLoading(state.loading);
     updateCameraMove(state.move, state.camera, state.controls, dt);
     state.controls.update();
+    updateDebugOverlay(state.debug, state.camera, state.controls.target, state.spark, state.reveal, dt);
     state.renderer.render(state.scene, state.camera);
 }
 

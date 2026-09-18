@@ -3,9 +3,15 @@
 A 96MB Gaussian-splat city that puts itself together out of a single point the
 moment it finishes downloading.
 
-A wavefront expands from one origin. Ahead of it splats don't exist; behind it they
-sit exactly where the capture put them; in the band between, they're on their way out
-from the origin, growing and cooling from white as they land.
+A ripple of existence spreads out from one point. The front is a wobbling shell, not
+a sphere, and it travels: splats don't fly anywhere, they appear where the capture put
+them and the wave passing through surges them outward and lets them settle, the way a
+ripple moves water without moving it anywhere.
+
+Unrevealed space is sky rather than void — the background is set to very nearly the
+blue the capture's own sky splats already are, so the front of the ripple reads as an
+edge on the buildings and disappears against the sky, which is what an edge of the
+world ought to do.
 
 ## The interesting part: splats can be genuinely not drawn
 
@@ -18,10 +24,10 @@ That's not what this does, for three reasons found by reading Spark's source:
 - **`gsplat.index` is a stable per-splat id.** Hashing it turns the front from a
   clean sphere into a ragged edge, and it's stable frame to frame, so a splat doesn't
   flicker between early and late.
-- **`gsplat.center` is writable per splat**, so each one travels along ITS OWN
+- **`gsplat.center` is writable per splat**, so each one rides the wave along ITS OWN
   radius. `SplatEdit.displace` is a single vector applied to everything inside the
-  SDF — it can push a whole region one way, but it can't make a thousand splats
-  converge on a point.
+  SDF — it can shove a whole region one way, but every splat would go the same way,
+  which is a push rather than a ripple.
 - **Clearing `GSPLAT_FLAG_ACTIVE` is real culling.** `computeSort` returns `INFINITY`
   for an inactive splat:
 
@@ -109,7 +115,18 @@ pnpm --filter reveal dev
 The asset is shared with [`wind/`](../wind) through `publicDir` in `vite.config.ts`,
 because a second copy of a 96MB file in the repository would be 96MB of nothing.
 
+- **backtick** opens the debug panel: click-to-copy camera coordinates, active splat
+  count, the front's radius, frame time — and a **replay** button, because watching it
+  again shouldn't mean downloading 96MB again
 - `?t=2.5` freezes the wavefront at one moment. The only way to judge a still frame
   of something that takes five seconds, and how every number in `reveal.ts` was tuned
 - `?cam=x,y,z` / `?look=x,y,z` move the camera
-- `?origin=x,y,z` moves the point it all grows out of
+- `?origin=x,y,z` moves the point it all ripples out from
+
+## Tuning notes
+
+The ripple wants a narrow disturbance, not a strong one. The first version pushed
+splats 1.4m along their radius and let the wave decay over 7m, and a street is only a
+few metres wide — so instead of rippling, the whole front melted. Pulling the
+amplitude back to 0.55m and the decay to 2.5m gives a thin travelling band with
+everything behind it already settled, which is what a ripple actually looks like.

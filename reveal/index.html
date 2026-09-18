@@ -13,7 +13,7 @@
     <style>
       body {
         margin: 0;
-        background: #04060c;
+        background: #59b3f4;
       }
       #loading {
         position: fixed;
@@ -24,11 +24,11 @@
         align-items: center;
         justify-content: center;
         gap: 18px;
-        background: radial-gradient(circle at 50% 45%, #0b1020 0%, #04060c 70%);
+        background: radial-gradient(circle at 50% 45%, #7cc6f8 0%, #59b3f4 70%);
         font: 12px/1 ui-monospace, monospace;
         letter-spacing: 0.18em;
         text-transform: uppercase;
-        color: rgba(232, 235, 242, 0.55);
+        color: rgba(12, 40, 66, 0.7);
         transition: opacity 0.35s ease;
       }
       #loading.hidden {
@@ -39,14 +39,14 @@
         width: 220px;
         height: 2px;
         border-radius: 2px;
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(12, 40, 66, 0.18);
         overflow: hidden;
       }
       #loading .bar-fill {
         width: 0%;
         height: 100%;
         border-radius: 2px;
-        background: linear-gradient(90deg, #6f7dd6, #a8b6ff);
+        background: linear-gradient(90deg, #ffffff, #d9efff);
         transition: width 0.25s ease, opacity 0.4s ease;
       }
       /* A slow pulse, so a stalled download still looks alive. */
@@ -54,7 +54,7 @@
         width: 5px;
         height: 5px;
         border-radius: 50%;
-        background: #a8b6ff;
+        background: #ffffff;
         animation: pulse 1.6s ease-in-out infinite;
       }
       @keyframes pulse {
