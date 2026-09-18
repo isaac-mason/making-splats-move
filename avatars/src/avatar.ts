@@ -360,6 +360,13 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
     // A splat is a disc, not a point, so its visible edge reaches past its centre.
     const feetY = lowest - p.spacing * p.overlap;
 
+    // Pushed straight onto the mesh rather than through the `constructSplats`
+    // option, which is what Spark's own procedural examples use. That option puts
+    // the mesh on the ASYNC initialization path, and the SplatSkinning below needs
+    // `numSplats` on the very next line — taking it would make initAvatar async, and
+    // initCrowd, and the editor's live rebuild with it. `pushSplat` is public and
+    // documented for exactly this loop; the two lines after it are the bookkeeping
+    // it deliberately leaves to the caller.
     const mesh = new SplatMesh({});
     for (let i = 0; i < shell.centers.length; i++) {
         mesh.pushSplat(shell.centers[i], shell.scales[i], shell.quats[i], 1.0, shell.colors[i]);
