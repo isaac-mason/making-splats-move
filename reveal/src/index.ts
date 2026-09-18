@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { type CameraMove, initCameraMove, updateCameraMove } from './camera-move';
 import { createDebugOverlay, type DebugOverlay, updateDebugOverlay } from './debug';
 import { finishLoading, initLoading, type Loading, setLoadingProgress } from './loading';
+import { applyPerformance, sparkQuality } from './performance';
 import { armReveal, initReveal, type Reveal, replayReveal, updateReveal } from './reveal';
 import { CAMERA_POSITION, CAMERA_TARGET, SKY, SPLAT_URL } from './scene';
 import { url } from './url';
@@ -45,7 +46,7 @@ function init(): State {
     renderer.setPixelRatio(window.devicePixelRatio);
     (document.querySelector<HTMLDivElement>('#app') ?? document.body).appendChild(renderer.domElement);
 
-    const spark = new SparkRenderer({ renderer });
+    const spark = new SparkRenderer({ renderer, ...sparkQuality() });
     scene.add(spark);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -77,6 +78,7 @@ function init(): State {
 }
 
 function update(state: State, dt: number): void {
+    applyPerformance(state.spark);
     // The overlay lifts on the frame the first splats are actually drawn, not when
     // the file finished downloading — see SEED in reveal.ts.
     // `?t=2.5` freezes the wavefront, so a still frame catches an exact moment of

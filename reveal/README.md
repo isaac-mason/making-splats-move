@@ -123,6 +123,44 @@ because a second copy of a 96MB file in the repository would be 96MB of nothing.
 - `?cam=x,y,z` / `?look=x,y,z` move the camera
 - `?origin=x,y,z` moves the point it all ripples out from
 
+## Where the frame time actually goes
+
+The obvious suspect for a slow animated splat scene is the generator stage. A
+`GsplatModifier` regenerates the splat buffer every frame, which invalidates the sort
+order, which makes Spark re-sort — and that means a GPU depth readback.
+[`wind/`](../wind) patches Spark's draw-time vertex shader specifically to dodge it.
+
+Measured here, against `wind/` rendering the same 96MB city on the same machine at
+the same size, it is none of that:
+
+| | frame time | active splats |
+| --- | --- | --- |
+| no LOD budget | 26.1 ms | — |
+| + LOD budget | 21.2 ms | 1,878,054 |
+| + LOD, **effect removed entirely** | 22.1 ms | — |
+| + LOD, `paged: true` | 22.0 ms | 1,858,775 |
+| `wind/` | 9.7 ms | 1,999,999 |
+
+Deleting the ripple doesn't make it faster. Paging doesn't make it faster. And
+`wind/` draws *more* splats in less than half the time. So the modifier is free, the
+generator stage is the right place for it, and porting it to a draw-time shader would
+buy nothing while giving up the `GSPLAT_FLAG_ACTIVE` culling only the generator can do.
+
+It's the **camera**. Same code, same asset, one moved viewpoint:
+
+| | frame time | active splats |
+| --- | --- | --- |
+| close framing (3 m to the look point) | 21.3 ms | 1,886,660 |
+| the wider street framing | 9.4 ms | 1,817,727 |
+
+Fewer splats at the *faster* camera. Splat rendering is fill-rate bound, and a camera
+three metres from a wall puts a handful of enormous splats across the whole screen,
+many layers deep. Nothing about the effect or the file changes that — only where you
+stand. Worth knowing before optimising the wrong end of it.
+
+The LOD budget is still worth having (26.1 -> 21.2 ms for nothing), and lives in
+`performance.ts`.
+
 ## Tuning notes
 
 The ripple wants a narrow disturbance, not a strong one. The first version pushed

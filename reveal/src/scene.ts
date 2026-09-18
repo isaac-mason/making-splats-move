@@ -7,8 +7,8 @@ const BASE = import.meta.env.BASE_URL;
 /** Shared with wind/ through vite.config.ts's publicDir — see the note there. */
 export const SPLAT_URL = `${BASE}anime-city-lod.rad`;
 
-export const CAMERA_POSITION: Vec3 = [0.52, 2.28, 1.07];
-export const CAMERA_TARGET: Vec3 = [3.23, 7.22, -9.35];
+export const CAMERA_POSITION: Vec3 = [11.05, 3.6, -2.29];
+export const CAMERA_TARGET: Vec3 = [8.11, 3.66, -2.53];
 
 /**
  * Sky behind everything, and what unrevealed space looks like.
