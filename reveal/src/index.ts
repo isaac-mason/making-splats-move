@@ -4,10 +4,10 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { type CameraMove, initCameraMove, updateCameraMove } from './camera-move';
 import { createDebugOverlay, type DebugOverlay, updateDebugOverlay } from './debug';
 import { finishLoading, initLoading, type Loading, setLoadingProgress } from './loading';
+import { type Options, readOptions } from './options';
 import { applyPerformance, sparkQuality } from './performance';
 import { armReveal, initReveal, type Reveal, replayReveal, updateReveal } from './reveal';
 import { CAMERA_POSITION, CAMERA_TARGET, SKY, SPLAT_URL } from './scene';
-import { url } from './url';
 import './style.css';
 
 // A 96MB Gaussian-splat city that puts itself together out of a single point the
@@ -22,6 +22,7 @@ import './style.css';
 // own radius.
 
 type State = {
+    options: Options;
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
     renderer: THREE.WebGLRenderer;
@@ -35,11 +36,12 @@ type State = {
 };
 
 function init(): State {
+    const options = readOptions();
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(SKY);
 
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.copy(url.vector('cam') ?? new THREE.Vector3(...CAMERA_POSITION));
+    camera.position.copy(options.cam ?? new THREE.Vector3(...CAMERA_POSITION));
 
     const renderer = new THREE.WebGLRenderer({ antialias: false });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -51,7 +53,7 @@ function init(): State {
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.target.copy(url.vector('look') ?? new THREE.Vector3(...CAMERA_TARGET));
+    controls.target.copy(options.look ?? new THREE.Vector3(...CAMERA_TARGET));
     controls.update();
 
     // Resident, not `paged: true`. Paging streams the file and starts instantly,
@@ -64,7 +66,7 @@ function init(): State {
     });
     scene.add(mesh);
 
-    const reveal = initReveal(mesh, url.vector('origin'));
+    const reveal = initReveal(mesh, options.origin);
     const debug = createDebugOverlay(() => replayReveal(reveal));
     mesh.initialized.then(() => armReveal(reveal));
 
@@ -74,7 +76,19 @@ function init(): State {
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    return { scene, camera, renderer, controls, spark, reveal, move: initCameraMove(renderer.domElement), loading, debug, mesh };
+    return {
+        options,
+        scene,
+        camera,
+        renderer,
+        controls,
+        spark,
+        reveal,
+        move: initCameraMove(renderer.domElement),
+        loading,
+        debug,
+        mesh,
+    };
 }
 
 function update(state: State, dt: number): void {
@@ -84,7 +98,7 @@ function update(state: State, dt: number): void {
     // `?t=2.5` freezes the wavefront, so a still frame catches an exact moment of
     // the reveal rather than whatever the timer happened to be on.
     const wasRunning = state.reveal.running;
-    updateReveal(state.reveal, dt, state.spark.activeSplats > 0, url.number('t'));
+    updateReveal(state.reveal, dt, state.spark.activeSplats > 0, state.options.frozenTime);
     if (state.reveal.running && !wasRunning) finishLoading(state.loading);
     updateCameraMove(state.move, state.camera, state.controls, dt);
     state.controls.update();
