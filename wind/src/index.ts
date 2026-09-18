@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+import { createCameraDrift } from './camera-drift';
 import { createDebugOverlay, updateDebugOverlay } from './debug';
 import { applyPerformance, initPerformance } from './performance';
 import { CAMERA_POSITION, CAMERA_TARGET } from './scene';
@@ -57,9 +58,17 @@ function init() {
     console.log(`wind path: ${DRAW_TIME ? 'draw-time shader patch' : 'generator modifier (?generator=1)'}`);
 
     const controls = new OrbitControls(camera, renderer.domElement);
+    // Off by default. The shipped camera is the fixed framing plus the parallax
+    // lean below — that's the shot. Free-look is a framing and authoring tool, so
+    // it lives behind the debug panel's `orbit camera` toggle.
+    controls.enabled = false;
     controls.enableDamping = true;
     controls.target.set(CAMERA_TARGET[0], CAMERA_TARGET[1], CAMERA_TARGET[2]);
     controls.update();
+
+    // A gentle tilt toward the cursor while hovering (mouse only — see the file
+    // for why this scene pans rather than parallaxes). Drives controls.update().
+    const drift = createCameraDrift(camera, controls, renderer.domElement);
 
     // Runtime perf/quality settings (LOD budget, …); the debug panel tweaks these.
     const perf = initPerformance();
@@ -67,11 +76,29 @@ function init() {
 
     // Debug panel: toggle with the backtick (`) key. LOD sliders, a click-to-copy
     // camera readout, and the wind edit-mode switch.
-    const debug = createDebugOverlay(perf);
+    const debug = createDebugOverlay(perf, {
+        onOrbitChange: (orbit) => {
+            controls.enabled = orbit;
+            if (orbit) return;
+            // Handing the camera back to the presentation shot, from wherever the
+            // last orbit drag left it. Drop the tilt too, so it doesn't ease back
+            // from a stale value once the cursor moves again.
+            drift.clear();
+            camera.position.set(CAMERA_POSITION[0], CAMERA_POSITION[1], CAMERA_POSITION[2]);
+            controls.target.set(CAMERA_TARGET[0], CAMERA_TARGET[1], CAMERA_TARGET[2]);
+        },
+    });
 
     // Authoring UI for the wind volumes: gizmo, sphere list, live parameters, and
     // a JSON box to copy the result back into src/wind.ts. Off until toggled.
-    const windEditor = createWindEditor({ wind, scene, camera, controls, domElement: renderer.domElement });
+    const windEditor = createWindEditor({
+        wind,
+        scene,
+        camera,
+        controls,
+        domElement: renderer.domElement,
+        orbitEnabled: () => debug.orbit,
+    });
     debug.onEditWind = (enabled) => windEditor.setEnabled(enabled);
 
     window.addEventListener('resize', () => {
@@ -80,15 +107,18 @@ function init() {
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    return { scene, camera, renderer, spark, splat, wind, controls, perf, debug, windEditor, stats, drawTimeUniforms };
+    return { scene, camera, renderer, spark, splat, wind, controls, drift, perf, debug, windEditor, stats, drawTimeUniforms };
 }
 
 type State = ReturnType<typeof init>;
 
-function update(state: State, elapsed: number) {
+function update(state: State, elapsed: number, dt: number) {
     tickStats(state.stats);
     if (state.drawTimeUniforms) tickDrawTimeWind(state.spark, state.drawTimeUniforms, elapsed);
-    state.controls.update();
+    // Replaces controls.update(): the tilt has to be applied after it, since
+    // update() rewrites the camera's orientation from position and target every
+    // frame. While free-look is on the tilt stands down, so the two never fight.
+    state.drift.apply(dt, !state.debug.orbit);
 
     // Push runtime perf settings (LOD budget, …) onto the renderer.
     applyPerformance(state.perf, state.spark);
@@ -124,9 +154,14 @@ async function start() {
     const startedAt = performance.now();
 
     const startedAtMs = performance.now();
+    let lastMs = startedAtMs;
 
     function loop() {
-        update(state, (performance.now() - startedAtMs) / 1000); // renders the frame, driving Spark's sort + LOD streaming
+        const nowMs = performance.now();
+        // Clamped so a stall or a tab-switch can't jump the camera lean forward.
+        const dt = Math.min((nowMs - lastMs) / 1000, 0.1);
+        lastMs = nowMs;
+        update(state, (nowMs - startedAtMs) / 1000, dt); // renders the frame, driving Spark's sort + LOD streaming
 
         if (loaderUp) {
             const now = performance.now();

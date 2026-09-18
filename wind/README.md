@@ -115,6 +115,43 @@ Three things bit while building this, all worth knowing before you try it:
    miss by however far the camera is from the origin. Add the origin back before
    testing against anything authored.
 
+## The camera
+
+The shipped camera is the fixed framing from `src/scene.ts` plus a slow tilt toward
+the cursor (`src/camera-drift.ts`) — enough to make the city read as somewhere
+you're standing rather than a photograph, small enough that you don't quite notice
+it. Mouse only: a touch screen has no hover, so phones get the plain framing.
+
+**Tilt, not translate**, and the two are different effects rather than two spellings
+of one. Shifting the eye without re-aiming is *parallax*: near things slide against
+far things, which is the cue that sells depth — but it needs near things to slide.
+Rotating in place is a *pan*: nothing is revealed, but it costs nothing to see,
+because what you perceive is the angle swept. Which wins is a property of the scene.
+The [`fire/`](../fire) example translates, because its subject is a few units away
+and the logs visibly slide against the treeline. Here the nearest thing is eleven
+units off with the whole city behind it, so the same shift buys almost no relative
+motion — you'd move the camera and get nothing for it. A couple of degrees of pan
+moves the frame by a few percent of its height and reads immediately.
+
+Free orbiting is a framing and authoring tool rather than a feature of the scene,
+so it lives behind the debug panel's **orbit camera** toggle. Turning it on stands
+the lean down; turning it off puts the shot back, since the orbit camera will have
+left the camera wherever your last drag ended. **wind edit mode** ticks it on for
+you — authoring volumes means flying around to look at them.
+
+> Rotating is the easier of the two to bolt onto OrbitControls, as it happens.
+> `update()` recomputes the camera's orientation from `position` and `target` every
+> frame, so a rotation applied afterwards is simply overwritten next frame — it
+> can't compound, and nothing has to be backed out. A position offset is the awkward
+> case: OrbitControls derives its spherical state *from* `camera.position`, so an
+> offset added on top becomes part of that state and creeps. `fire/`'s copy has to
+> subtract its offset before `update()` and re-apply it after.
+>
+> The other owner is the wind editor, which borrows `controls.enabled` during gizmo
+> drags — a gizmo drag and an orbit drag are the same gesture. It has to restore the
+> *toggle's* value afterwards rather than hardcoding `true`, or you end up orbiting
+> with the box unticked.
+
 ## Edit mode
 
 Placing volumes by editing a literal and reloading is miserable: you can't see what
@@ -151,6 +188,7 @@ doesn't. Press **`` ` ``** for the debug panel, tick **wind edit mode**:
 | `src/scene.ts` | Asset URL and camera framing. |
 | `src/performance.ts` | LOD paging + quality budget, tuned per platform. |
 | `src/debug.ts`, `src/stats.ts` | Debug panel and frame-time readout. |
+| `src/camera-drift.ts` | Tilt toward the cursor; free orbiting is behind the panel's toggle. |
 
 ## Assets
 
@@ -168,9 +206,12 @@ To rebuild the `.rad` after changing the source (needs a [Rust toolchain][rust] 
 pnpm build:lod
 ```
 
-> `paged: true` is **required** on the `SplatMesh` for a `.rad`. Without it Spark
-> falls back to its `PackedSplats` path, which has no `.rad` decoder, and the paging
-> budget in `src/performance.ts` is inert. Paging streams pages over HTTP range
-> requests, so the host must support them.
+> `paged: true` on the `SplatMesh` *streams* the `.rad` rather than loading it
+> resident. It isn't needed to read the file — `.rad` is an auto-detected format and
+> the LOD tree is encoded in it, so `new SplatMesh({ url })` alone already gives you
+> LOD. What the flag buys is instant start and the paging budget in
+> `src/performance.ts`: `pagedExtSplats` / `maxPagedSplats` only exist once there's
+> a `SplatPager`. Paging pulls pages with HTTP range requests, so the host must
+> support them.
 
 [rust]: https://rustup.rs/

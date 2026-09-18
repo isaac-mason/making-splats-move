@@ -36,6 +36,16 @@ type Deps = {
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
     domElement: HTMLElement;
+    /**
+     * Whether free-look is currently allowed (the debug panel's `orbit camera`).
+     *
+     * The editor borrows `controls.enabled` — a gizmo drag and an orbit drag are
+     * the same gesture, so whoever grabs the pointer first gets it — and it has to
+     * hand it back to the right state afterwards. Forcing it to `true` would
+     * silently override the toggle and leave the camera orbiting with the box
+     * unticked.
+     */
+    orbitEnabled: () => boolean;
 };
 
 export type WindEditor = {
@@ -45,7 +55,7 @@ export type WindEditor = {
     setEnabled(enabled: boolean): void;
 };
 
-export function createWindEditor({ wind, scene, camera, controls, domElement }: Deps): WindEditor {
+export function createWindEditor({ wind, scene, camera, controls, domElement, orbitEnabled }: Deps): WindEditor {
     // --- Volume outlines ---------------------------------------------------
     // Three orthogonal rings, not a wireframe sphere. A wireframe sphere is a few
     // hundred segments of chicken wire across the very splats you're trying to
@@ -120,7 +130,7 @@ export function createWindEditor({ wind, scene, camera, controls, domElement }: 
     // An orbit drag and a gizmo drag are the same gesture; hand the pointer to
     // whichever one grabbed it first.
     gizmo.addEventListener('dragging-changed', (event) => {
-        controls.enabled = !event.value;
+        controls.enabled = !event.value && orbitEnabled();
     });
 
     // TransformControls derives each frame's transform from the scale it captured
@@ -522,7 +532,7 @@ export function createWindEditor({ wind, scene, camera, controls, domElement }: 
             panel.style.display = enabled ? 'flex' : 'none';
             group.visible = enabled;
             gizmoHelper.visible = enabled && selected >= 0;
-            controls.enabled = true; // never leave orbit disabled by a mid-drag toggle
+            controls.enabled = orbitEnabled(); // never leave orbit stuck off by a mid-drag toggle
             wind.setHighlight(enabled ? HIGHLIGHT_STRENGTH : 0);
         },
     };

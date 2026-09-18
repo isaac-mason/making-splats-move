@@ -15,5 +15,5 @@ const BASE = import.meta.env.BASE_URL;
 export const SPLAT_URL = `${BASE}anime-city-lod.rad`;
 
 // --- Camera framing (world-space) — the orbit camera's start pose ---
-export const CAMERA_POSITION: Vec3 = [12, 5, -6];
-export const CAMERA_TARGET: Vec3 = [0, 4, -2];
+export const CAMERA_POSITION: Vec3 = [0.52, 2.28, 1.07];
+export const CAMERA_TARGET: Vec3 = [3.23, 7.22, -9.35];

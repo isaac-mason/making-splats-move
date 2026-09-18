@@ -17,18 +17,37 @@ export type DebugOverlay = {
     enabled: boolean;
     /** Whether wind edit mode is on (toggled by the checkbox). */
     editWind: boolean;
+    /**
+     * Free-look. Off by default: the shipped camera is the fixed framing plus the
+     * parallax lean (src/camera-drift.ts), because that's the shot. Orbiting is a
+     * tool for framing and for authoring wind volumes, not a feature of the scene.
+     */
+    orbit: boolean;
     /** Called when the edit-mode checkbox flips; index.ts hooks the wind editor up here. */
     onEditWind?: (enabled: boolean) => void;
 };
 
-function createCheckbox(label: string, onChange: (checked: boolean) => void): HTMLLabelElement {
+type Checkbox = {
+    el: HTMLLabelElement;
+    /** Tick/untick from code. Fires `onChange` too, so dependent state stays in step. */
+    set(checked: boolean): void;
+};
+
+function createCheckbox(label: string, onChange: (checked: boolean) => void): Checkbox {
     const wrapper = document.createElement('label');
     wrapper.style.cssText = 'display:flex;gap:6px;align-items:center;cursor:pointer;user-select:none';
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.addEventListener('change', () => onChange(input.checked));
     wrapper.append(input, label);
-    return wrapper;
+    return {
+        el: wrapper,
+        set(checked) {
+            if (input.checked === checked) return;
+            input.checked = checked;
+            onChange(checked);
+        },
+    };
 }
 
 // An always-on labelled range slider that reports its value live, with a readout.
@@ -94,7 +113,16 @@ function makeCopyable(value: HTMLSpanElement): void {
 // (toggle with the backtick `), the wind edit-mode switch, and the LOD budget
 // sliders. The coordinate rows are click-to-copy, so orbiting to a framing you like
 // and pasting the values back into scene.ts is the authoring loop.
-export function createDebugOverlay(perf: Performance): DebugOverlay {
+export type DebugOptions = {
+    /**
+     * Called when free-look is toggled. `false` means the presentation camera is
+     * taking over again, which is the caller's cue to put it back where it belongs
+     * — the orbit camera will have left it wherever the last drag ended.
+     */
+    onOrbitChange?: (orbit: boolean) => void;
+};
+
+export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOptions = {}): DebugOverlay {
     const element = document.createElement('div');
     element.style.cssText = [
         'position:fixed',
@@ -131,10 +159,20 @@ export function createDebugOverlay(perf: Performance): DebugOverlay {
         },
         enabled: false,
         editWind: false,
+        orbit: false,
     };
+
+    const orbitCheckbox = createCheckbox('orbit camera', (checked) => {
+        overlay.orbit = checked;
+        onOrbitChange?.(checked);
+    });
 
     const windEditCheckbox = createCheckbox('wind edit mode', (checked) => {
         overlay.editWind = checked;
+        // Authoring volumes means flying around to look at them, so edit mode
+        // brings free-look with it rather than leaving you stuck in the framing
+        // wondering why the camera won't move.
+        if (checked) orbitCheckbox.set(true);
         overlay.onEditWind?.(checked);
     });
 
@@ -147,7 +185,7 @@ export function createDebugOverlay(perf: Performance): DebugOverlay {
         perf.lodRenderScale = value;
     });
 
-    element.append(windEditCheckbox, lodSlider, renderScaleSlider, overlay.text);
+    element.append(orbitCheckbox.el, windEditCheckbox.el, lodSlider, renderScaleSlider, overlay.text);
     document.body.appendChild(element);
 
     window.addEventListener('keydown', (event) => {
