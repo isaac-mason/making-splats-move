@@ -6,7 +6,9 @@ moment it finishes downloading.
 A ripple of existence spreads out from one point. The front is a wobbling shell, not
 a sphere, and it travels: splats don't fly anywhere, they appear where the capture put
 them and the wave passing through surges them outward and lets them settle, the way a
-ripple moves water without moving it anywhere.
+ripple moves water without moving it anywhere. The crest flares gold as it goes —
+`pow(abs(wave), 4)` rather than the wave itself, so it's a thin bright line instead of
+a broad wash, which is the trick Spark's own ripple demo uses.
 
 Unrevealed space is sky rather than void — the background is set to very nearly the
 blue the capture's own sky splats already are, so the front of the ripple reads as an

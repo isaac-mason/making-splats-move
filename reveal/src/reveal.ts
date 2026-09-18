@@ -75,8 +75,14 @@ const SWELL = 0.8;
 const WOBBLE = 4;
 /** Metres of per-splat scatter on the front, so its edge is grainy. */
 const RAGGED = 1.2;
-/** Added at the crest. */
-const GLOW = new THREE.Vector3(0.35, 0.42, 0.55);
+/** Gold at the crest, and how hard it flares. */
+const GLOW = new THREE.Vector3(1.0, 0.72, 0.3);
+/**
+ * Power on the wave before it lights: high makes the crest a thin bright line
+ * rather than a broad wash. Spark's own ripple demo uses `pow(abs(wave), 3.)`.
+ */
+const GLOW_FOCUS = 4;
+const GLOW_GAIN = 3;
 
 /** Where the front is at `time`, and how fast it's moving there. */
 function frontAt(time: number): { radius: number; speed: number } {
@@ -155,7 +161,10 @@ export function initReveal(mesh: SplatMesh, origin: THREE.Vector3 | null = null)
 
                         ${g}.center += dir * (${AMPLITUDE.toFixed(3)} * ripple);
                         ${g}.scales *= appear * (1.0 + ${SWELL.toFixed(3)} * ripple);
-                        ${g}.rgba.rgb += vec3(${GLOW.x}, ${GLOW.y}, ${GLOW.z}) * max(ripple, 0.0);
+                        // abs(), so it flares on the trough as well as the crest —
+                        // two pulses a wavelength, which is what reads as pulsing.
+                        float flare = pow(abs(ripple), ${GLOW_FOCUS.toFixed(1)}) * ${GLOW_GAIN.toFixed(2)};
+                        ${g}.rgba.rgb += vec3(${GLOW.x}, ${GLOW.y}, ${GLOW.z}) * flare;
                         ${g}.rgba.a *= appear;
                     }
                 `);
