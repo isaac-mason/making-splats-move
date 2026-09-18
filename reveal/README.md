@@ -118,8 +118,9 @@ because a second copy of a 96MB file in the repository would be 96MB of nothing.
 - **backtick** opens the debug panel: click-to-copy camera coordinates, active splat
   count, the front's radius, frame time — and a **replay** button, because watching it
   again shouldn't mean downloading 96MB again
-- `?t=2.5` freezes the wavefront at one moment. The only way to judge a still frame
-  of something that takes five seconds, and how every number in `reveal.ts` was tuned
+- `?t=1.2` freezes the wavefront at one moment. The only way to judge a still frame
+  of something that's over in two seconds, and how every number in `reveal.ts` was
+  tuned
 - `?cam=x,y,z` / `?look=x,y,z` move the camera
 - `?origin=x,y,z` moves the point it all ripples out from
 
@@ -160,6 +161,31 @@ stand. Worth knowing before optimising the wrong end of it.
 
 The LOD budget is still worth having (26.1 -> 21.2 ms for nothing), and lives in
 `performance.ts`.
+
+## Two seconds, and why the front accelerates
+
+The whole world is revealed in two seconds, and the front does not travel at a
+constant speed — because the splats are not spread evenly. Stepping the front and
+watching `spark.activeSplats` saturate:
+
+| radius | active splats |
+| --- | --- |
+| 10 m | 1,231,830 |
+| 30 m | 1,609,537 |
+| 60 m | 1,778,023 |
+| 110 m | 1,906,492 (saturated) |
+
+Two thirds of the scene is within ten metres and it stops growing at 110. A constant
+speed would therefore spend a tenth of a second on the street you're looking at and
+the remaining 1.9s on distant background nobody can see arrive. The radius follows
+`REACH * t^2.2` instead: the near scene gets the first second, the far half whips past
+in the second.
+
+That breaks the ripple, though — a wave a fixed number of metres wide is a quarter of
+a second at 8 m/s and two frames at 120 m/s. So the wave is specified in **seconds**
+and the shader derives its metres from the front's current speed, which is passed in
+as a second uniform. A splat spends the same time inside the wave wherever and
+whenever it's caught.
 
 ## Tuning notes
 

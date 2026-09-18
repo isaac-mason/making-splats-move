@@ -21,10 +21,40 @@ import { REVEAL_ORIGIN } from './scene';
  *     The effect costs least when least of it is showing.
  */
 
-/** Metres the front travels per second. */
-const SPEED = 11;
-/** Metres over which a splat fades up as the front reaches it. Narrow, so it pops. */
-const BAND = 1.2;
+/**
+ * Seconds for the front to cross the entire capture.
+ */
+const DURATION = 2;
+/**
+ * Metres from the origin to the far side of the world.
+ *
+ * Measured by stepping the front and watching `spark.activeSplats` saturate: 1.23M
+ * splats are within 10m, 1.61M within 30m, and it stops climbing at 1.91M by 110m.
+ */
+const REACH = 110;
+/**
+ * Curve on the radius. Above 1 the front ACCELERATES, which is what makes a
+ * two-second reveal watchable: the distribution above is brutally front-loaded, so a
+ * constant speed spends a tenth of a second on the street you're looking at and the
+ * rest of the time on distant background. This gives the first second to the near
+ * scene and lets the far half whip past.
+ */
+const EASE = 2.2;
+
+/**
+ * The ripple, in SECONDS rather than metres.
+ *
+ * What makes it legible is how long a splat spends inside the wave, not how many
+ * metres long the wave is — and with an accelerating front those are no longer the
+ * same thing. The shader derives the spatial sizes from the front's current speed,
+ * so the ripple looks identical at 8 m/s and at 120 m/s.
+ */
+const BAND_TIME = 0.1;
+const WAVE_TIME = 0.26;
+const CREST_TIME = 0.38;
+/** Floor on the front's speed, so the wave can't collapse to nothing at t = 0. */
+const MIN_SPEED = 6;
+
 /**
  * Radius the front holds at until the first frame is actually drawn.
  *
@@ -37,10 +67,6 @@ const BAND = 1.2;
  */
 const SEED = 2.5;
 
-/** Distance between wave crests, in metres. */
-const WAVELENGTH = 4;
-/** How far behind the front the ripple has died away, in metres. */
-const DECAY = 2.5;
 /** How far a crest pushes a splat along its own radius, in metres. */
 const AMPLITUDE = 0.55;
 /** How much a crest swells a splat, as a fraction of its size. */
@@ -52,6 +78,19 @@ const RAGGED = 1.2;
 /** Added at the crest. */
 const GLOW = new THREE.Vector3(0.35, 0.42, 0.55);
 
+/** Where the front is at `time`, and how fast it's moving there. */
+function frontAt(time: number): { radius: number; speed: number } {
+    const t = Math.max(time, 0) / DURATION;
+    const radius = REACH * t ** EASE;
+    const speed = Math.max(MIN_SPEED, (REACH * EASE * t ** (EASE - 1)) / DURATION);
+    return { radius, speed };
+}
+
+/** The time at which the front is `radius` — the inverse of the curve above. */
+function timeAt(radius: number): number {
+    return DURATION * (radius / REACH) ** (1 / EASE);
+}
+
 export type Reveal = {
     /** Seconds since the front started expanding. */
     time: number;
@@ -62,18 +101,20 @@ export type Reveal = {
     /** The front's radius, in metres. */
     radius: number;
     uRadius: ReturnType<typeof d.dynoFloat>;
+    uSpeed: ReturnType<typeof d.dynoFloat>;
 };
 
 export function initReveal(mesh: SplatMesh, origin: THREE.Vector3 | null = null): Reveal {
     const uRadius = d.dynoFloat(SEED);
+    const uSpeed = d.dynoFloat(MIN_SPEED);
     const uOrigin = d.dynoVec3(origin ?? new THREE.Vector3(...REVEAL_ORIGIN));
 
     mesh.objectModifier = d.dynoBlock({ gsplat: d.Gsplat }, { gsplat: d.Gsplat }, ({ gsplat }) => {
         if (!gsplat) throw new Error('reveal: no gsplat input');
         const node = d.dyno({
-            inTypes: { gsplat: d.Gsplat, radius: 'float', origin: 'vec3' },
+            inTypes: { gsplat: d.Gsplat, radius: 'float', speed: 'float', origin: 'vec3' },
             outTypes: { gsplat: d.Gsplat },
-            inputs: { gsplat, radius: uRadius, origin: uOrigin },
+            inputs: { gsplat, radius: uRadius, speed: uSpeed, origin: uOrigin },
             globals: () => [d.defineGsplat],
             statements: ({ inputs, outputs }) => {
                 const g = outputs.gsplat;
@@ -100,11 +141,17 @@ export function initReveal(mesh: SplatMesh, origin: THREE.Vector3 | null = null)
                     if (w <= 0.0) {
                         ${g}.flags = 0u;
                     } else {
-                        float appear = clamp(w / ${BAND.toFixed(3)}, 0.0, 1.0);
+                        // The wave's spatial size follows the front's current speed,
+                        // so a splat always spends the same TIME inside it.
+                        float band = ${i.speed} * ${BAND_TIME.toFixed(3)};
+                        float decay = ${i.speed} * ${WAVE_TIME.toFixed(3)};
+                        float crest = ${i.speed} * ${CREST_TIME.toFixed(3)};
+
+                        float appear = clamp(w / band, 0.0, 1.0);
                         appear = appear * appear * (3.0 - 2.0 * appear);
                         // A damped travelling wave. Zero at the front, so a splat
                         // arrives exactly where it belongs and is moved afterwards.
-                        float ripple = sin(w * ${((Math.PI * 2) / WAVELENGTH).toFixed(5)}) * exp(-w / ${DECAY.toFixed(3)});
+                        float ripple = sin(w * 6.2831853 / crest) * exp(-w / decay);
 
                         ${g}.center += dir * (${AMPLITUDE.toFixed(3)} * ripple);
                         ${g}.scales *= appear * (1.0 + ${SWELL.toFixed(3)} * ripple);
@@ -117,7 +164,7 @@ export function initReveal(mesh: SplatMesh, origin: THREE.Vector3 | null = null)
         return { gsplat: node.outputs.gsplat };
     });
 
-    return { time: SEED / SPEED, armed: false, running: false, radius: SEED, uRadius };
+    return { time: timeAt(SEED), armed: false, running: false, radius: SEED, uRadius, uSpeed };
 }
 
 /** Loading has finished; the front may go as soon as there's something on screen. */
@@ -127,7 +174,7 @@ export function armReveal(reveal: Reveal): void {
 
 /** Run it again, without re-downloading 96MB. */
 export function replayReveal(reveal: Reveal): void {
-    reveal.time = SEED / SPEED;
+    reveal.time = timeAt(SEED);
 }
 
 export function updateReveal(reveal: Reveal, dt: number, drawing: boolean, frozenTime: number | null = null): void {
@@ -136,6 +183,8 @@ export function updateReveal(reveal: Reveal, dt: number, drawing: boolean, froze
         reveal.running = true;
     }
     reveal.time = frozenTime ?? reveal.time + dt;
-    reveal.radius = reveal.time * SPEED;
-    reveal.uRadius.value = reveal.radius;
+    const front = frontAt(reveal.time);
+    reveal.radius = front.radius;
+    reveal.uRadius.value = front.radius;
+    reveal.uSpeed.value = front.speed;
 }

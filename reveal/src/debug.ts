@@ -4,8 +4,8 @@ import type { Reveal } from './reveal';
 
 /**
  * The debug panel the other examples have: backtick to toggle, click-to-copy
- * coordinates, and — since this example is five seconds long — a button to watch it
- * again without reloading 96MB.
+ * coordinates, and — since the whole thing is over in two seconds — a button to
+ * watch it again without reloading 96MB.
  */
 
 export type DebugOverlay = {
