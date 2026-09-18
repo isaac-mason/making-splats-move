@@ -82,18 +82,9 @@ export const DEFAULT_DUST: DustParams = {
     color2: new THREE.Color(0.72, 0.8, 0.95), // cool shadow blue
 };
 
-// A cheap stable hash: index -> 4 uncorrelated values in [0,1). This is what makes
-// the field stateless — the same index always yields the same mote.
-const HASH_GLSL = /* glsl */ `
-    vec4 dustHash(int i) {
-        // Three different large multipliers so the components don't correlate.
-        vec3 p = fract(vec3(float(i)) * vec3(0.1031, 0.1030, 0.0973));
-        p += dot(p, p.yzx + 33.33);
-        vec3 a = fract((p.xxy + p.yzz) * p.zyx);
-        float w = fract(sin(float(i) * 12.9898) * 43758.5453);
-        return vec4(a, w);
-    }
-`;
+/** Shorthand for the literal floats the graph is full of. */
+const f = (value: number) => d.dynoConst('float', value);
+const TAU = f(Math.PI * 2);
 
 export type Dust = {
     /** The generator node — add this to your scene. */
@@ -144,114 +135,71 @@ export function createDust(box: THREE.Box3, params: Partial<DustParams> = {}): D
             ({ index }) => {
                 if (!index) throw new Error('dust generator: no index input');
 
-                const node = d.dyno({
-                    inTypes: {
-                        index: 'int',
-                        min: 'vec3',
-                        size: 'vec3',
-                        drift: 'vec3',
-                        time: 'float',
-                        minScale: 'float',
-                        maxScale: 'float',
-                        swirl: 'float',
-                        swirlSpeed: 'float',
-                        bob: 'float',
-                        bobSpeed: 'float',
-                        opacity: 'float',
-                        twinkle: 'float',
-                        twinkleSharp: 'float',
-                        twinkleSpeed: 'float',
-                        color1: 'vec3',
-                        color2: 'vec3',
-                        nearFade: 'float',
-                        cameraPos: 'vec3',
-                    },
-                    outTypes: { gsplat: d.Gsplat },
-                    inputs: {
+                // One stable hash per mote: xyz is its lattice cell, w its seed.
+                // Same index, same mote, forever — which is what makes the field
+                // stateless.
+                const random = d.hashVec4(index);
+                const seed = d.split(random).outputs.w;
+                const phase = d.mul(seed, TAU);
+
+                // Lattice position in the unit cube, slid along by the field drift
+                // and wrapped. fract() is the recycling: a mote leaving one face
+                // re-enters the opposite one.
+                const cell = d.fract(d.add(d.vec3(random), uDrift));
+                const base = d.add(uMin, d.mul(cell, uSize));
+                const { x: baseX, y: baseY, z: baseZ } = d.split(base).outputs;
+
+                // Swirl: three sines at different rates, each fed by a different
+                // axis of the mote's own position, so neighbours turn over together
+                // in slow eddies rather than each jittering on its own.
+                const st = d.mul(uTime, uSwirlSpeed);
+                const swirl = d.mul(
+                    d.combine({
+                        vectorType: 'vec3',
+                        x: d.sin(d.add(d.add(d.mul(st, f(1.0)), d.mul(baseZ, f(0.9))), phase)),
+                        y: d.sin(d.add(d.add(d.mul(st, f(0.7)), d.mul(baseX, f(1.1))), d.mul(phase, f(1.3)))),
+                        z: d.cos(d.add(d.add(d.mul(st, f(0.85)), d.mul(baseY, f(1.0))), d.mul(phase, f(0.7)))),
+                    }),
+                    uSwirl,
+                );
+
+                // Buoyancy — dust hangs on the air rather than falling.
+                const bob = d.mul(d.sin(d.add(d.mul(uTime, uBobSpeed), phase)), uBob);
+                const center = d.add(d.add(base, swirl), d.combine({ vectorType: 'vec3', y: bob }));
+
+                // Cube the distribution so most motes are near the small end: a few
+                // big flecks read far better than a uniform haze of identical specks.
+                const t = d.fract(d.mul(seed, f(97.0)));
+                const radius = d.mix(uMinScale, uMaxScale, d.mul(d.mul(t, t), t));
+
+                // Twinkle. A real mote is an irregular fleck that flashes as it
+                // tumbles through the light, so brightness pulses sharply rather
+                // than fading evenly — hence the power, rather than the sine raw.
+                const wave = d.add(
+                    f(0.5),
+                    d.mul(f(0.5), d.sin(d.add(d.mul(d.mul(uTime, uTwinkleSpeed), TAU), d.mul(phase, f(3.1))))),
+                );
+                const glint = d.pow(wave, uTwinkleSharp);
+                const brightness = d.mix(d.sub(f(1.0), uTwinkle), f(1.0), glint);
+
+                // Fade motes out as they approach the lens. Without this the few
+                // nearest the camera project to enormous soft blobs across the
+                // frame — geometrically correct, and ruinous.
+                const near = d.smoothstep(d.mul(uNearFade, f(0.2)), uNearFade, d.distance(center, uCamera));
+
+                const rgb = d.mix(uColor1, uColor2, d.fract(d.mul(seed, f(13.0))));
+
+                return {
+                    gsplat: d.combineGsplat({
+                        flags: d.dynoLiteral('uint', 'GSPLAT_FLAG_ACTIVE'),
                         index,
-                        min: uMin,
-                        size: uSize,
-                        drift: uDrift,
-                        time: uTime,
-                        minScale: uMinScale,
-                        maxScale: uMaxScale,
-                        swirl: uSwirl,
-                        swirlSpeed: uSwirlSpeed,
-                        bob: uBob,
-                        bobSpeed: uBobSpeed,
-                        opacity: uOpacity,
-                        twinkle: uTwinkle,
-                        twinkleSharp: uTwinkleSharp,
-                        twinkleSpeed: uTwinkleSpeed,
-                        color1: uColor1,
-                        color2: uColor2,
-                        nearFade: uNearFade,
-                        cameraPos: uCamera,
-                    },
-                    globals: () => [d.defineGsplat, HASH_GLSL],
-                    statements: ({ inputs, outputs }) => {
-                        const g = outputs.gsplat;
-                        const i = inputs;
-                        return d.unindentLines(`
-                            vec4 rand = dustHash(${i.index});
-                            float seed = rand.w;
-                            float phase = seed * 6.2831853;
-
-                            // Lattice position in the unit cube, slid along by the
-                            // field drift and wrapped. fract() is the recycling:
-                            // a mote leaving one face re-enters the opposite one.
-                            vec3 cell = fract(rand.xyz + ${i.drift});
-                            vec3 base = ${i.min} + cell * ${i.size};
-
-                            // Swirl: three sines at different rates, each fed by a
-                            // different axis of the mote's own position, which makes
-                            // neighbours turn over together in slow eddies rather
-                            // than each jittering on its own.
-                            float st = ${i.time} * ${i.swirlSpeed};
-                            vec3 swirl = vec3(
-                                sin(st * 1.00 + base.z * 0.9 + phase),
-                                sin(st * 0.70 + base.x * 1.1 + phase * 1.3),
-                                cos(st * 0.85 + base.y * 1.0 + phase * 0.7)
-                            ) * ${i.swirl};
-
-                            // Buoyancy — dust hangs on the air rather than falling.
-                            float bob = sin(${i.time} * ${i.bobSpeed} + phase) * ${i.bob};
-
-                            vec3 center = base + swirl + vec3(0.0, bob, 0.0);
-
-                            // Cube the distribution so most motes are near the small
-                            // end: a few big flecks read far better than a uniform
-                            // haze of identical specks.
-                            float t = fract(seed * 97.0);
-                            float radius = mix(${i.minScale}, ${i.maxScale}, t * t * t);
-
-                            // Twinkle. A real mote is an irregular fleck that flashes
-                            // as it tumbles through the light, so brightness pulses
-                            // sharply rather than fading in and out evenly — hence
-                            // raising it to a power instead of using the sine raw.
-                            float wave = 0.5 + 0.5 * sin(${i.time} * ${i.twinkleSpeed} * 6.2831853 + phase * 3.1);
-                            float glint = pow(wave, ${i.twinkleSharp});
-                            float brightness = mix(1.0 - ${i.twinkle}, 1.0, glint);
-
-                            // Fade motes out as they approach the lens. Without this
-                            // the few motes nearest the camera project to enormous
-                            // soft blobs across the frame — correct, and ruinous.
-                            float near = smoothstep(${i.nearFade} * 0.2, ${i.nearFade}, distance(center, ${i.cameraPos}));
-
-                            vec3 rgb = mix(${i.color1}, ${i.color2}, fract(seed * 13.0));
-                            float alpha = ${i.opacity} * brightness * near;
-
-                            ${g}.center = center;
-                            ${g}.flags = GSPLAT_FLAG_ACTIVE;
-                            ${g}.scales = vec3(radius);
-                            ${g}.index = ${i.index};
-                            ${g}.quaternion = vec4(0.0, 0.0, 0.0, 1.0);
-                            ${g}.rgba = vec4(rgb * brightness, alpha);
-                        `);
-                    },
-                });
-
-                return { gsplat: node.outputs.gsplat };
+                        center,
+                        scales: d.vec3(radius),
+                        quaternion: d.dynoConst('vec4', new THREE.Quaternion(0, 0, 0, 1)),
+                        rgb: d.mul(rgb, brightness),
+                        opacity: d.mul(d.mul(uOpacity, brightness), near),
+                    }),
+                };
             },
             { globals: () => [d.defineGsplat] },
         ),

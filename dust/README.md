@@ -4,6 +4,29 @@ Dust drifting through a sunlit Gaussian-splat greenhouse. An exercise in
 atmosphere: the room is a static splat scene, and everything that makes it feel
 like a place with air in it is generated at runtime.
 
+
+## Written as a dyno graph, not GLSL
+
+The generator is a composed `dyno` graph — `hashVec4`, `mul`, `sin`, `mix`,
+`combineGsplat` — rather than a block of hand-written GLSL in a `statements:` hook.
+
+That's not a style preference, it's what Spark does. There are exactly two
+`SplatGenerator`s in the whole Spark repository, both in its own source
+(`src/generators/snow.ts` and `static.ts`), and **neither emits a line of GLSL**. No
+example creates a generator at all. Raw GLSL shows up only in the *modifier*
+examples — `splat-flow`, `lofi`, `glsl`, `interactive-deform` — where you receive a
+finished splat and want dense arbitrary maths on it.
+
+The distinction makes sense once you see it: a modifier transforms a Gsplat, while a
+generator *builds* one from an index, and Spark ships the primitives for exactly
+that. This example previously hand-rolled a hash that `hashVec4` already provides and
+hand-packed a Gsplat that `combineGsplat` already assembles.
+
+One consequence worth knowing: `hashVec4` is a different function from the hash that
+was here before, so the motes are in different places. The field is statistically
+identical — same density, same size distribution, same tint spread — but not
+mote-for-mote the same.
+
 ## Motes as splats
 
 The motes are real Gaussian splats, not a `THREE.Points` cloud, and that's the
