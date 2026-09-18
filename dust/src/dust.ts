@@ -135,9 +135,7 @@ export function createDust(box: THREE.Box3, params: Partial<DustParams> = {}): D
             ({ index }) => {
                 if (!index) throw new Error('dust generator: no index input');
 
-                // One stable hash per mote: xyz is its lattice cell, w its seed.
-                // Same index, same mote, forever — which is what makes the field
-                // stateless.
+                // Same index, same mote, forever: xyz is its cell, w its seed.
                 const random = d.hashVec4(index);
                 const seed = d.split(random).outputs.w;
                 const phase = d.mul(seed, TAU);
@@ -149,9 +147,8 @@ export function createDust(box: THREE.Box3, params: Partial<DustParams> = {}): D
                 const base = d.add(uMin, d.mul(cell, uSize));
                 const { x: baseX, y: baseY, z: baseZ } = d.split(base).outputs;
 
-                // Swirl: three sines at different rates, each fed by a different
-                // axis of the mote's own position, so neighbours turn over together
-                // in slow eddies rather than each jittering on its own.
+                // Each axis fed by a different axis of the mote's own position, so
+                // neighbours turn over together in eddies rather than each jittering.
                 const st = d.mul(uTime, uSwirlSpeed);
                 const swirl = d.mul(
                     d.combine({
@@ -172,9 +169,8 @@ export function createDust(box: THREE.Box3, params: Partial<DustParams> = {}): D
                 const t = d.fract(d.mul(seed, f(97.0)));
                 const radius = d.mix(uMinScale, uMaxScale, d.mul(d.mul(t, t), t));
 
-                // Twinkle. A real mote is an irregular fleck that flashes as it
-                // tumbles through the light, so brightness pulses sharply rather
-                // than fading evenly — hence the power, rather than the sine raw.
+                // A fleck flashes as it tumbles, so brightness pulses sharply —
+                // hence the power, rather than the sine raw.
                 const wave = d.add(
                     f(0.5),
                     d.mul(f(0.5), d.sin(d.add(d.mul(d.mul(uTime, uTwinkleSpeed), TAU), d.mul(phase, f(3.1))))),
@@ -182,9 +178,8 @@ export function createDust(box: THREE.Box3, params: Partial<DustParams> = {}): D
                 const glint = d.pow(wave, uTwinkleSharp);
                 const brightness = d.mix(d.sub(f(1.0), uTwinkle), f(1.0), glint);
 
-                // Fade motes out as they approach the lens. Without this the few
-                // nearest the camera project to enormous soft blobs across the
-                // frame — geometrically correct, and ruinous.
+                // Without this the nearest motes project to enormous soft blobs —
+                // geometrically correct, and ruinous.
                 const near = d.smoothstep(d.mul(uNearFade, f(0.2)), uNearFade, d.distance(center, uCamera));
 
                 const rgb = d.mix(uColor1, uColor2, d.fract(d.mul(seed, f(13.0))));

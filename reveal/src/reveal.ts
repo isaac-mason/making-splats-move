@@ -182,9 +182,8 @@ export function updateReveal(reveal: Reveal, dt: number, drawing: boolean, froze
         if (!reveal.armed || !drawing) return;
         reveal.running = true;
     }
-    // Stop once the front is past everything. Left running, the radius climbs forever
-    // (it reached 12,500m in testing) and the uniform changes every frame, so Spark
-    // keeps regenerating and re-sorting a scene that has finished moving.
+    // Stop once the front is past everything, or the uniform keeps changing and Spark
+    // keeps re-sorting a scene that has finished moving.
     if (frozenTime === null && reveal.time >= DURATION) return;
     reveal.time = frozenTime ?? Math.min(DURATION, reveal.time + dt);
     const front = frontAt(reveal.time);

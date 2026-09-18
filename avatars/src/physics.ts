@@ -39,13 +39,8 @@ import type { Skeleton } from './bones';
  * bodies, and `pushSkeleton` can't tell which did.
  */
 
-/**
- * Object layers, in the order `initPhysicsWorld` registers them.
- *
- * Constants with an assertion rather than variables written at startup: as mutable
- * module state they were the one thing in this file that didn't come from the `world`
- * argument, so a second world would have silently rewritten them under the first.
- */
+/** Object layers, in the order `initPhysicsWorld` registers them. Asserted rather
+ *  than assigned, so a second world can't rewrite them under the first. */
 const LAYER_STATIC = 0;
 const LAYER_BODY = 1;
 /** Collides with nothing. The hand only ever acts through the grab constraint. */
