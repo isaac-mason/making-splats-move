@@ -5,28 +5,41 @@ import { type Furnace, furnaceHeat } from './furnace';
 import { LIGHT_ORIGIN } from './lighting';
 
 // Heat shimmer — a Spark world-modifier. Instead of a screen-space filter, this
-// jiggles the actual scene splats' world positions inside a sphere around the
-// fire: an upward-scrolling noise displacement whose strength falls off from
-// the core out to the radius. The geometry itself wobbles like air over a flame,
-// so it reads as "this thing is dangerously hot" from any angle.
+// jiggles the actual scene splats' world positions in the hot air over the fire:
+// an upward-scrolling noise displacement. The geometry itself wobbles like air
+// over a flame, so it reads as "this thing is dangerously hot" from any angle.
+//
+// The shape of the hot zone is a PLUME, not a ball. Hot air goes up, so the air
+// you can see through is a column standing on the coals that widens as it rises.
+// A sphere gets it wrong at both ends: it wobbles the ground out to the side,
+// where nothing is hot, it stops just above the flame, where the distortion is
+// actually strongest, and it misses the best cue in the shot — the treeline
+// rippling behind the fire.
 
 const { dynoBlock, dynoFloat, dynoVec3, defineGsplat, unindentLines } = dyno;
 
-// World-space radius of the hot zone around the fire.
-const RADIUS = 0.85;
+// Half-width of the column at its base, in world units. It widens with height.
+const RADIUS = 0.55;
 
-// Max world-space displacement (metres) at the core. Small — shimmer is a subtle bend.
-const STRENGTH = 0.012;
+// How far up the disturbed air reaches.
+const PLUME = 1.9;
 
-// World-space frequency of the wobble. Higher = finer ripples.
-const SCALE = 3.4;
+// Max world-space displacement (metres). Small — shimmer is a subtle bend, and
+// this is biased hard toward the coal bed (see COALS in the shader), where the
+// temperature gradient is steepest and where you actually see air boiling.
+const STRENGTH = 0.009;
+
+// World-space frequency of the wobble. Higher = finer ripples. Sized for logs and
+// stones rather than for the room: coarse ripples over a 0.5m log read as the log
+// bending, fine ones read as air.
+const SCALE = 5.5;
 
 // The noise tiles every NOISE_PERIOD units, so scrolling it by a whole number of
 // periods loops seamlessly — and keeps the sample coordinates bounded. (The old
 // version scrolled an infinite field by an ever-growing time, which drifted into
 // float32's bad range and made the shimmer pop over time.) Loops every LOOP_SECONDS.
 const NOISE_PERIOD = 8;
-const LOOP_SECONDS = 10;
+const LOOP_SECONDS = 6;
 
 // Tileable value noise: the lattice corners wrap at HEAT_PERIOD so the field
 // repeats, and the hash avoids large-argument sin() (the precision culprit).
@@ -62,6 +75,7 @@ export type Heat = {
 export function initHeat(): Heat {
     const uOrigin = dynoVec3(new THREE.Vector3().copy(LIGHT_ORIGIN));
     const uRadius = dynoFloat(RADIUS);
+    const uPlume = dynoFloat(PLUME);
     const uStrength = dynoFloat(STRENGTH);
     const uScale = dynoFloat(SCALE);
     const uFed = dynoFloat(0);
@@ -74,6 +88,7 @@ export function initHeat(): Heat {
                 gsplat: dyno.Gsplat,
                 origin: 'vec3',
                 radius: 'float',
+                plume: 'float',
                 strength: 'float',
                 scale: 'float',
                 time: 'float',
@@ -84,6 +99,7 @@ export function initHeat(): Heat {
                 gsplat,
                 origin: uOrigin,
                 radius: uRadius,
+                plume: uPlume,
                 strength: uStrength,
                 scale: uScale,
                 time: SplatMesh.dynoTime, // auto-updated by the SparkRenderer each frame
@@ -95,9 +111,24 @@ export function initHeat(): Heat {
                 return unindentLines(`
                     ${g} = ${inputs.gsplat};
                     vec3 rel = ${inputs.gsplat}.center - ${inputs.origin};
-                    float dist = length(rel);
-                    float mask = 1.0 - smoothstep(${inputs.radius} * 0.15, ${inputs.radius}, dist);
+                    float across = length(rel.xz);
+                    float up = rel.y;
+
+                    // The plume: a column standing on the coals, widening as it
+                    // rises. Reaches a little BELOW the origin too, for the stones
+                    // taking radiant heat off the fire.
+                    float wide = ${inputs.radius} * (0.5 + 0.6 * clamp(up / ${inputs.plume}, 0.0, 1.0));
+                    float radial = 1.0 - smoothstep(wide * 0.35, wide, across);
+                    float column = smoothstep(-0.32, -0.06, up)
+                                 * (1.0 - smoothstep(${inputs.plume} * 0.45, ${inputs.plume}, up));
+                    float mask = radial * column;
                     mask *= mask; // bias the heat toward the core
+
+                    // Hottest right at the coal bed, in a tight band. This is the
+                    // one place the effect wants to be obvious rather than subtle:
+                    // air visibly boils over embers, and the gradient that does it
+                    // falls off within a few centimetres.
+                    mask *= 0.5 + 1.4 * exp(-up * up * 18.0);
                     if (mask > 0.0) {
                         // Scroll by a looping phase: each axis advances a whole
                         // number of tile-periods per loop, so it returns seamlessly.

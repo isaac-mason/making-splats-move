@@ -16,12 +16,10 @@ everything here is done at render time, on top of a static scene:
   displaces the scene splats' world positions with upward-scrolling tileable noise
   inside a sphere around the fire. The geometry genuinely wobbles like air over a
   flame, from any angle, rather than being a screen-space filter.
-- **Dust** (`src/dust.ts`). 2,500 motes generated as a second `SplatMesh`, not a
-  `THREE.Points` cloud — so they sort and blend with the environment splats (a mote
-  behind a wall is properly hidden) and the fire's SDF light tints them for free. A
-  `worldModifier` drifts each one; no per-frame CPU work.
-- **Embers** (`src/sparks.ts`). A pooled, additively-blended `THREE.Points` system:
-  a steady trickle off the coals that thickens with the heat, plus a burst on a stoke.
+- **Embers** (`src/embers.ts`). Splats too, so they sort with the flame and the
+  scene rather than drawing on top of both. They shoot off the coals, coast as they
+  cool, and hand themselves to the breeze — dying out somewhere out over the grass
+  rather than all at one height, which is what gives the clearing its scale.
 
 ## The flame
 
@@ -60,13 +58,47 @@ changes everything, because the field is what produces the structure:
   and neighbours stay neighbours — which is what lets tongues form on their own
   instead of being hard-coded. The curl of a *sine* potential is analytic, so a few
   cosines give an exact field without the usual six noise samples.
-- **Buoyancy** that builds as the gas heats and fades as it cools near the top.
+- **Buoyancy**, driven by the particle's own temperature (below) — because that is
+  what buoyancy *is*: hot gas rises because it's less dense than the air around it.
 - **Entrainment** — an inward draft, strongest low down. A fire pulls air in to feed
   itself, and that's what necks the column. Without it, buoyancy plus turbulence is
   just a fountain spraying outward.
 
 Velocity then comes out of the integration for free, which is exactly what each
 splat needs to be stretched along.
+
+### Carry a temperature, not a colour ramp
+
+Everything you see about a flame — colour, brightness, how hard it climbs — is a
+reading of **temperature**, and temperature is a property of where a parcel of gas
+has *been*, not of how old it is. Keying colour to age is the most common tell in
+procedural fire: a lick flung sideways into cold air and one that shot straight up
+the core come out the same shade, so the whole thing reads as an orange shape being
+wobbled rather than as gas burning.
+
+So the advection carries a temperature scalar too, and only two things happen to it:
+
+- **Combustion** adds heat while there's still fuel left in the parcel, for the first
+  ~30% of its life. That's why a real fire is brightest a little *above* the wood,
+  with a darker pyrolysis gap beneath — the gas has to travel before it has finished
+  burning. Here the dark base falls out of the model instead of being painted on.
+- **Mixing** takes it away again, and this is where the structure in the colour comes
+  from, because it is emphatically not uniform. Out at the edge a parcel meets cold
+  air directly; in the core it's shielded by the hot gas around it. Strong shear folds
+  air in faster. So the core stays white while anything flung clear goes dark red —
+  *per tongue*, not per clock. (Use `exp(-rate * dt)` for the decay: it's the one
+  thing Euler gets badly wrong at six steps, and the closed form is exact and
+  unconditionally stable.)
+
+Brightness is then `pow(temp, glowFalloff)`. Luminosity of the soot continuum goes as
+roughly T⁴, which is why the core of a real fire blows out a camera while the tips
+barely register; without tone mapping the full exponent is too brutal, so it's a dial.
+
+> A trap that cost a tall flame: parameterise the walk by *progress-to-now* —
+> `through = (k + 0.5) / STEPS` — and every profile you write collapses into its own
+> average. The displacement works out to `elapsed × mean(v)` no matter what shape `v`
+> has, so an acceleration produces a constant speed. It has to be a fraction of the
+> particle's **full lifetime** (`× age`) to be a clock at all.
 
 Three more things mattered far more than expected while tuning it:
 
@@ -136,6 +168,15 @@ different from the flame's.
   over a lifetime instead, which is also why the top of the plume is a ragged front
   rather than a ceiling — lifetimes vary per puff.
 
+> The trap that actually ate the smoke's fade, though, is in the renderer. Spark
+> **culls a splat outright** once its alpha falls below `minAlpha` — the whole splat,
+> in the vertex stage, not a per-fragment discard — and the default is `0.5/255`. At
+> the opacities smoke needs, that fired at 43% of a puff's life while it was still at
+> a *third* of peak: not a fade, a pop, and at a different moment per puff, since each
+> carries its own birth heat. Lower it, and pair that with fewer, stronger splats —
+> what you see is `count` × `opacity`, so halving the population and doubling the
+> alpha is the same column, twice as far above the cull, and half the sorting work.
+
 Two smaller things: key wind shear and eddy strength to **height above the fire, not
 age**, or two puffs side by side feel different wind and the plume shears into
 strands; and carry `pos.y` in the gust phase so a lull travels *up* the column
@@ -156,9 +197,14 @@ crackles every few seconds, and meters out the ember trickle. **Click or tap any
 to throw another log on — watch the clearing brighten, the air ripple, the flame leap
 and the embers fly.
 
-Press **`` ` ``** for a debug panel: camera readout, a fire-heat override slider, the
-LOD budget, SDF light wireframes, and click-to-raycast for measuring the world-space
-landmarks in `src/scene.ts`.
+The camera is the fixed framing plus a parallax lean toward the cursor
+(`src/camera-drift.ts`) — free orbiting is a measuring tool rather than a feature of
+the scene, so it lives behind the debug panel.
+
+Press **`` ` ``** for that panel: an **orbit camera** toggle (which stands the lean
+down while it's on, and puts the shot back when you turn it off), camera readout, a
+fire-heat override slider, the LOD budget, SDF light wireframes, and click-to-raycast
+for measuring the world-space landmarks in `src/scene.ts`.
 
 ## Layout
 
@@ -167,12 +213,13 @@ landmarks in `src/scene.ts`.
 | `src/scene.ts` | Everything specific to *this* world: asset URL, camera framing, where the fire is. Swapping in a new scene is a one-file edit. |
 | `src/furnace.ts` | The shared fire signal. |
 | `src/fire.ts` | What drives that signal — resting burn, crackles, ember trickle. |
-| `src/flame.ts` | The flame body: particles advected through the velocity field. |
+| `src/flame.ts` | The flame body: particles advected through the velocity field, carrying a temperature. |
 | `src/smoke.ts` | Smoke above it — long-lived, expanding, cooling to nothing; reads the fire signal *delayed*. |
 | `src/embers.ts` | Sparks lifting off, riding the same field. |
 | `src/curl.ts` | The shared curl noise, so all three churn together. |
-| `src/lighting.ts`, `src/heat.ts`, `src/dust.ts` | Lighting, shimmer and drifting dust, each reading the signal. |
+| `src/lighting.ts`, `src/heat.ts` | Fire lighting and the heat-shimmer plume, each reading the signal. |
 | `src/interaction.ts` | Tap-to-stoke (tap, not drag — OrbitControls owns dragging). |
+| `src/camera-drift.ts` | Parallax lean toward the cursor while hovering, so the clearing reads as a space rather than a photo. |
 | `src/debug.ts`, `src/performance.ts` | Debug panel and runtime quality knobs. |
 
 ## Assets
@@ -180,20 +227,33 @@ landmarks in `src/scene.ts`.
 The scene came from [Marble](https://marble.worldlabs.ai/) (World Labs' 3D-world
 generator), exported as a `.spz` splat.
 
-- `assets/campfire.spz` — the source splat.
-- `public/campfire.spz` — what the browser loads.
+- `assets/campfire.spz` — the source splat (28 MB), not served.
+- `public/campfire-lod.rad` — the LOD-paged build (39 MB), what the browser loads.
 
-It's a plain `.spz` for now, so every splat is resident and drawn each frame. To
-bake an LOD-paged `.rad` instead (needs a [Rust toolchain][rust] — `build-lod` ships
-only in Spark's source repo, so the script shallow-clones it):
+Rebuild the `.rad` from the source with (needs a [Rust toolchain][rust] —
+`build-lod` ships only in Spark's source repo, so the script shallow-clones it into
+a gitignored `vendor/`):
 
 ```bash
 pnpm build:lod
 ```
 
-...then point `SPLAT_URL` at the `.rad` and pass `paged: true` to the `SplatMesh`.
-That flag is **required** for a `.rad`: without it Spark falls back to its
-`PackedSplats` path, which has no `.rad` decoder, and nothing streams in.
+The `.rad` is *bigger* than the `.spz` it came from, which is the point: it carries
+a level-of-detail pyramid rather than one flat list, so the renderer can draw a
+cheap version of what's far away. A flat `.spz` has nothing to choose between, so
+every splat is resident and drawn every frame and the LOD budget in
+`src/performance.ts` — and the debug panel's `lod scale` slider — do nothing at all.
+
+Two things are easy to get wrong here:
+
+- **`paged: true` on the `SplatMesh` *streams* the `.rad`** rather than loading it
+  resident. It isn't needed to read the file: `.rad` is an auto-detected format, and
+  the LOD tree is encoded in it, so `new SplatMesh({ url })` alone already gives you
+  LOD (Spark's docs note `lod: true` is unnecessary for a `.rad` for the same
+  reason). What the flag buys is instant start and the paging budget —
+  `pagedExtSplats` / `maxPagedSplats` only exist once a `SplatPager` does.
+- **Paging uses HTTP range requests** to pull pages out of the `.rad`, so whatever
+  serves it has to support them. This applies only when paged.
 
 > All the world-space landmarks in `src/scene.ts` — the fire origin, the flame
 > origin, where embers leave — were measured with the debug raycast: press

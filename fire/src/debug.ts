@@ -12,6 +12,12 @@ export type DebugOverlay = {
     enabled: boolean;
     /** Whether the SDF light wireframes are drawn (toggled by the checkbox). */
     showLights: boolean;
+    /**
+     * Free-look. Off by default: the shipped camera is the fixed framing plus the
+     * parallax lean (src/camera-drift.ts), because that's the shot. Orbiting is a
+     * tool for measuring the scene, not a feature of it.
+     */
+    orbit: boolean;
     /** Furnace intensity override: 0..1 forces all VFX to that heat, null = live. */
     furnaceOverride: number | null;
     /** Raycaster used for click-to-raycast against the scene. */
@@ -83,7 +89,16 @@ function createRange(
 // (toggle with the backtick `) plus controls for the fire and LOD budget. While it's
 // open, clicking raycasts the scene instead of stoking the fire — that's how the
 // world-space landmarks in scene.ts get measured.
-export function createDebugOverlay(perf: Performance): DebugOverlay {
+export type DebugOptions = {
+    /**
+     * Called when free-look is toggled. `false` means the presentation camera is
+     * taking over again, which is the caller's cue to put it back where it belongs
+     * — the orbit camera will have left it wherever the last drag ended.
+     */
+    onOrbitChange?: (orbit: boolean) => void;
+};
+
+export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOptions = {}): DebugOverlay {
     const element = document.createElement('div');
     element.style.cssText = [
         'position:fixed',
@@ -116,11 +131,17 @@ export function createDebugOverlay(perf: Performance): DebugOverlay {
         text: document.createElement('div'),
         enabled: false,
         showLights: false,
+        orbit: false,
         furnaceOverride: null,
         raycaster: new THREE.Raycaster(),
         raycastMarker,
         lastHit: null,
     };
+
+    const orbitCheckbox = createCheckbox('orbit camera', (checked) => {
+        overlay.orbit = checked;
+        onOrbitChange?.(checked);
+    });
 
     const lightsCheckbox = createCheckbox('lights debug', (checked) => {
         overlay.showLights = checked;
@@ -136,7 +157,7 @@ export function createDebugOverlay(perf: Performance): DebugOverlay {
 
     overlay.text.style.cssText = 'white-space:pre;user-select:text;-webkit-user-select:text;cursor:text';
 
-    element.append(lightsCheckbox, furnaceSlider, lodSlider, overlay.text);
+    element.append(orbitCheckbox, lightsCheckbox, furnaceSlider, lodSlider, overlay.text);
     document.body.appendChild(element);
 
     window.addEventListener('keydown', (event) => {

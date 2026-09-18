@@ -34,6 +34,22 @@ export type EmberParams = {
     rate: number;
     /** Upward velocity, in world units per second. */
     riseSpeed: number;
+    /**
+     * Seconds over which an ember's buoyancy bleeds away as it cools.
+     *
+     * It's what makes them shoot up off the fire and then COAST, and the coast is
+     * the important half: an ember that keeps climbing leaves the shot straight
+     * up, while one that levels off hands itself to the wind and drifts out over
+     * the clearing before it dies. That drift is the thing that gives the scene
+     * its scale.
+     */
+    coolTime: number;
+    /**
+     * Breeze at height, in world units per second. Sheared — near nothing down
+     * among the logs — and pointed the same way as the smoke's, because it is
+     * meant to be the same moving air.
+     */
+    wind: THREE.Vector3;
     /** How hard the curl field throws them about. Embers are light — they get pushed further than flame. */
     turbulence: number;
     curlScale: number;
@@ -47,17 +63,25 @@ export type EmberParams = {
 };
 
 export const DEFAULT_EMBERS: EmberParams = {
-    count: 900,
+    count: 1400,
     baseRadius: 0.22,
-    rate: 0.5,
-    riseSpeed: 1.3,
-    turbulence: 0.85,
+    rate: 0.28,
+    riseSpeed: 1.5,
+    coolTime: 1.6,
+    wind: new THREE.Vector3(0.3, 0, -0.14),
+    turbulence: 0.7,
     curlScale: 2.2,
     size: 0.008,
     opacity: 0.85,
     hot: new THREE.Color(1.0, 0.85, 0.5),
     cool: new THREE.Color(0.9, 0.22, 0.04),
 };
+
+// Euler steps per ember. They live several seconds now and the walk has to
+// resolve a decaying rise plus a sheared wind, which three steps cannot; they're
+// tiny and there are few of them, so this is free.
+const EMBER_STEPS = 6;
+const EMBER_STEPS_GLSL = /* glsl */ `const int EMBER_STEPS = ${EMBER_STEPS};`;
 
 export type Embers = {
     /** The generator node — add to your scene. */
@@ -73,6 +97,8 @@ export function initEmbers(params: Partial<EmberParams> = {}): Embers {
     const uBaseRadius = d.dynoFloat(p.baseRadius);
     const uRate = d.dynoFloat(p.rate);
     const uRiseSpeed = d.dynoFloat(p.riseSpeed);
+    const uCoolTime = d.dynoFloat(p.coolTime);
+    const uWind = d.dynoVec3(p.wind.clone());
     const uTurbulence = d.dynoFloat(p.turbulence);
     const uCurlScale = d.dynoFloat(p.curlScale);
     const uSize = d.dynoFloat(p.size);
@@ -97,6 +123,8 @@ export function initEmbers(params: Partial<EmberParams> = {}): Embers {
                         baseRadius: 'float',
                         rate: 'float',
                         riseSpeed: 'float',
+                        coolTime: 'float',
+                        wind: 'vec3',
                         turbulence: 'float',
                         curlScale: 'float',
                         size: 'float',
@@ -113,6 +141,8 @@ export function initEmbers(params: Partial<EmberParams> = {}): Embers {
                         baseRadius: uBaseRadius,
                         rate: uRate,
                         riseSpeed: uRiseSpeed,
+                        coolTime: uCoolTime,
+                        wind: uWind,
                         turbulence: uTurbulence,
                         curlScale: uCurlScale,
                         size: uSize,
@@ -122,7 +152,7 @@ export function initEmbers(params: Partial<EmberParams> = {}): Embers {
                         heat: uHeat,
                         time: uTime,
                     },
-                    globals: () => [d.defineGsplat, CURL_GLSL],
+                    globals: () => [d.defineGsplat, CURL_GLSL, EMBER_STEPS_GLSL],
                     statements: ({ inputs, outputs }) => {
                         const g = outputs.gsplat;
                         const i = inputs;
@@ -143,17 +173,39 @@ export function initEmbers(params: Partial<EmberParams> = {}): Embers {
                             // and slows as it cools rather than accelerating.
                             float dt = elapsed / float(EMBER_STEPS);
                             for (int k = 0; k < EMBER_STEPS; k++) {
-                                float through = (float(k) + 0.5) / float(EMBER_STEPS);
-                                float buoy = ${i.riseSpeed} * (0.5 + 0.8 * ${i.heat}) * (1.0 - 0.55 * through);
-                                vec3 field = pos * ${i.curlScale} - vec3(0.0, ${i.time} * 0.9, 0.0);
-                                vec3 curl = flameCurl(field) * ${i.turbulence} * (0.3 + through);
-                                pos += (vec3(0.0, buoy, 0.0) + curl) * dt;
+                                // A fraction of the FULL life, not of the walk so
+                                // far — see the note in src/flame.ts. Parameterised
+                                // the other way, the deceleration below flattens into
+                                // a constant speed and the embers never level off.
+                                float through = ((float(k) + 0.5) / float(EMBER_STEPS)) * age;
+                                float secs = through / rate;
+                                float tStep = ${i.time} - elapsed + secs;
+
+                                // Shoot up, then coast: buoyancy bleeds away as the
+                                // ember cools, which is what hands it over to the
+                                // wind instead of firing it out of the top of frame.
+                                float buoy = ${i.riseSpeed} * (0.5 + 0.8 * ${i.heat})
+                                           * exp(-secs / max(${i.coolTime}, 1e-3));
+
+                                vec3 field = pos * ${i.curlScale} - vec3(0.0, tStep * 0.9, 0.0);
+                                vec3 curl = flameCurl(field, tStep * 1.2) * ${i.turbulence} * (0.3 + 1.2 * through);
+
+                                // Sheared breeze: nothing down among the logs, most
+                                // of it once the ember is clear of the fire. Keyed to
+                                // HEIGHT rather than age so embers side by side drift
+                                // together.
+                                float high = clamp((pos.y - ${i.origin}.y) / 2.5, 0.0, 1.0);
+                                vec3 breeze = ${i.wind} * (0.15 + 1.6 * high);
+
+                                pos += (vec3(0.0, buoy, 0.0) + curl + breeze) * dt;
                             }
 
                             // Embers wink as they tumble, and die out rather than
                             // fading smoothly — the flicker is most of the charm.
+                            // The long tail is deliberate: they should be going out
+                            // somewhere out over the grass, not all at one height.
                             float wink = 0.55 + 0.45 * sin(${i.time} * 9.0 + seed * 40.0);
-                            float alpha = smoothstep(0.0, 0.05, age) * (1.0 - smoothstep(0.25, 1.0, age));
+                            float alpha = smoothstep(0.0, 0.05, age) * (1.0 - smoothstep(0.35, 1.0, age));
                             alpha *= ${i.opacity} * wink * (0.25 + 0.9 * ${i.heat});
 
                             vec3 col = mix(${i.hot}, ${i.cool}, smoothstep(0.0, 0.7, age));

@@ -10,10 +10,14 @@ export type Vec3 = [number, number, number];
 // BASE_URL is '/' in dev and '/<base>/' when BASE_PATH is set for a subpath deploy
 // (vite.config.ts), so this resolves either way.
 const BASE = import.meta.env.BASE_URL;
-export const SPLAT_URL = `${BASE}campfire.spz`;
+// LOD-encoded Spark asset (built by `pnpm build:lod` from assets/campfire.spz).
+// The .rad format is what makes Spark's LOD budget (src/performance.ts, and the
+// debug panel's `lod scale` slider) actually take effect — a flat .spz renders
+// every splat every frame no matter what the budget says.
+export const SPLAT_URL = `${BASE}campfire-lod.rad`;
 
 // --- Camera framing (world-space) ---
-export const CAMERA_POSITION: Vec3 = [-0.06, 1.55, -3.4];
+export const CAMERA_POSITION: Vec3 = [0, 0.5, 1];
 export const CAMERA_TARGET: Vec3 = [-0.06, 0.45, -7.64];
 
 // --- World landmarks (world-space) ---

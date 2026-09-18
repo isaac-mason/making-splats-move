@@ -2,8 +2,8 @@ import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+import { createCameraDrift } from './camera-drift';
 import { attachDebugRaycast, createDebugOverlay, updateDebugOverlay } from './debug';
-import { initDust } from './dust';
 import { initEmbers, updateEmbers } from './embers';
 import { initFire, stokeFire, updateFire } from './fire';
 import { initFlame, updateFlame } from './flame';
@@ -29,16 +29,12 @@ function init() {
     const app = document.querySelector<HTMLDivElement>('#app') ?? document.body;
     app.appendChild(renderer.domElement);
 
-    // SparkRenderer drives splat sorting and LOD streaming/updates for the .rad file.
-    // enableLod + enableLodFetching turn on LOD paging (both default true — kept
-    // explicit so the paging contract is obvious). Widen the LOD foveation cone so
-    // splats near the screen corners stay full-res (defaults: coneFov0 90, coneFov
-    // 120, coneFoveate 0.4).
     const spark = new SparkRenderer({
         renderer,
         coneFov0: 120,
         coneFov: 160,
         coneFoveate: 0.5,
+        minAlpha: 0.15 / 255,
     });
     // SparkRenderer is itself a Mesh with quad geometry sitting at the origin, so
     // a debug raycast through it reports hits on a flat plane at z=0 rather than on
@@ -47,9 +43,14 @@ function init() {
     spark.raycast = () => {};
     scene.add(spark);
 
-    // A plain .spz, so every splat is resident and drawn each frame. See the
-    // README for baking an LOD-paged .rad instead.
-    const splat = new SplatMesh({ url: SPLAT_URL });
+    // `paged: true` STREAMS the .rad rather than loading it resident, and that's all
+    // it does — the file loads and gives you LOD either way, because `.rad` is an
+    // auto-detected format (SplatLoader maps the extension to SplatFileType.RAD) and
+    // the LOD tree is encoded in the file. What the flag buys is instant start plus
+    // the paging machinery: SplatPager, and with it the `pagedExtSplats` /
+    // `maxPagedSplats` budget. Pages are pulled with HTTP range requests, so
+    // whatever serves this has to support them.
+    const splat = new SplatMesh({ url: SPLAT_URL, paged: true });
     scene.add(splat);
 
     // Heat shimmer: wobble the scene splats near the fire (see heat.ts).
@@ -57,14 +58,34 @@ function init() {
     splat.worldModifier = heat.modifier;
 
     const controls = new OrbitControls(camera, renderer.domElement);
+    // Off by default. The shipped camera is the fixed framing plus the parallax
+    // lean below — that's the shot. Free-look is a measuring tool, so it lives
+    // behind the debug panel's `orbit camera` toggle.
+    controls.enabled = false;
     controls.enableDamping = true;
     controls.target.set(CAMERA_TARGET[0], CAMERA_TARGET[1], CAMERA_TARGET[2]);
     controls.update();
 
+    // A gentle lean toward the cursor while hovering (mouse only — see the file).
+    // Drives controls.update() itself, so the lean can't compound into its state.
+    const drift = createCameraDrift(camera, controls, renderer.domElement);
+
     // Runtime perf/quality settings (LOD budget, …); the debug panel tweaks these.
     const perf = initPerformance();
 
-    const debug = createDebugOverlay(perf);
+    const debug = createDebugOverlay(perf, {
+        onOrbitChange: (orbit) => {
+            controls.enabled = orbit;
+            if (orbit) return;
+            // Handing the camera back to the presentation shot. Drop the lean
+            // first: it holds an offset it subtracts from camera.position each
+            // frame, and setting the position out from under it would leave that
+            // offset baked in for good.
+            drift.clear();
+            camera.position.set(CAMERA_POSITION[0], CAMERA_POSITION[1], CAMERA_POSITION[2]);
+            controls.target.set(CAMERA_TARGET[0], CAMERA_TARGET[1], CAMERA_TARGET[2]);
+        },
+    });
     scene.add(debug.raycastMarker);
     attachDebugRaycast(debug, camera, scene, renderer.domElement);
 
@@ -79,9 +100,6 @@ function init() {
     // The SplatEdits above light the splats; this real point light is here so that
     // anything you add with a standard material is lit by the fire too.
     scene.add(lighting.pointLight);
-
-    const dust = initDust();
-    scene.add(dust.mesh);
 
     // The flame body: real splats, so the grate and the iron shell occlude it.
     const flame = initFlame();
@@ -120,12 +138,12 @@ function init() {
         spark,
         splat,
         controls,
+        drift,
         debug,
         perf,
         furnace,
         lighting,
         heat,
-        dust,
         flame,
         smoke,
         embers,
@@ -144,7 +162,10 @@ function update(state: State, dt: number, time: number) {
     updateFlame(state.flame, state.furnace);
     updateSmoke(state.smoke, state.furnace, dt);
     updateEmbers(state.embers, state.furnace);
-    state.controls.update();
+    // Replaces controls.update() — camera-drift.ts has to own it so the lean
+    // can't compound into OrbitControls' own state. While free-look is on the
+    // lean stands down, so the two never fight over the camera.
+    state.drift.apply(dt, !state.debug.orbit);
     updateLighting(state.lighting, state.furnace, time, state.debug.showLights);
     updateHeat(state.heat, state.furnace);
     applyPerformance(state.perf, state.spark);

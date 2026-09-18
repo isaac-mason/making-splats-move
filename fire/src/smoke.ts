@@ -108,6 +108,14 @@ export type SmokeParams = {
      * the total is 1 - (1 - a)^n. Forty puffs at a=0.035 comes out at 0.83 — a
      * solid black column, not a haze. Solve it the other way: for a wisp reading
      * about 0.35, a is nearer 0.01.
+     *
+     * But there's a floor, and it isn't the one you'd guess. Spark culls a splat
+     * entirely once its alpha falls under `minAlpha` (see the SparkRenderer set-up
+     * in src/index.ts), so drive this too low and the dispersal tail below never
+     * renders — puffs simply blink out mid-life. Since what matters is `count`
+     * TIMES this, the fix is to trade population for per-splat alpha: half as many
+     * puffs at twice the opacity is the same column, twice as far above the cull,
+     * and half the sorting work.
      */
     opacity: number;
     /** Colour when it leaves the fire (still lit by it) and once it has cooled. */
@@ -116,7 +124,7 @@ export type SmokeParams = {
 };
 
 export const DEFAULT_SMOKE: SmokeParams = {
-    count: 7000,
+    count: 4500,
     baseRadius: 0.16,
     liftOff: 0.55,
     rate: 0.085,
@@ -131,7 +139,7 @@ export const DEFAULT_SMOKE: SmokeParams = {
     gust: 0.55,
     startSize: 0.05,
     endSize: 0.5,
-    opacity: 0.012,
+    opacity: 0.0125,
     warm: new THREE.Color(0.42, 0.36, 0.31),
     cool: new THREE.Color(0.58, 0.59, 0.64),
 };
@@ -344,7 +352,10 @@ export function initSmoke(params: Partial<SmokeParams> = {}): Smoke {
                                 // takes over as the puff slows down.
                                 vec3 field = pos * ${i.curlScale}
                                            - vec3(0.0, ${i.time} * ${i.curlScroll}, 0.0);
-                                vec3 curl = flameCurl(field) * ${i.turbulence} * (0.2 + 1.4 * high);
+                                // Evolves far more slowly than the flame's: a puff lives ten
+                                // seconds, so eddies that turned over on the flame's
+                                // clock would read as the whole column boiling.
+                                vec3 curl = flameCurl(field, ${i.time} * 0.12) * ${i.turbulence} * (0.2 + 1.4 * high);
 
                                 // Wind, sheared — barely any down among the logs. The
                                 // gust phase carries pos.y, so a lull travels UP the
