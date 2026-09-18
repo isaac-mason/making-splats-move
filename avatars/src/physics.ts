@@ -39,11 +39,17 @@ import type { Skeleton } from './bones';
  * bodies, and `pushSkeleton` can't tell which did.
  */
 
-// Assigned by the world rather than chosen: addObjectLayer hands back the index.
-let LAYER_STATIC = 0;
-let LAYER_BODY = 1;
+/**
+ * Object layers, in the order `initPhysicsWorld` registers them.
+ *
+ * Constants with an assertion rather than variables written at startup: as mutable
+ * module state they were the one thing in this file that didn't come from the `world`
+ * argument, so a second world would have silently rewritten them under the first.
+ */
+const LAYER_STATIC = 0;
+const LAYER_BODY = 1;
 /** Collides with nothing. The hand only ever acts through the grab constraint. */
-export let LAYER_HAND = 2;
+export const LAYER_HAND = 2;
 
 export type Puppet = {
     bodies: RigidBody[];
@@ -71,12 +77,17 @@ export function initPhysicsWorld(): World {
     registerAllConstraints();
     const settings = createWorldSettings();
     const broadphase = addBroadphaseLayer(settings);
-    LAYER_STATIC = addObjectLayer(settings, broadphase);
-    LAYER_BODY = addObjectLayer(settings, broadphase);
-    LAYER_HAND = addObjectLayer(settings, broadphase);
+    expectLayer(addObjectLayer(settings, broadphase), LAYER_STATIC);
+    expectLayer(addObjectLayer(settings, broadphase), LAYER_BODY);
+    expectLayer(addObjectLayer(settings, broadphase), LAYER_HAND);
     enableCollision(settings, LAYER_BODY, LAYER_STATIC);
     enableCollision(settings, LAYER_BODY, LAYER_BODY);
     return createWorld(settings);
+}
+
+/** Fail loudly if crashcat ever stops handing back indices in registration order. */
+function expectLayer(got: number, want: number): void {
+    if (got !== want) throw new Error(`physics: expected object layer ${want}, got ${got}`);
 }
 
 /** A big static slab for them to land on. */
@@ -281,7 +292,18 @@ export function readPuppet(puppet: Puppet, skeleton: Skeleton): void {
 
 const rayCollector = createClosestCastRayCollector();
 const raySettings = createDefaultCastRaySettings();
-let rayFilter: ReturnType<typeof layerFilter.forWorld> | null = null;
+/** Keyed by world, so a filter built for one can't be handed to another. */
+const rayFilters = new WeakMap<World, ReturnType<typeof layerFilter.forWorld>>();
+
+function filterFor(world: World): ReturnType<typeof layerFilter.forWorld> {
+    const existing = rayFilters.get(world);
+    if (existing) return existing;
+    const filter = layerFilter.forWorld(world);
+    // Only the puppets: the ground would swallow every click that missed it.
+    filter.bodyFilter = (body) => body.objectLayer === LAYER_BODY;
+    rayFilters.set(world, filter);
+    return filter;
+}
 
 /** Ray against the puppets. See picking.ts for why not against the splats. */
 export function pickBody(
@@ -291,11 +313,6 @@ export function pickBody(
     far: number,
     outPoint: THREE.Vector3,
 ): RigidBody | null {
-    if (!rayFilter) {
-        rayFilter = layerFilter.forWorld(world);
-        // Only the puppets: the ground would swallow every click that missed it.
-        rayFilter.bodyFilter = (body) => body.objectLayer === LAYER_BODY;
-    }
     rayCollector.reset();
     castRay(
         world,
@@ -304,7 +321,7 @@ export function pickBody(
         vec3.fromValues(origin.x, origin.y, origin.z),
         vec3.fromValues(direction.x, direction.y, direction.z),
         far,
-        rayFilter,
+        filterFor(world),
     );
     const { hit } = rayCollector;
     if (hit.status !== CastRayStatus.COLLIDING) return null;
