@@ -1,8 +1,7 @@
 import type { World } from 'crashcat';
 import * as THREE from 'three';
-import { type Avatar, HEAD, initAvatar, PELVIS, poseAvatar, strideLength } from './avatar';
+import { type Avatar, type Expression, HEAD, initAvatar, PELVIS, poseAvatar, pushAvatar, strideLength } from './avatar';
 import { type AvatarParams, randomAvatarParams } from './avatar-params';
-import { pushSkeleton } from './bones';
 import { smoothstep } from './ease';
 import {
     bodyPosition,
@@ -65,10 +64,14 @@ export type Walker = {
     held: boolean;
     /** How much of the walk cycle is showing: 1 walking, 0 standing still. */
     gait: number;
+    /** Seconds to the next blink; negative while the eyes are shut. */
+    blinkIn: number;
 };
 
 export type Crowd = {
     walkers: Walker[];
+    /** Whether walkers travel. Off, they walk on the spot — for studying the gait. */
+    moving: boolean;
 };
 
 /** Metres per second at which the authored gait looks natural. */
@@ -128,9 +131,10 @@ export function initCrowd(world: World, count: number, seed = 1): Crowd {
             sprawlPos: avatar.skeleton.bones.map(() => new THREE.Vector3()),
             held: false,
             gait: 1,
+            blinkIn: nextBlink(),
         });
     }
-    return { walkers };
+    return { walkers, moving: true };
 }
 
 /**
@@ -143,7 +147,14 @@ export function rebuildWalker(world: World, walker: Walker, index: number, avata
     walker.avatar.dispose();
     walker.avatar = avatar;
     walker.puppet = initPuppet(world, avatar, standAt(originScratch, walker), walker.heading, index);
-    walker.state = 'walking';
+    // The new bodies start driven, so anyone who was down is back on their feet.
+    // Everyone else carries on as they were — above all someone being customised,
+    // who is parked with the gait faded out. Knocking them back to 'walking' sends
+    // them gliding off in their standing pose on every slider tick.
+    if (walker.state === 'limp' || walker.state === 'rising') {
+        walker.state = 'walking';
+        walker.gait = 1;
+    }
 }
 
 /** Call this walker to the front to be looked at. */
@@ -188,8 +199,32 @@ const push = new THREE.Vector3();
 const pelvis = new THREE.Vector3();
 const head = new THREE.Vector3();
 
+/** Seconds between blinks, and how long the eyes stay shut. */
+const BLINK_GAP = [2, 5];
+const BLINK_TIME = 0.14;
+/** Still seeing stars this far through getting up. */
+const DIZZY_UNTIL = 0.6;
+
+function nextBlink(): number {
+    return BLINK_GAP[0] + Math.random() * (BLINK_GAP[1] - BLINK_GAP[0]);
+}
+
+/**
+ * The face follows the state: scared while dangling from the pointer, dizzy on the
+ * floor and for the first part of getting up, and otherwise happy, blinking now and
+ * then — a face that never blinks reads as a mask.
+ */
+function expressionFor(w: Walker, dt: number): Expression {
+    if (w.state === 'limp') return w.held ? 'scared' : 'dizzy';
+    if (w.state === 'rising' && w.riseT < DIZZY_UNTIL) return 'dizzy';
+    w.blinkIn -= dt;
+    if (w.blinkIn < -BLINK_TIME) w.blinkIn = nextBlink();
+    return w.blinkIn < 0 ? 'blink' : 'happy';
+}
+
 export function updateCrowd(crowd: Crowd, world: World, dt: number): void {
     for (const w of crowd.walkers) {
+        w.avatar.expression = expressionFor(w, dt);
         if (w.state === 'walking') steer(crowd, w, dt);
         else if (w.state === 'limp') settle(world, w, dt);
         else if (w.state === 'showing') present(w, dt);
@@ -198,7 +233,7 @@ export function updateCrowd(crowd: Crowd, world: World, dt: number): void {
             // Physics owns the pose; the mesh stays wherever it was when they fell,
             // and the bodies are read back into that frame.
             readPuppet(w.puppet, w.avatar.skeleton);
-            pushSkeleton(w.avatar.skeleton, w.avatar.skinning);
+            pushAvatar(w.avatar);
             continue;
         }
 
@@ -217,7 +252,7 @@ export function updateCrowd(crowd: Crowd, world: World, dt: number): void {
             }
             if (w.riseT >= 1) w.state = 'walking';
         }
-        pushSkeleton(w.avatar.skeleton, w.avatar.skinning);
+        pushAvatar(w.avatar);
         drivePuppet(w.puppet, w.avatar.skeleton, dt);
     }
 }
@@ -338,13 +373,15 @@ function steer(crowd: Crowd, w: Walker, dt: number): void {
         w.targetHeading = Math.atan2(-offX, -offZ);
     }
 
-    // Turn toward the target by the shortest way round.
-    let delta = w.targetHeading - w.heading;
-    delta = Math.atan2(Math.sin(delta), Math.cos(delta));
-    w.heading += THREE.MathUtils.clamp(delta, -TURN_RATE * dt, TURN_RATE * dt);
+    if (crowd.moving) {
+        // Turn toward the target by the shortest way round.
+        let delta = w.targetHeading - w.heading;
+        delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+        w.heading += THREE.MathUtils.clamp(delta, -TURN_RATE * dt, TURN_RATE * dt);
 
-    w.position.x += Math.sin(w.heading) * w.speed * dt;
-    w.position.z += Math.cos(w.heading) * w.speed * dt;
+        w.position.x += Math.sin(w.heading) * w.speed * dt;
+        w.position.z += Math.cos(w.heading) * w.speed * dt;
+    }
 
     // One cycle is two steps, hence PI rather than 2PI.
     w.phase += ((Math.PI * w.speed) / strideLength(w.avatar.params)) * dt;

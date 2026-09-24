@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import { EXPRESSIONS, type Expression } from './avatar';
+
 /**
  * Everything the URL can say, read once, with the modes it implies named rather
  * than recomputed at each use.
@@ -28,6 +30,8 @@ export type Options = {
     /** `?bg=ff00ff` — the quickest way to tell "no splats here" from "dark splats here". */
     background: number | null;
 
+    /** `?expression=scared` holds the workbench avatar on one face. */
+    expression: Expression;
     /** `?bend=85` and `?t=1.25` freeze the pose, in radians and seconds. */
     frozenBend: number | null;
     frozenTime: number | null;
@@ -76,6 +80,7 @@ export function readOptions(search = window.location.search): Options {
         cam: vector('cam'),
         look: vector('look'),
         background: url.has('bg') ? Number.parseInt(url.get('bg') as string, 16) : null,
+        expression: EXPRESSIONS.find((e) => e === url.get('expression')) ?? 'happy',
         frozenBend: url.has('bend') ? THREE.MathUtils.degToRad(number('bend', 0)) : null,
         frozenTime: url.has('t') ? number('t', 0) : null,
         bounds: url.has('bounds'),

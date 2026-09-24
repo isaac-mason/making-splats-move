@@ -85,6 +85,11 @@ export type AvatarParams = {
     /** Pupil size within the eye, and how far up or down it sits. */
     pupilSize: number;
     pupilY: number;
+    /**
+     * The white glint in each pupil, as a fraction of the pupil. 0 = none. The
+     * single cheapest thing that turns a stare into a face with someone behind it.
+     */
+    eyeShine: number;
     browGap: number;
     browAngle: number;
     browWidth: number;
@@ -95,7 +100,12 @@ export type AvatarParams = {
     mouthWidth: number;
     mouthThickness: number;
     mouthShape: number;
+    /** Bend in the mouth, in headRadius: positive smiles, negative frowns, 0 is a slot. */
+    mouthCurve: number;
     noseSize: number;
+    /** Rosy cheeks: size as a multiple of eyeSize, and how pink (0 = none). */
+    blushSize: number;
+    blushStrength: number;
 
     // --- Colours (sRGB hex) ---
     skin: string;
@@ -158,52 +168,56 @@ const HAIR_HUES = [
 ];
 
 export const DEFAULT_AVATAR: AvatarParams = {
-    headRadius: 0.32,
-    headWidth: 0.97,
-    headHeight: 1.04,
-    headDepth: 0.95,
-    chinTaper: 0.36,
-    headSit: 1.23,
-    shoulderWidth: 1.55,
+    headRadius: 0.34,
+    headWidth: 1.03,
+    headHeight: 0.98,
+    headDepth: 0.96,
+    chinTaper: 0.2,
+    headSit: 1.16,
+    shoulderWidth: 1.4,
     chestRise: 0.13,
     chestTaper: 0.34,
     torsoRoundness: 2.8,
-    hipY: 0.62,
+    hipY: 0.5,
     hemDrop: 0.05,
-    torsoHeight: 0.42,
-    torsoWidth: 0.145,
+    torsoHeight: 0.36,
+    torsoWidth: 0.15,
     armDrop: 0.075,
-    armLength: 0.38,
-    limbRadius: 0.056,
+    armLength: 0.33,
+    limbRadius: 0.06,
 
     hairThickness: 1.13,
     fringeY: 0.58,
     hairBackY: -0.5,
-    fringePoints: 5,
-    fringeDepth: 0.26,
+    fringePoints: 4,
+    fringeDepth: 0.15,
     fringeSweep: 0.02,
     fringePhase: 0.7,
 
-    eyeSpacing: 0.23,
-    eyeHeight: -0.02,
-    eyeSize: 0.17,
-    eyeWidth: 0.74,
-    eyeTall: 0.95,
-    eyeTopFlat: 2.6,
+    eyeSpacing: 0.25,
+    eyeHeight: -0.1,
+    eyeSize: 0.16,
+    eyeWidth: 0.7,
+    eyeTall: 1.05,
+    eyeTopFlat: 2.2,
     eyeBottomRound: 2.0,
-    eyeOutline: 0.1,
-    pupilSize: 0.46,
-    pupilY: 0.0,
-    browGap: 1.55,
-    browAngle: 0.3,
-    browWidth: 1.15,
-    browThickness: 0.19,
+    eyeOutline: 0.08,
+    pupilSize: 0.66,
+    pupilY: -0.05,
+    eyeShine: 0.32,
+    browGap: 1.75,
+    browAngle: 0.08,
+    browWidth: 0.95,
+    browThickness: 0.14,
     browShape: 3.0,
-    mouthY: -0.44,
-    mouthWidth: 0.19,
-    mouthThickness: 0.024,
+    mouthY: -0.47,
+    mouthWidth: 0.16,
+    mouthThickness: 0.022,
     mouthShape: 3.0,
-    noseSize: 0.06,
+    mouthCurve: 0.07,
+    noseSize: 0.045,
+    blushSize: 0.8,
+    blushStrength: 0.35,
 
     skin: '#f6e3d2',
     shirt: '#e2564d',
@@ -258,6 +272,7 @@ export const AVATAR_RANGES: Record<string, [number, number, number]> = {
     eyeOutline: [0, 0.6, 0.01],
     pupilSize: [0.1, 0.95, 0.01],
     pupilY: [-0.5, 0.5, 0.01],
+    eyeShine: [0, 0.6, 0.01],
     browGap: [0.8, 3.2, 0.05],
     browAngle: [-0.8, 0.8, 0.02],
     browWidth: [0.5, 2.0, 0.05],
@@ -267,7 +282,10 @@ export const AVATAR_RANGES: Record<string, [number, number, number]> = {
     mouthWidth: [0.05, 0.4, 0.005],
     mouthThickness: [0.008, 0.1, 0.002],
     mouthShape: [1.5, 8, 0.1],
+    mouthCurve: [-0.15, 0.2, 0.005],
     noseSize: [0, 0.16, 0.005],
+    blushSize: [0.3, 1.6, 0.02],
+    blushStrength: [0, 1, 0.01],
 
     spacing: [0.005, 0.03, 0.0005],
     hairSpacingScale: [0.3, 1.2, 0.05],
@@ -321,6 +339,7 @@ const AVATAR_LABELS: Record<string, string> = {
     eyeOutline: 'Outline',
     pupilSize: 'Pupil size',
     pupilY: 'Pupil height',
+    eyeShine: 'Shine',
 
     browGap: 'Spacing',
     browAngle: 'Angle',
@@ -331,8 +350,11 @@ const AVATAR_LABELS: Record<string, string> = {
     mouthY: 'Mouth height',
     mouthWidth: 'Mouth width',
     mouthThickness: 'Mouth thickness',
-    mouthShape: 'Mouth curve',
+    mouthShape: 'Mouth ends',
+    mouthCurve: 'Smile',
     noseSize: 'Nose size',
+    blushSize: 'Blush size',
+    blushStrength: 'Blush',
 
     spacing: 'Splat spacing',
     hairSpacingScale: 'Hair detail',
@@ -388,10 +410,14 @@ export const AVATAR_GROUPS: { title: string; keys: string[]; advanced?: boolean 
             'eyeOutline',
             'pupilSize',
             'pupilY',
+            'eyeShine',
         ],
     },
     { title: 'Brows', keys: ['browGap', 'browAngle', 'browWidth', 'browThickness', 'browShape'] },
-    { title: 'Mouth & nose', keys: ['mouthY', 'mouthWidth', 'mouthThickness', 'mouthShape', 'noseSize'] },
+    {
+        title: 'Mouth & cheeks',
+        keys: ['mouthY', 'mouthWidth', 'mouthThickness', 'mouthShape', 'mouthCurve', 'noseSize', 'blushSize', 'blushStrength'],
+    },
     // Splat density and shell construction: the knobs that change how it's BUILT
     // rather than what it looks like. Folded away by default — reach for them when
     // you're tuning cost, not when you're making a face.
@@ -472,6 +498,8 @@ export function randomAvatarParams(seed: number): AvatarParams {
         browThickness: vary(DEFAULT_AVATAR.browThickness, 0.3),
         mouthWidth: vary(DEFAULT_AVATAR.mouthWidth, 0.3),
         mouthY: vary(DEFAULT_AVATAR.mouthY, 0.14),
+        mouthCurve: vary(DEFAULT_AVATAR.mouthCurve, 0.6),
+        blushStrength: vary(DEFAULT_AVATAR.blushStrength, 0.5),
 
         skin: pick(SKIN_TONES),
         hair: pick(HAIR_HUES),

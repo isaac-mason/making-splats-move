@@ -17,9 +17,8 @@ import './style.css';
 // grows from; `?t=2.5` freezes the wavefront at one moment, which is the only way to
 // judge a still frame of something that takes five seconds.
 //
-// The reveal is a `GsplatModifier` — see reveal.ts for why that rather than Spark's
-// built-in SDF edits, which can fade a sphere in but can't send each splat along its
-// own radius.
+// The reveal is a small shader that runs on every splat (see reveal.ts). Spark's
+// built-in edits can fade a sphere in, but they can't move each splat on its own.
 
 type State = {
     options: Options;

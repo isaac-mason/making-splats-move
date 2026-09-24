@@ -19,6 +19,14 @@ export type DebugOverlay = {
     frozen: boolean;
     /** Draw the box the crowd is allowed to wander inside. */
     showBounds: boolean;
+    /**
+     * Skinning on. Off shows the raw splats in their rest pose, bones ignored — and
+     * with them every face the avatar can pull, stacked, since it's the bones that
+     * tuck the unused ones into the skull.
+     */
+    skinning: boolean;
+    /** Walkers travel. Off, they keep walking but stay on the spot. */
+    movement: boolean;
     fields: {
         cam: HTMLSpanElement;
         look: HTMLSpanElement;
@@ -29,11 +37,12 @@ export type DebugOverlay = {
     selected: number;
 };
 
-function createCheckbox(label: string, onChange: (checked: boolean) => void): HTMLLabelElement {
+function createCheckbox(label: string, onChange: (checked: boolean) => void, checked = false): HTMLLabelElement {
     const wrapper = document.createElement('label');
     wrapper.style.cssText = 'display:flex;gap:6px;align-items:center;cursor:pointer;user-select:none';
     const input = document.createElement('input');
     input.type = 'checkbox';
+    input.checked = checked;
     input.addEventListener('change', () => onChange(input.checked));
     wrapper.append(input, label);
     return wrapper;
@@ -100,6 +109,8 @@ export function createDebugOverlay(): DebugOverlay {
         enabled: false,
         frozen: false,
         showBounds: false,
+        skinning: true,
+        movement: true,
         fields: { cam: camRow.value, look: lookRow.value, splats: splatsRow.value, picked: pickedRow.value },
         selected: -1,
     };
@@ -110,11 +121,13 @@ export function createDebugOverlay(): DebugOverlay {
     const bounds = createCheckbox('show walk bounds', (checked) => {
         overlay.showBounds = checked;
     });
+    const skinning = createCheckbox('skinning', (checked) => (overlay.skinning = checked), true);
+    const movement = createCheckbox('movement', (checked) => (overlay.movement = checked), true);
     const hint = document.createElement('div');
     hint.style.cssText = 'opacity:0.5';
     hint.textContent = 'tools are on the bar at the bottom';
 
-    element.append(freeze, bounds, text, hint);
+    element.append(freeze, bounds, skinning, movement, text, hint);
     document.body.appendChild(element);
 
     window.addEventListener('keydown', (event) => {

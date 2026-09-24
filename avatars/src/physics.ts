@@ -192,6 +192,12 @@ export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vecto
                 planeHalfConeAngle: Math.PI / 4,
                 twistMinAngle: -Math.PI / 8,
                 twistMaxAngle: Math.PI / 8,
+                // Well above the world's defaults (10 and 2). The grab pulls on one
+                // limb hard enough to overrun the limits on every joint behind it —
+                // a waist bent to 80-90° against a 45° cone — and the skin can't be
+                // folded that far without stretching thin.
+                numVelocityStepsOverride: 20,
+                numPositionStepsOverride: 8,
             }),
         );
     }
@@ -280,8 +286,21 @@ export function readPuppet(puppet: Puppet, skeleton: Skeleton): void {
         bodyPos.set(body.position[0], body.position[1], body.position[2]).sub(origin).applyQuaternion(yawInv);
 
         skeleton.worldQuat[i].copy(restQuat[i]).invert().premultiply(bodyQuat);
-        offset.copy(skeleton.bones[i].head).sub(restPos[i]).applyQuaternion(skeleton.worldQuat[i]);
-        skeleton.worldPos[i].copy(bodyPos).add(offset);
+        const parent = skeleton.bones[i].parent;
+        if (parent < 0) {
+            offset.copy(skeleton.bones[i].head).sub(restPos[i]).applyQuaternion(skeleton.worldQuat[i]);
+            skeleton.worldPos[i].copy(bodyPos).add(offset);
+        } else {
+            // Children take only their ROTATION from the bodies, and hang off their
+            // parent's joint. The constraints are soft, and a hard pull — the grab,
+            // mostly — drags bodies centimetres apart at the joints (8cm at the waist,
+            // measured). Positioned from their own bodies, the skin bridging that gap
+            // stretches and its splats thin out until you can see through it. Chained
+            // from the parent, the drawn body can't come apart however far the
+            // physics does. Parents come first in the bone list, so theirs is ready.
+            offset.copy(skeleton.bones[i].head).sub(skeleton.bones[parent].head).applyQuaternion(skeleton.worldQuat[parent]);
+            skeleton.worldPos[i].copy(skeleton.worldPos[parent]).add(offset);
+        }
     }
 }
 

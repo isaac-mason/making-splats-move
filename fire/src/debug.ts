@@ -12,6 +12,16 @@ export type DebugOverlay = {
     enabled: boolean;
     /** Whether the SDF light wireframes are drawn (toggled by the checkbox). */
     showLights: boolean;
+    /** Whether the flame generator is drawn. */
+    fireEnabled: boolean;
+    /** Whether the ember generator is drawn. */
+    embersEnabled: boolean;
+    /** Whether the firefly generator is drawn. */
+    firefliesEnabled: boolean;
+    /** Whether the smoke generator is drawn. */
+    smokeEnabled: boolean;
+    /** Whether the fire's SplatEdit lighting (hot core + room ambient) and point light apply. */
+    lightingEnabled: boolean;
     /**
      * Free-look. Off by default: the shipped camera is the fixed framing plus the
      * parallax lean (src/camera-drift.ts), because that's the shot. Orbiting is a
@@ -28,11 +38,12 @@ export type DebugOverlay = {
     lastHit: THREE.Vector3 | null;
 };
 
-function createCheckbox(label: string, onChange: (checked: boolean) => void): HTMLLabelElement {
+function createCheckbox(label: string, onChange: (checked: boolean) => void, checked = false): HTMLLabelElement {
     const wrapper = document.createElement('label');
     wrapper.style.cssText = 'display:flex;gap:6px;align-items:center;cursor:pointer;user-select:none';
     const input = document.createElement('input');
     input.type = 'checkbox';
+    input.checked = checked;
     input.addEventListener('change', () => onChange(input.checked));
     wrapper.append(input, label);
     return wrapper;
@@ -131,6 +142,11 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
         text: document.createElement('div'),
         enabled: false,
         showLights: false,
+        fireEnabled: true,
+        embersEnabled: true,
+        smokeEnabled: true,
+        firefliesEnabled: true,
+        lightingEnabled: true,
         orbit: false,
         furnaceOverride: null,
         raycaster: new THREE.Raycaster(),
@@ -147,6 +163,12 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
         overlay.showLights = checked;
     });
 
+    const fireCheckbox = createCheckbox('fire', (checked) => (overlay.fireEnabled = checked), true);
+    const embersCheckbox = createCheckbox('embers', (checked) => (overlay.embersEnabled = checked), true);
+    const smokeCheckbox = createCheckbox('smoke', (checked) => (overlay.smokeEnabled = checked), true);
+    const firefliesCheckbox = createCheckbox('fireflies', (checked) => (overlay.firefliesEnabled = checked), true);
+    const lightingCheckbox = createCheckbox('lighting', (checked) => (overlay.lightingEnabled = checked), true);
+
     const furnaceSlider = createSlider('fire heat', (value) => {
         overlay.furnaceOverride = value;
     });
@@ -157,7 +179,18 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
 
     overlay.text.style.cssText = 'white-space:pre;user-select:text;-webkit-user-select:text;cursor:text';
 
-    element.append(orbitCheckbox, lightsCheckbox, furnaceSlider, lodSlider, overlay.text);
+    element.append(
+        orbitCheckbox,
+        lightsCheckbox,
+        fireCheckbox,
+        embersCheckbox,
+        smokeCheckbox,
+        firefliesCheckbox,
+        lightingCheckbox,
+        furnaceSlider,
+        lodSlider,
+        overlay.text,
+    );
     document.body.appendChild(element);
 
     window.addEventListener('keydown', (event) => {

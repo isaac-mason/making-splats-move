@@ -6,6 +6,7 @@ import { createCameraDrift } from './camera-drift';
 import { attachDebugRaycast, createDebugOverlay, updateDebugOverlay } from './debug';
 import { initEmbers, updateEmbers } from './embers';
 import { initFire, stokeFire, updateFire } from './fire';
+import { initFireflies } from './fireflies';
 import { initFlame, updateFlame } from './flame';
 import { initFurnace, updateFurnace } from './furnace';
 import { initHeat, updateHeat } from './heat';
@@ -115,6 +116,11 @@ function init() {
     const embers = initEmbers();
     scene.add(embers.object);
 
+    // Fireflies out in the dark past the fire. They don't read the furnace, so
+    // there's no update call — the generator animates itself.
+    const fireflies = initFireflies();
+    scene.add(fireflies.object);
+
     // The fire tends itself: resting burn, self-crackles, and an ember trickle.
     const fire = initFire(furnace);
 
@@ -147,6 +153,7 @@ function init() {
         flame,
         smoke,
         embers,
+        fireflies,
         fire,
     };
 }
@@ -158,6 +165,16 @@ function update(state: State, time: number, dt: number) {
     state.furnace.override = state.debug.furnaceOverride;
     updateFire(state.fire, state.furnace, dt);
     updateFurnace(state.furnace, dt);
+
+    // Debug-panel toggles. Spark only gathers visible generators and edits, so
+    // hiding them is enough to take them out of the frame.
+    state.flame.object.visible = state.debug.fireEnabled;
+    state.embers.object.visible = state.debug.embersEnabled;
+    state.smoke.object.visible = state.debug.smokeEnabled;
+    state.fireflies.object.visible = state.debug.firefliesEnabled;
+    state.lighting.coreLayer.visible = state.debug.lightingEnabled;
+    state.lighting.ambientLayer.visible = state.debug.lightingEnabled;
+    state.lighting.pointLight.visible = state.debug.lightingEnabled;
 
     updateFlame(state.flame, state.furnace);
     updateSmoke(state.smoke, state.furnace, dt);

@@ -1,18 +1,10 @@
 # making-splats-move
 
-Gaussian splats are beautiful, and completely inert — a splat file is a frozen
-photograph you can walk around in. These are examples of making one *move*: taking a
-static splat scene and giving it life, in the browser, with [Spark][spark] and
-[three.js][three].
-
 | Example | What it does |
 | --- | --- |
 | [`fire/`](fire) | A campfire under a starry sky: a procedural splat flame, splat-space lighting, heat shimmer and embers. |
 | [`wind/`](wind) | Trees swaying in a splat city: foliage displaced in Spark's draw-time splat shader, with an edit mode for placing the volumes. |
 | [`dust/`](dust) | Dust motes drifting through a splat greenhouse: a stateless procedural particle generator. |
-
-Each example is a standalone Vite app in its own top-level directory, with its own
-`package.json` and assets — so you can copy one out and run it on its own.
 
 ## Quick start
 

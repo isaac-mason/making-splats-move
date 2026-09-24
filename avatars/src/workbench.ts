@@ -106,8 +106,10 @@ export function updateWorkbench(bench: Workbench, options: Options, posedTime: n
     }
     if (bench.editor) updateAvatarEditor(bench.editor);
     if (bench.rig) {
-        if (bench.rig.kind === 'avatar') updateAvatar(bench.rig, posedTime * SOLO_GAIT);
-        else updateFigure(bench.rig, posedTime * SOLO_GAIT);
+        if (bench.rig.kind === 'avatar') {
+            bench.rig.expression = options.expression;
+            updateAvatar(bench.rig, posedTime * SOLO_GAIT);
+        } else updateFigure(bench.rig, posedTime * SOLO_GAIT);
     }
     for (const avatar of bench.benchmark) updateAvatar(avatar, posedTime * SOLO_GAIT);
 }

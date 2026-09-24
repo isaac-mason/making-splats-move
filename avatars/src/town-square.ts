@@ -132,6 +132,16 @@ export function initTownSquare(context: TownSquareContext): TownSquare {
 export function updateTownSquare(square: TownSquare, dt: number): void {
     const { camera, controls, debug } = square.context;
     square.boundsBox.visible = debug.showBounds;
+    square.crowd.moving = debug.movement;
+    // Checked every frame rather than on the toggle, so a walker rebuilt by the
+    // editor — which comes back skinned — follows the panel too.
+    for (const w of square.crowd.walkers) {
+        const skinning = debug.skinning ? w.avatar.skinning : null;
+        if (w.avatar.mesh.skinning === skinning) continue;
+        w.avatar.mesh.skinning = skinning;
+        // Skinning is compiled into the mesh's generator, so swapping it rebuilds that.
+        w.avatar.mesh.updateGenerator();
+    }
     updateAvatarEditor(square.editor);
     if (!debug.frozen) {
         // Physics first, so a walker reads the step that just happened.

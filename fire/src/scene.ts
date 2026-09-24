@@ -28,3 +28,11 @@ export const SPARK_ORIGIN: Vec3 = [-0.06, 0.4, -7.64]; // where embers leave the
 // read the `hit` line). The stone ring is about 0.5 across with the logs at its
 // centre, so the flame sits on top of them rather than inside anything.
 export const FLAME_ORIGIN: Vec3 = [-0.06, 0.3, -7.64];
+
+// Fireflies hang in the dark beyond the fire: a wedge that starts at FIREFLY_NEAR and
+// runs back into the trees (towards -z) by FIREFLY_EXTENT. NEAR started from a
+// camera position picked in the debug panel (not a raycast hit), shifted over to
+// +x, so the box is centred on the height of the eye rather than sitting on the ground.
+export const FIREFLY_NEAR: Vec3 = [1.5, 1.59, -23.52];
+export const FIREFLY_EXTENT: Vec3 = [16, 1.8, 22]; // width (x), height (y), depth (-z)
+export const FIREFLY_BACK_WIDTH = 40; // the box flares out to this width at the back

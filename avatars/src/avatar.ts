@@ -1,7 +1,7 @@
 import { SplatMesh, SplatSkinning, SplatSkinningMode } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import { type AvatarParams, DEFAULT_AVATAR } from './avatar-params';
-import { type BoneDef, initSkeleton, poseSkeleton, pushSkeleton, type Skeleton, weightsForPoint } from './bones';
+import { type BoneDef, initSkeleton, poseSkeleton, pushSkeleton, type Skeleton, setBoneWorld, weightsForPoint } from './bones';
 import { addCapsule, addDecal, addLoft, addSphere, createShell, lidShape, splatColor, superellipse } from './shell';
 
 /**
@@ -29,12 +29,55 @@ const SHIN_L = 8;
 const THIGH_R = 9;
 const SHIN_R = 10;
 
+/**
+ * Faces the avatar can pull.
+ *
+ * A face is assembled from PARTS — a pair of eyes, a pair of brows, a mouth — and
+ * every variant of every part is built into the mesh on its own bone that rides the
+ * head. `pushAvatar` leaves the parts the current expression uses on the face and
+ * pulls the rest back inside the skull, where the skin hides them. So changing
+ * expression is a bone move — no rebuild, and it can happen every frame.
+ *
+ * Parts rather than whole faces so that expressions sharing a feature share the
+ * SPLATS: a blink swaps the eyes and nothing else. Swap whole faces and the mouth and
+ * brows are traded for identical copies on every blink, which pops.
+ */
+export const EXPRESSIONS = ['happy', 'blink', 'scared', 'dizzy'] as const;
+export type Expression = (typeof EXPRESSIONS)[number];
+
+const FACE_PARTS = [
+    'eyesOpen',
+    'eyesShut',
+    'eyesWide',
+    'eyesCrossed',
+    'browsCalm',
+    'browsWorried',
+    'browsDizzy',
+    'mouthSmile',
+    'mouthO',
+    'mouthWobble',
+] as const;
+type FacePart = (typeof FACE_PARTS)[number];
+
+const EXPRESSION_PARTS: Record<Expression, readonly FacePart[]> = {
+    happy: ['eyesOpen', 'browsCalm', 'mouthSmile'],
+    blink: ['eyesShut', 'browsCalm', 'mouthSmile'],
+    scared: ['eyesWide', 'browsWorried', 'mouthO'],
+    dizzy: ['eyesCrossed', 'browsDizzy', 'mouthWobble'],
+};
+
+/** How far an inactive face is pulled back into the head, in headRadius. */
+const FACE_HIDE_DEPTH = 0.5;
+
 // Distance between adjacent splats on a surface. Tightening this is what buys
 // sharpness — see OVERLAP in shell.ts — at a cost of splats going as 1/spacing².
 
 function v(x: number, y: number, z: number) {
     return new THREE.Vector3(x, y, z);
 }
+
+/** What a face feature supplies; the decal helper in initAvatar fills in the rest. */
+type FaceDecal = Omit<Parameters<typeof addDecal>[1], 'centre' | 'surface' | 'spacing' | 'owner'>;
 
 export type Avatar = {
     /** Discriminant: these two are otherwise structurally identical. */
@@ -50,6 +93,10 @@ export type Avatar = {
     mesh: SplatMesh;
     skinning: SplatSkinning;
     skeleton: Skeleton;
+    /** Which face is showing. Set it freely; `pushAvatar` applies it. */
+    expression: Expression;
+    /** Skinning index of the first face bone — one per FACE_PARTS entry, after the skeleton's. */
+    faceBone: number;
     /**
      * `mesh.dispose()` is not enough: SplatSkinning owns two GPU textures nothing
      * else releases, and a few seconds of dragging a slider leaks hundreds of MB.
@@ -78,6 +125,7 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
     const shoe = splatColor(p.shoes);
     const dark = splatColor('#1b1a20');
     const sclera = splatColor('#f8f5f1');
+    const blush = skin.clone().lerp(splatColor('#ff7f93'), p.blushStrength);
 
     const shoulderX = torsoWidth * p.shoulderWidth * 0.92;
     const elbow = v(shoulderX + armLength * 0.36, shoulderY - armLength * 0.45, 0);
@@ -147,19 +195,55 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
     // An EGG, not a sphere: narrow, tall, tapering to a rounded chin. A sphere reads
     // as a ball with a face drawn on it — the chin is what makes it a head.
     const headTaper = (uy: number) => 1 - p.chinTaper * Math.max(0, -uy) ** 1.5;
-    addSphere(shell, v(0, headY, 0), headRadius, p.spacing, skin, HEAD, {
-        layers: p.layers,
-        radii: v(headRadius * p.headWidth, headRadius * p.headHeight, headRadius * p.headDepth),
-        taper: headTaper,
-    });
 
-    // Hair as a VOLUME on the skull, not paint: at 1.04x radius it has no silhouette
-    // of its own, at 1.13x it reads as a mass with thickness.
+    // Where the hair covers the skull, by which way a point faces on the unit sphere.
+    // `lift` raises the cut at the front only — see the scalp below.
     //
     // The cut line depends on which way each point faces — straight above the brows,
     // dropping past the ears behind; a single minY threshold gives a bathing cap.
     // Carving that edge with a predicate is nearly free, where separate tufts would
     // each need building, placing, weighting and blending into the cap.
+    const hairCovers = (u: THREE.Vector3, lift = 0) => {
+        const front = Math.max(0, u.z);
+        // Squared, so the cut fades back to a straight line around the temples
+        // and leaves the sideburns clean.
+        const frontness = front * front;
+        const cut = THREE.MathUtils.lerp(p.hairBackY, p.fringeY, frontness);
+        const az = Math.atan2(u.x, Math.max(u.z, 1e-4));
+        // A TRIANGLE wave, not a cosine: that's scalloped versus jagged. A cosine
+        // has zero gradient at its peaks, so every point arrives blunt.
+        const cycles = az * p.fringePoints * 0.55 + p.fringePhase;
+        const tooth = 1 - 2 * Math.abs(cycles - Math.floor(cycles) - 0.5);
+        // ...plus one slow sweep, which gives a parting rather than symmetry.
+        const sweep = p.fringeSweep * Math.sin(az + p.fringePhase);
+        return u.y > cut + (lift - p.fringeDepth * tooth - sweep) * frontness;
+    };
+
+    // The skull, in two colours: skin, and hair wherever the hair will cover it. The
+    // hair is a thin shell of soft discs, so a little of whatever is under it always
+    // shows through — paint that the hair's colour and the gaps vanish, where making
+    // the hair denser only makes them smaller and costs splats doing it.
+    //
+    // The painted edge is pulled up behind the fringe. The hair shell is bigger than
+    // the skull, so seen from the front its edge sits HIGHER than the same point on
+    // the skull; cut them at the same place and a dark band shows under the fringe.
+    const skullRadii = v(headRadius * p.headWidth, headRadius * p.headHeight, headRadius * p.headDepth);
+    const SCALP_LIFT = 0.14;
+    addSphere(shell, v(0, headY, 0), headRadius, p.spacing, skin, HEAD, {
+        layers: p.layers,
+        radii: skullRadii,
+        taper: headTaper,
+        keep: (u) => !hairCovers(u, SCALP_LIFT),
+    });
+    addSphere(shell, v(0, headY, 0), headRadius, p.spacing, hair, HEAD, {
+        layers: p.layers,
+        radii: skullRadii,
+        taper: headTaper,
+        keep: (u) => hairCovers(u, SCALP_LIFT),
+    });
+
+    // Hair as a VOLUME on the skull, not paint: at 1.04x radius it has no silhouette
+    // of its own, at 1.13x it reads as a mass with thickness.
     addSphere(shell, v(0, headY, 0), headRadius, p.spacing * p.hairSpacingScale, hair, HEAD, {
         layers: p.layers,
         radii: v(
@@ -168,30 +252,38 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
             headRadius * p.headDepth * p.hairThickness,
         ),
         taper: headTaper,
-        keep: (u) => {
-            const front = Math.max(0, u.z);
-            // Squared, so the cut fades back to a straight line around the temples
-            // and leaves the sideburns clean.
-            const frontness = front * front;
-            const cut = THREE.MathUtils.lerp(p.hairBackY, p.fringeY, frontness);
-            const az = Math.atan2(u.x, Math.max(u.z, 1e-4));
-            // A TRIANGLE wave, not a cosine: that's scalloped versus jagged. A cosine
-            // has zero gradient at its peaks, so every point arrives blunt.
-            const cycles = az * p.fringePoints * 0.55 + p.fringePhase;
-            const tooth = 1 - 2 * Math.abs(cycles - Math.floor(cycles) - 0.5);
-            // ...plus one slow sweep, which gives a parting rather than symmetry.
-            const sweep = p.fringeSweep * Math.sin(az + p.fringePhase);
-            return u.y > cut - (p.fringeDepth * tooth + sweep) * frontness;
-        },
+        keep: (u) => hairCovers(u),
     });
 
-    // Face. Everything sits just proud of the skull so it draws in front of it.
-    // The character faces +Z.
-    const faceR = headRadius * 1.012;
+    // Face. Everything sits proud of the skull so it draws in front of it — far
+    // enough that the skin's own soft discs, which reach past its surface, can't sort
+    // over a feature and bleed pale into it. Every feature is placed relative to this,
+    // so raising it lifts the whole face at once. The character faces +Z.
+    const faceR = headRadius * 1.025;
     const eyeX = headRadius * p.eyeSpacing;
     const eyeY = headY + headRadius * p.eyeHeight;
     const eyeSize = headRadius * p.eyeSize;
     const headCentre = v(0, headY, 0);
+
+    // Distance to the skin along a direction, in headRadius — what the face decals
+    // wrap onto. The head is a tapered ellipsoid, and a feature laid on a sphere
+    // instead stands proud of the cheeks and sinks under the chin. The taper depends
+    // on the lattice's y rather than the direction's, so a few fixed-point steps
+    // converge on it.
+    const headRadii = v(p.headWidth, p.headHeight, p.headDepth);
+    const headSurface = (dir: THREE.Vector3) => {
+        let uy = dir.y;
+        let t = 1;
+        for (let k = 0; k < 4; k++) {
+            const taper = headTaper(uy);
+            const x = dir.x / (headRadii.x * taper);
+            const y = dir.y / headRadii.y;
+            const z = dir.z / (headRadii.z * taper);
+            t = 1 / Math.sqrt(x * x + y * y + z * z);
+            uy = THREE.MathUtils.clamp((t * dir.y) / headRadii.y, -1, 1);
+        }
+        return t;
+    };
 
     // Building the vector and normalising ONCE matters: normalise (x, y) and then set
     // z and the proportion between them is gone, pinning every eye to the side.
@@ -202,87 +294,198 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
     const eyeOutline = lidShape(p.eyeTopFlat, p.eyeBottomRound);
     const featureSpacing = p.spacing * p.featureSpacingScale;
 
-    for (const sx of [1, -1]) {
-        const eyeDir = faceDir(sx * eyeX, eyeY - headY);
-
-        // THREE shapes, and their proportions matter more than any one: outline,
-        // a white fill taking most of the area, then the pupil. A thin sclera around
-        // a big pupil reads as startled.
-        //
-        // Three filled decals stacked outward rather than a true annulus: no seam
-        // where a ring meets its fill, and the sort can't swap them and flicker.
+    const decal = (owner: number, opts: FaceDecal) =>
         addDecal(shell, {
             centre: headCentre,
-            dir: eyeDir,
-            radius: faceR * 1.005,
-            halfWidth: eyeSize * p.eyeWidth,
-            halfHeight: eyeSize * p.eyeTall,
-            inside: eyeOutline,
+            surface: headSurface,
             spacing: featureSpacing,
             sizeScale: p.decalSize,
-            color: dark,
-            owner: HEAD,
+            owner,
+            ...opts,
         });
+
+    // Mouths sit a little further out than the rest of the face. They're thin dark
+    // strokes on light skin, so any skin splat that sorts in front of one shows as
+    // the line bleeding pale; the extra lift keeps them clear.
+    const mouthR = faceR * 1.02;
+
+    // A stroke of constant thickness along a curve, thinning to points at the ends.
+    // `rise(u)` is the curve's height across the decal, u in [-1, 1], in world units —
+    // a smile, a closed eye and a wobble are all this with a different curve.
+    const stroke = (
+        owner: number,
+        dir: THREE.Vector3,
+        halfWidth: number,
+        thickness: number,
+        amplitude: number,
+        rise: (u: number) => number,
+        radius = mouthR,
+    ) => {
+        const halfHeight = thickness + amplitude;
+        decal(owner, {
+            dir,
+            radius,
+            halfWidth,
+            halfHeight,
+            inside: (u, vv) => {
+                const ends = Math.max(0, 1 - Math.abs(u) ** p.mouthShape) ** (1 / p.mouthShape);
+                return Math.abs(vv * halfHeight - rise(u)) <= thickness * ends;
+            },
+            sizeScale: 1,
+            color: dark,
+        });
+    };
+
+    // Outline, a white fill taking most of the area, then the pupil and its glint.
+    // Their proportions matter more than any one of them: a thin sclera around a big
+    // pupil reads as friendly, a big sclera round a pinprick reads as terrified.
+    //
+    // Filled decals stacked outward rather than a true annulus: no seam where a ring
+    // meets its fill, and the sort can't swap them and flicker.
+    const eye = (owner: number, sx: number, look: { wide: number; tall: number; pupil: number; shine: number }) => {
+        const eyeDir = faceDir(sx * eyeX, eyeY - headY);
+        const w = eyeSize * p.eyeWidth * look.wide;
+        const h = eyeSize * p.eyeTall * look.tall;
+        decal(owner, { dir: eyeDir, radius: faceR * 1.005, halfWidth: w, halfHeight: h, inside: eyeOutline, color: dark });
         // A CONSTANT inset, not a scale factor: scaling a tall outline leaves the rim
         // thicker top and bottom than at the sides.
         const rim = eyeSize * p.eyeOutline;
-        addDecal(shell, {
-            centre: headCentre,
+        decal(owner, {
             dir: eyeDir,
             radius: faceR * 1.012,
-            halfWidth: Math.max(1e-4, eyeSize * p.eyeWidth - rim),
-            halfHeight: Math.max(1e-4, eyeSize * p.eyeTall - rim),
+            halfWidth: Math.max(1e-4, w - rim),
+            halfHeight: Math.max(1e-4, h - rim),
             inside: eyeOutline,
-            spacing: featureSpacing,
-            sizeScale: p.decalSize,
             color: sclera,
-            owner: HEAD,
         });
-        addDecal(shell, {
-            centre: headCentre,
-            dir: faceDir(sx * eyeX, eyeY - headY + eyeSize * p.pupilY),
+        const pupilW = eyeSize * p.eyeWidth * look.pupil;
+        const pupilH = eyeSize * p.eyeTall * look.pupil;
+        const pupilY = eyeY - headY + eyeSize * p.pupilY * look.tall;
+        decal(owner, {
+            dir: faceDir(sx * eyeX, pupilY),
             radius: faceR * 1.02,
-            halfWidth: eyeSize * p.eyeWidth * p.pupilSize,
-            halfHeight: eyeSize * p.eyeTall * p.pupilSize,
+            halfWidth: pupilW,
+            halfHeight: pupilH,
             inside: superellipse(2),
-            spacing: featureSpacing,
-            sizeScale: p.decalSize,
             color: dark,
-            owner: HEAD,
         });
+        // The glint. Up and to the same side on BOTH eyes — it's a reflection of one
+        // light, and mirroring it makes them look cross-eyed. A second, smaller one
+        // lower down is pure cartoon, and most of what makes these read as cute.
+        if (look.shine > 0) {
+            for (const [ox, oy, size] of [
+                [0.38, 0.42, 1],
+                [-0.3, -0.38, 0.45],
+            ]) {
+                const r = pupilW * look.shine * size;
+                decal(owner, {
+                    dir: faceDir(sx * eyeX + pupilW * ox, pupilY + pupilH * oy),
+                    radius: faceR * 1.028,
+                    halfWidth: r,
+                    halfHeight: r,
+                    inside: superellipse(2),
+                    color: sclera,
+                });
+            }
+        }
+    };
 
-        // A rounded BAR, not an ellipse — squarer ends give it weight. The inner end
-        // sits lower, which is most of the expression.
-        const browDir = faceDir(sx * eyeX * 1.04, eyeY - headY + eyeSize * p.browGap);
-        addDecal(shell, {
-            centre: headCentre,
-            dir: browDir,
+    // A rounded BAR, not an ellipse — squarer ends give it weight. The inner end
+    // sits lower, which is most of the expression; negative angles lift it instead.
+    const brow = (owner: number, sx: number, gap: number, angle: number) =>
+        decal(owner, {
+            dir: faceDir(sx * eyeX * 1.04, eyeY - headY + eyeSize * gap),
             radius: faceR * 1.015,
             halfWidth: eyeSize * p.browWidth,
             halfHeight: eyeSize * p.browThickness,
-            roll: sx * p.browAngle,
+            roll: sx * angle,
             inside: superellipse(p.browShape),
-            spacing: featureSpacing,
-            sizeScale: p.decalSize,
             color: hair,
-            owner: HEAD,
         });
+
+    const mouthDir = faceDir(0, headRadius * p.mouthY);
+    const mouthThick = headRadius * p.mouthThickness;
+    // mouthCurve > 0 lifts the corners into a smile; 0 leaves the flat slot.
+    const smile = (owner: number) => {
+        const bend = headRadius * p.mouthCurve;
+        stroke(owner, mouthDir, headRadius * p.mouthWidth, mouthThick, Math.abs(bend) / 2, (u) => bend * (u * u - 0.5));
+    };
+
+    const faceBone = BONES.length;
+    const part = (name: FacePart) => faceBone + FACE_PARTS.indexOf(name);
+
+    for (const sx of [1, -1]) {
+        eye(part('eyesOpen'), sx, { wide: 1, tall: 1, pupil: p.pupilSize, shine: p.eyeShine });
+        // Wide and tall with pinprick pupils: frightened.
+        eye(part('eyesWide'), sx, { wide: 1.12, tall: 1.25, pupil: p.pupilSize * 0.42, shine: p.eyeShine * 1.3 });
+
+        // Shut, as a little arch — the ^ ^ of a contented squint, which reads as a
+        // smile with the eyes rather than as someone nodding off.
+        const arch = eyeSize * p.eyeTall * 0.45;
+        stroke(
+            part('eyesShut'),
+            faceDir(sx * eyeX, eyeY - headY),
+            eyeSize * p.eyeWidth * 1.05,
+            eyeSize * 0.13,
+            arch / 2,
+            (u) => -arch * (u * u - 0.5),
+            faceR * 1.012,
+        );
+
+        // An X for each eye. Two bars, clipped to a disc so the arms finish round
+        // rather than as the corners of a square.
+        const size = eyeSize * Math.min(p.eyeWidth, p.eyeTall) * 1.05;
+        decal(part('eyesCrossed'), {
+            dir: faceDir(sx * eyeX, eyeY - headY),
+            radius: faceR * 1.012,
+            halfWidth: size,
+            halfHeight: size,
+            inside: (u, vv) => (Math.abs(u - vv) < 0.3 || Math.abs(u + vv) < 0.3) && u * u + vv * vv < 1.15,
+            color: dark,
+        });
+
+        brow(part('browsCalm'), sx, p.browGap, p.browAngle);
+        // Shot up and tilted to worry — inner ends raised.
+        brow(part('browsWorried'), sx, p.browGap * 1.4, -0.4);
+        brow(part('browsDizzy'), sx, p.browGap * 1.15, -0.25);
     }
 
-    // A slot: flat and wide reads as composed, curved reads as cartoon. Squarer than
-    // an ellipse so the ends don't taper to nothing.
-    const mouthDir = faceDir(0, headRadius * p.mouthY);
-    addDecal(shell, {
-        centre: headCentre,
-        dir: mouthDir,
-        radius: faceR * 1.008,
-        halfWidth: headRadius * p.mouthWidth,
-        halfHeight: headRadius * p.mouthThickness,
-        inside: superellipse(p.mouthShape),
-        spacing: featureSpacing,
+    smile(part('mouthSmile'));
+    // A small round "o".
+    decal(part('mouthO'), {
+        dir: faceDir(0, headRadius * (p.mouthY - 0.02)),
+        radius: mouthR,
+        halfWidth: headRadius * 0.055,
+        halfHeight: headRadius * 0.075,
+        inside: superellipse(2),
+        sizeScale: 1,
         color: dark,
-        owner: HEAD,
     });
+    // A wobble: one and a bit waves across the mouth.
+    const wobble = headRadius * 0.022;
+    stroke(
+        part('mouthWobble'),
+        mouthDir,
+        headRadius * p.mouthWidth * 1.1,
+        mouthThick,
+        wobble,
+        (u) => wobble * Math.sin(u * Math.PI * 2.5),
+    );
+
+    // Rosy cheeks, out and down from each eye, on every face. Just proud of the skin
+    // and under everything else, so a big blush can't cover the eyes.
+    if (p.blushStrength > 0) {
+        for (const sx of [1, -1]) {
+            decal(HEAD, {
+                dir: faceDir(sx * eyeX * 1.4, eyeY - headY - eyeSize * 1.35),
+                radius: faceR * 1.003,
+                halfWidth: eyeSize * p.blushSize,
+                halfHeight: eyeSize * p.blushSize * 0.6,
+                inside: superellipse(2),
+                color: blush,
+            });
+        }
+    }
 
     // Nose: barely there, just a soft shadow under the eyes.
     addSphere(
@@ -373,19 +576,28 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
     const skinning = new SplatSkinning({
         mesh,
         numSplats: mesh.numSplats,
-        numBones: BONES.length,
+        numBones: BONES.length + FACE_PARTS.length,
         mode: SplatSkinningMode.DUAL_QUATERNION,
     });
 
     const restQuat = new THREE.Quaternion();
     for (let b = 0; b < BONES.length; b++) skinning.setRestQuatPos(b, restQuat, BONES[b].head);
+    // Face bones rest exactly where the head does, so at rest they ARE the head.
+    for (let k = 0; k < FACE_PARTS.length; k++) skinning.setRestQuatPos(faceBone + k, restQuat, BONES[HEAD].head);
 
     // Distance falloff, BIASED toward the bone that authored each splat — which is
     // what keeps the hands from grabbing the hips as the arms swing past them.
     const indices = new THREE.Vector4();
     const weights = new THREE.Vector4();
     for (let i = 0; i < shell.centers.length; i++) {
-        weightsForPoint(shell.centers[i], BONES, indices, weights, shell.owners[i]);
+        if (shell.owners[i] >= faceBone) {
+            // Face features belong wholly to their face bone: blending one with its
+            // neighbours would leave half of a hidden expression showing.
+            indices.set(shell.owners[i], 0, 0, 0);
+            weights.set(1, 0, 0, 0);
+        } else {
+            weightsForPoint(shell.centers[i], BONES, indices, weights, shell.owners[i]);
+        }
         skinning.setSplatBones(i, indices, weights);
     }
     skinning.skinTexture.needsUpdate = true;
@@ -402,6 +614,8 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
         mesh,
         skinning,
         skeleton,
+        expression: 'happy',
+        faceBone,
         dispose() {
             skinning.skinTexture.dispose();
             skinning.boneTexture.dispose();
@@ -488,5 +702,26 @@ export function poseAvatar(avatar: Avatar, phase: number, gait = 1): void {
  */
 export function updateAvatar(avatar: Avatar, phase: number): void {
     poseAvatar(avatar, phase);
-    pushSkeleton(avatar.skeleton, avatar.skinning);
+    pushAvatar(avatar);
+}
+
+const faceRest = new THREE.Quaternion();
+const facePos = new THREE.Vector3();
+
+/**
+ * Hand the pose to Spark, face included. Every face bone copies the head's
+ * transform; all but the current expression's parts are also pushed back along the head's
+ * own -Z, into the skull. Use this rather than `pushSkeleton`, which knows nothing
+ * of faces and would leave them at rest while the head walks off.
+ */
+export function pushAvatar(avatar: Avatar): void {
+    const { skeleton, skinning } = avatar;
+    const headQuat = skeleton.worldQuat[HEAD];
+    const showing = EXPRESSION_PARTS[avatar.expression];
+    for (let k = 0; k < FACE_PARTS.length; k++) {
+        facePos.set(0, 0, showing.includes(FACE_PARTS[k]) ? 0 : -avatar.params.headRadius * FACE_HIDE_DEPTH);
+        facePos.applyQuaternion(headQuat).add(skeleton.worldPos[HEAD]);
+        setBoneWorld(skinning, avatar.faceBone + k, faceRest, skeleton.bones[HEAD].head, headQuat, facePos);
+    }
+    pushSkeleton(skeleton, skinning);
 }

@@ -19,7 +19,10 @@ export const CAMERA_TARGET: Vec3 = [-0.44, 2.59, -3.67];
 // The town hall is at -z and the capture peters out toward +z, where the
 // photographer stood; crowd and camera both have to stay this side of that edge or
 // they end up in the void. `?bounds` draws the box — use it before moving these.
-export const GROUND_Y = 0;
+// A touch above the paving's own splats, which are soft and have depth: stand feet at
+// exactly 0 and the soles sink into the stone. Raises the physics floor and where the
+// walkers stand together, so fallen ones lie at the same height they walk at.
+export const GROUND_Y = 0.03;
 export const WALK_CENTER: Vec3 = [-0.48, 0, -11.18];
 export const WALK_BOUNDS_X = 3.8;
 export const WALK_BOUNDS_Z = 3.5;

@@ -378,6 +378,12 @@ export function addDecal(
         halfHeight: number;
         /** Rotation within the decal's own plane, in radians. */
         roll?: number;
+        /**
+         * Multiplier on `radius` along each direction from `centre`, so the decal can
+         * wrap a surface that isn't a sphere. Without it, on an ellipsoid head the
+         * features float off the face at some angles and sink under it at others.
+         */
+        surface?: (dir: THREE.Vector3) => number;
         inside: (u: number, v: number) => boolean;
         spacing: number;
         color: THREE.Color;
@@ -418,7 +424,10 @@ export function addDecal(
                 .addScaledVector(up, dv * halfHeight);
             // Push back out to the sphere so the decal follows the face's curve.
             normal.copy(point).normalize();
-            point.copy(normal).multiplyScalar(radius).add(centre);
+            point
+                .copy(normal)
+                .multiplyScalar(radius * (opts.surface ? opts.surface(normal) : 1))
+                .add(centre);
             jitter(shell, point, normal, spacing);
             addDisc(shell, point, normal, spacing, color, owner, opts.sizeScale ?? 1);
         }

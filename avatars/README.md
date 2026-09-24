@@ -254,6 +254,8 @@ than a finished character does.
   view.** Judging a solid head-on is how a head ends up buried inside a chest:
   front-on, an intersection and a clean join look identical
 - `?seed=3` rolls different proportions and colours; seed 1 is the authored look
+- `?expression=happy|blink|scared|dizzy` holds one face. In the square the face
+  follows the walker: scared while held, dizzy on the floor, blinking otherwise
 - `?crowd=16` builds a grid of them, for measuring what one actually costs
 - `?stats` prints frame time to the console (implied by `?crowd`)
 
