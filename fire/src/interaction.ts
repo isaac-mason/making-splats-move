@@ -1,5 +1,5 @@
 // Pointer interaction: click or tap anywhere to throw another log on the fire — it
-// flares, the room brightens, the air shimmers harder and embers burst out.
+// flares, the clearing brightens, the air shimmers harder and embers burst out.
 //
 // Deliberately a *tap*, not any pointerdown: OrbitControls owns dragging, so we only
 // stoke when the pointer barely moved and was down only briefly. Otherwise every

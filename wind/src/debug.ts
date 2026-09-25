@@ -25,6 +25,10 @@ export type DebugOverlay = {
     orbit: boolean;
     /** Called when the edit-mode checkbox flips; index.ts hooks the wind editor up here. */
     onEditWind?: (enabled: boolean) => void;
+    /** Called when the wind checkbox flips; index.ts turns the wind on and off here. */
+    onWindEnabled?: (enabled: boolean) => void;
+    /** Called when the highlight-leaves checkbox flips; index.ts hands it to the wind editor. */
+    onHighlightLeaves?: (enabled: boolean) => void;
 };
 
 type Checkbox = {
@@ -167,6 +171,9 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
         onOrbitChange?.(checked);
     });
 
+    const windCheckbox = createCheckbox('wind', (checked) => overlay.onWindEnabled?.(checked));
+    windCheckbox.set(true);
+
     const windEditCheckbox = createCheckbox('wind edit mode', (checked) => {
         overlay.editWind = checked;
         // Authoring volumes means flying around to look at them, so edit mode
@@ -175,6 +182,9 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
         if (checked) orbitCheckbox.set(true);
         overlay.onEditWind?.(checked);
     });
+
+    const highlightCheckbox = createCheckbox('highlight leaves', (checked) => overlay.onHighlightLeaves?.(checked));
+    highlightCheckbox.set(true);
 
     const lodSlider = createRange('lod scale', { min: 0.2, max: 2, step: 0.05, value: perf.lodScale }, (value) => {
         perf.lodScale = value;
@@ -185,7 +195,15 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
         perf.lodRenderScale = value;
     });
 
-    element.append(orbitCheckbox.el, windEditCheckbox.el, lodSlider, renderScaleSlider, overlay.text);
+    element.append(
+        orbitCheckbox.el,
+        windCheckbox.el,
+        windEditCheckbox.el,
+        highlightCheckbox.el,
+        lodSlider,
+        renderScaleSlider,
+        overlay.text,
+    );
     document.body.appendChild(element);
 
     window.addEventListener('keydown', (event) => {

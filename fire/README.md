@@ -8,9 +8,9 @@ everything here is done at render time, on top of a static scene:
   stored, all riding one shared curl field so they churn together. See below.
 
 - **Splat-space lighting** (`src/lighting.ts`). Two Spark `SplatEdit` SDFs recolour the
-  splats themselves: a tight additive "hot core" at the fire, and a room-wide
+  splats themselves: a tight additive "hot core" at the fire, and a scene-wide
   *multiplicative* one that darkens everything toward a warm gloom (multiply rather
-  than add, so it gives the room mood without washing out detail). A real
+  than add, so it gives the clearing mood without washing out detail). A real
   `THREE.PointLight` rides along for any standard-material mesh you add.
 - **Heat shimmer** (`src/heat.ts`). A Spark `worldModifier` — a GPU dyno graph — that
   displaces the scene splats' world positions with upward-scrolling tileable noise
@@ -153,7 +153,7 @@ different from the flame's.
   the rise speed so the angle stays constant. It's the flame's inward draft with the
   sign flipped: fire necks in, its smoke opens out.
 - **Long-lived particles need the fire signal *delayed*.** Everything else here
-  reads the furnace value for the current frame, which is right when the thing you're
+  reads the fire's value for the current frame, which is right when the thing you're
   driving lives for a fraction of a second. Multiply a ten-second puff's height by
   the current heat and stoking the fire re-scales the whole column at once — every
   puff in the sky lurches upward together, which is the most artificial thing smoke
@@ -185,15 +185,15 @@ instead of the whole plume leaning as one.
 ## The fire signal
 
 Every effect above reads one shared number instead of animating independently, which
-is what makes them swell *together*. `src/furnace.ts` owns it:
+is what makes them swell *together*. `src/fire.ts` owns it:
 
 - `intensity` — the sustained 0..1 burn level, rising when stoked and decaying back to
   a resting baseline.
 - `pulse` — a transient that ramps up on each stoke and eases down, so effects can
   react to the *blast* on top of the sustained level.
 
-`src/fire.ts` drives that signal: it holds the resting burn, throws in small random
-crackles every few seconds, and meters out the ember trickle. **Click or tap anywhere**
+Nobody tends the fire, so it looks after itself: it settles at a resting burn and
+throws in small random crackles every few seconds. **Click or tap anywhere**
 to throw another log on — watch the clearing brighten, the air ripple, the flame leap
 and the embers fly.
 
@@ -211,8 +211,7 @@ for measuring the world-space landmarks in `src/scene.ts`.
 | File | Role |
 | --- | --- |
 | `src/scene.ts` | Everything specific to *this* world: asset URL, camera framing, where the fire is. Swapping in a new scene is a one-file edit. |
-| `src/furnace.ts` | The shared fire signal. |
-| `src/fire.ts` | What drives that signal — resting burn, crackles, ember trickle. |
+| `src/fire.ts` | The shared fire signal, and what drives it — resting burn, crackles, stokes. |
 | `src/flame.ts` | The flame body: particles advected through the velocity field, carrying a temperature. |
 | `src/smoke.ts` | Smoke above it — long-lived, expanding, cooling to nothing; reads the fire signal *delayed*. |
 | `src/embers.ts` | Sparks lifting off, riding the same field. |

@@ -7,7 +7,7 @@ import { finishLoading, initLoading, type Loading, setLoadingProgress } from './
 import { type Options, readOptions } from './options';
 import { applyPerformance, sparkQuality } from './performance';
 import { armReveal, initReveal, type Reveal, replayReveal, updateReveal } from './reveal';
-import { CAMERA_POSITION, CAMERA_TARGET, SKY, SPLAT_URL } from './scene';
+import { CAMERA_POSITION, CAMERA_TARGET, REVEAL_ORIGIN, SKY, SPLAT_URL } from './scene';
 import './style.css';
 
 // A 96MB Gaussian-splat city that puts itself together out of a single point the
@@ -65,7 +65,7 @@ function init(): State {
     });
     scene.add(mesh);
 
-    const reveal = initReveal(mesh, options.origin);
+    const reveal = initReveal(mesh, options.origin ?? new THREE.Vector3(...REVEAL_ORIGIN));
     const debug = createDebugOverlay(() => replayReveal(reveal));
     mesh.initialized.then(() => armReveal(reveal));
 

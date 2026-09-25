@@ -31,7 +31,7 @@ export function createSplat(
         coneFoveate: 0.5,
         // Per-platform LOD paging + spread budget (iOS < other mobile < desktop).
         ...getSparkQualityOptions(),
-        // Carries the draw-time wind's uniforms; undefined on the modifier path.
+        // Carries the wind's uniforms, for the draw-time path's shader patch.
         extraUniforms: options.extraUniforms,
     });
     scene.add(spark);

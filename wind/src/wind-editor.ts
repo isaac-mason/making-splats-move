@@ -53,6 +53,9 @@ export type WindEditor = {
     enabled: boolean;
     /** Show/hide the whole editor. */
     setEnabled(enabled: boolean): void;
+    /** Tint the splats the wind moves while editing. Off to preview the sway params as-is. */
+    highlight: boolean;
+    setHighlight(highlight: boolean): void;
 };
 
 export function createWindEditor({ wind, scene, camera, controls, domElement, orbitEnabled }: Deps): WindEditor {
@@ -533,7 +536,12 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
             group.visible = enabled;
             gizmoHelper.visible = enabled && selected >= 0;
             controls.enabled = orbitEnabled(); // never leave orbit stuck off by a mid-drag toggle
-            wind.setHighlight(enabled ? HIGHLIGHT_STRENGTH : 0);
+            editor.setHighlight(editor.highlight);
+        },
+        highlight: true,
+        setHighlight(highlight) {
+            editor.highlight = highlight;
+            wind.setHighlight(editor.enabled && highlight ? HIGHLIGHT_STRENGTH : 0);
         },
     };
 

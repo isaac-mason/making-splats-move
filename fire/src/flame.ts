@@ -1,9 +1,7 @@
 import { dyno as d, SplatGenerator } from '@sparkjsdev/spark';
 import * as THREE from 'three';
-
 import { CURL_GLSL } from './curl';
-import type { Furnace } from './furnace';
-import { furnaceHeat } from './furnace';
+import { type Fire, fireHeat } from './fire';
 import { FLAME_ORIGIN } from './scene';
 
 /**
@@ -15,9 +13,9 @@ import { FLAME_ORIGIN } from './scene';
  * temperature they carry with them rather than off their age.
  *
  * Being splats rather than a THREE.Points cloud is what makes it sit IN the
- * firebox rather than on top of the picture of one — they sort and blend with the
- * boiler's own splats, so the grate and the iron shell occlude the flame exactly
- * as they should.
+ * campfire rather than on top of the picture of one — they sort and blend with the
+ * scene's own splats, so the logs and stones occlude the flame exactly as they
+ * should.
  *
  * The statelessness works the same way as src/dust.ts — hash the splat index for a
  * stable seed, then evaluate a closed-form function of (seed, time) — with one
@@ -208,7 +206,7 @@ const COLOR_COOL = new THREE.Vector3(0.42, 0.03, 0.005); // deep red, going out
 export type Flame = {
     /** The generator node — add to your scene. */
     object: SplatGenerator;
-    /** Push this frame's furnace heat in (0 = embers, 1 = roaring). */
+    /** Push this frame's fire heat in (0 = embers, 1 = roaring). */
     setHeat(heat: number): void;
 };
 
@@ -550,7 +548,7 @@ export function initFlame(params: Partial<FlameParams> = {}): Flame {
         },
     });
 
-    // Same reasoning as the dust: the flame must not intercept measuring clicks.
+    // Like the embers: the flame must not intercept the debug panel's measuring clicks.
     object.raycast = () => {};
 
     return {
@@ -561,7 +559,7 @@ export function initFlame(params: Partial<FlameParams> = {}): Flame {
     };
 }
 
-/** Convenience: drive the flame straight from the shared furnace signal. */
-export function updateFlame(flame: Flame, furnace: Furnace): void {
-    flame.setHeat(furnaceHeat(furnace));
+/** Convenience: drive the flame straight from the shared fire signal. */
+export function updateFlame(flame: Flame, fire: Fire): void {
+    flame.setHeat(fireHeat(fire));
 }

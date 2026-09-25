@@ -36,9 +36,9 @@ function init() {
     // Splats are self-lit, and the only other meshes are unlit debug wireframes,
     // so there are no three.js lights in this scene at all.
     //
-    // The uniforms have to exist before the renderer: the draw-time path's are
-    // merged into the splat material at construction.
-    const windUniforms = createWindUniforms(WIND_PATH);
+    // The uniforms have to exist before the renderer: they're merged into the
+    // splat material at construction, which the draw-time path reads them from.
+    const windUniforms = createWindUniforms();
     const { spark, mesh: splat } = createSplat(scene, renderer, { extraUniforms: windUniforms });
     const wind = applyWind(WIND_PATH, spark, splat, windUniforms);
     console.log(`wind path: ${WIND_PATH}`);
@@ -86,6 +86,8 @@ function init() {
         orbitEnabled: () => debug.orbit,
     });
     debug.onEditWind = (enabled) => windEditor.setEnabled(enabled);
+    debug.onWindEnabled = (enabled) => wind.setEnabled(enabled);
+    debug.onHighlightLeaves = (enabled) => windEditor.setHighlight(enabled);
 
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;

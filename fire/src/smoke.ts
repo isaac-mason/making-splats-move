@@ -1,8 +1,7 @@
 import { dyno as d, SplatGenerator } from '@sparkjsdev/spark';
 import * as THREE from 'three';
-
 import { CURL_GLSL } from './curl';
-import { type Furnace, furnaceHeat } from './furnace';
+import { type Fire, fireHeat } from './fire';
 import { FLAME_ORIGIN } from './scene';
 
 /**
@@ -32,8 +31,8 @@ import { FLAME_ORIGIN } from './scene';
  * steps than the flame because it lives ~30x longer — a step has to stay short
  * next to the eddies it's travelling through.
  *
- * DELAYED HEAT. Everything else in this app reads the furnace signal for THIS
- * frame (see src/furnace.ts), which is right when the thing you're driving lives
+ * DELAYED HEAT. Everything else in this app reads the fire signal for THIS
+ * frame (see src/fire.ts), which is right when the thing you're driving lives
  * for a fraction of a second. A puff of smoke lives ten seconds or more, and
  * multiplying its height by the current heat re-scales the whole column at once:
  * stoke the fire and every puff in the sky lurches upward together, which is the
@@ -176,7 +175,7 @@ export type Smoke = {
     /** The generator node — add to your scene. */
     object: SplatGenerator;
     /**
-     * Push this frame's furnace heat in (0 = embers, 1 = roaring), with the frame's
+     * Push this frame's fire heat in (0 = embers, 1 = roaring), with the frame's
      * dt so it can be filed in the history at a fixed rate regardless of framerate.
      */
     setHeat(heat: number, dt: number): void;
@@ -452,7 +451,7 @@ export function initSmoke(params: Partial<SmokeParams> = {}): Smoke {
     };
 }
 
-/** Convenience: drive the smoke straight from the shared furnace signal. */
-export function updateSmoke(smoke: Smoke, furnace: Furnace, dt: number): void {
-    smoke.setHeat(furnaceHeat(furnace), dt);
+/** Convenience: drive the smoke straight from the shared fire signal. */
+export function updateSmoke(smoke: Smoke, fire: Fire, dt: number): void {
+    smoke.setHeat(fireHeat(fire), dt);
 }

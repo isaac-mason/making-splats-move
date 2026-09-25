@@ -1,8 +1,7 @@
 import { dyno as d, SplatGenerator } from '@sparkjsdev/spark';
 import * as THREE from 'three';
-
 import { CURL_GLSL } from './curl';
-import { type Furnace, furnaceHeat } from './furnace';
+import { type Fire, fireHeat } from './fire';
 import { SPARK_ORIGIN } from './scene';
 
 /**
@@ -20,7 +19,7 @@ import { SPARK_ORIGIN } from './scene';
  * effects that happen to share a location.
  *
  * There's no burst API any more, and none is needed. Emission brightness and reach
- * scale off the shared furnace signal, and that signal already spikes when the fire
+ * scale off the shared fire signal, and that signal already spikes when the fire
  * is stoked — so a stoke throws a surge of embers for free, with no event plumbing
  * and no pool to run dry.
  */
@@ -86,7 +85,7 @@ const EMBER_STEPS_GLSL = /* glsl */ `const int EMBER_STEPS = ${EMBER_STEPS};`;
 export type Embers = {
     /** The generator node — add to your scene. */
     object: SplatGenerator;
-    /** Push this frame's furnace heat in (0 = embers, 1 = roaring). */
+    /** Push this frame's fire heat in (0 = embers, 1 = roaring). */
     setHeat(heat: number): void;
 };
 
@@ -241,7 +240,7 @@ export function initEmbers(params: Partial<EmberParams> = {}): Embers {
     };
 }
 
-/** Convenience: drive the embers straight from the shared furnace signal. */
-export function updateEmbers(embers: Embers, furnace: Furnace): void {
-    embers.setHeat(furnaceHeat(furnace));
+/** Convenience: drive the embers straight from the shared fire signal. */
+export function updateEmbers(embers: Embers, fire: Fire): void {
+    embers.setHeat(fireHeat(fire));
 }

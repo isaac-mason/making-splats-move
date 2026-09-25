@@ -1,6 +1,5 @@
 import { dyno as d, type SplatMesh } from '@sparkjsdev/spark';
-import * as THREE from 'three';
-import { REVEAL_ORIGIN } from './scene';
+import type * as THREE from 'three';
 
 /**
  * Reveals the scene with a ripple that spreads out from one point.
@@ -65,20 +64,21 @@ export type Reveal = {
     running: boolean;
     /** How far the ripple has spread, in metres. */
     radius: number;
+    mesh: SplatMesh;
     uRadius: d.DynoFloat<string>;
     uSpeed: d.DynoFloat<string>;
 };
 
-export function initReveal(mesh: SplatMesh, origin: THREE.Vector3 | null = null): Reveal {
+export function initReveal(mesh: SplatMesh, origin: THREE.Vector3): Reveal {
     const uRadius = d.dynoFloat(SEED);
     const uSpeed = d.dynoFloat(MIN_SPEED);
-    const uOrigin = d.dynoVec3(origin ?? new THREE.Vector3(...REVEAL_ORIGIN));
+    const uOrigin = d.dynoVec3(origin);
 
     mesh.objectModifier = d.dynoBlock({ gsplat: d.Gsplat }, { gsplat: d.Gsplat }, ({ gsplat }) => {
         if (!gsplat) throw new Error('reveal: no gsplat input');
-        // A random number per splat, the same every frame. It roughens the ripple's
-        // edge. Built with Spark's hash node, which stays random across millions of
-        // splats where the usual GLSL sin() trick starts to repeat.
+
+        // a random number per splat, the same every frame, it roughens the ripple's edge.
+        // uses spark's hash node, which stays random across millions of splats where the usual GLSL sin() trick starts to repeat.
         const grain = d.hashFloat(d.splitGsplat(gsplat).outputs.index);
 
         const node = d.dyno({
@@ -88,7 +88,7 @@ export function initReveal(mesh: SplatMesh, origin: THREE.Vector3 | null = null)
             globals: () => [d.defineGsplat, WAVE_GLSL],
             statements: ({ inputs: i, outputs }) => {
                 const g = outputs.gsplat;
-                return d.unindentLines(`
+                return d.unindentLines(/* glsl */ `
                     ${g} = ${i.gsplat};
 
                     vec3 offset = ${g}.center - ${i.origin};
@@ -124,7 +124,7 @@ export function initReveal(mesh: SplatMesh, origin: THREE.Vector3 | null = null)
         return { gsplat: node.outputs.gsplat };
     });
 
-    return { time: timeAt(SEED), armed: false, running: false, radius: SEED, uRadius, uSpeed };
+    return { time: timeAt(SEED), armed: false, running: false, radius: SEED, mesh, uRadius, uSpeed };
 }
 
 /** Call when the scene has loaded. The ripple starts once something is on screen. */
@@ -145,7 +145,11 @@ export function updateReveal(reveal: Reveal, dt: number, drawing: boolean, froze
     if (frozenTime === null && reveal.time >= DURATION) return;
     reveal.time = frozenTime ?? Math.min(DURATION, reveal.time + dt);
     const ripple = rippleAt(reveal.time);
+    if (ripple.radius === reveal.radius) return;
     reveal.radius = ripple.radius;
     reveal.uRadius.value = ripple.radius;
     reveal.uSpeed.value = ripple.speed;
+    // Spark only re-runs the modifier when the mesh's version changes, so new
+    // uniform values alone would sit unused until the camera next moved.
+    reveal.mesh.updateVersion();
 }

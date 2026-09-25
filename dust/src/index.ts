@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { createCameraDrift } from './camera-drift';
+import { createDebugOverlay, updateDebugOverlay } from './debug';
 import { createDust } from './dust';
 import { applyPerformance, initPerformance } from './performance';
 import { CAMERA_POSITION, CAMERA_TARGET, DUST_BOX } from './scene';
@@ -41,13 +42,21 @@ function init() {
     // A gentle lean toward the cursor while hovering (mouse only — see the file).
     const drift = createCameraDrift(camera, controls, renderer.domElement);
 
+    // Debug panel: toggle with the backtick (`) key. Hiding the generator takes
+    // its motes out of Spark's splat buffer entirely, not just off screen.
+    const debug = createDebugOverlay({
+        onDustEnabled: (enabled) => {
+            dust.object.visible = enabled;
+        },
+    });
+
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    return { scene, camera, renderer, spark, splat, dust, controls, perf, drift };
+    return { scene, camera, renderer, spark, splat, dust, controls, perf, drift, debug };
 }
 
 type State = ReturnType<typeof init>;
@@ -56,6 +65,7 @@ function update(state: State, dt: number) {
     // Drives controls.update() itself, so the lean can't compound into its state.
     state.drift.apply(dt);
     applyPerformance(state.perf, state.spark);
+    updateDebugOverlay(state.debug, state.camera, state.controls.target, state.spark, dt);
     state.renderer.render(state.scene, state.camera);
 }
 

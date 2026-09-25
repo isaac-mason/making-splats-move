@@ -1,7 +1,7 @@
 import { dyno, type GsplatModifier, SplatMesh } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 
-import { type Furnace, furnaceHeat } from './furnace';
+import { type Fire, fireHeat } from './fire';
 import { LIGHT_ORIGIN } from './lighting';
 
 // Heat shimmer — a Spark world-modifier. Instead of a screen-space filter, this
@@ -30,7 +30,7 @@ const PLUME = 1.9;
 const STRENGTH = 0.009;
 
 // World-space frequency of the wobble. Higher = finer ripples. Sized for logs and
-// stones rather than for the room: coarse ripples over a 0.5m log read as the log
+// stones rather than for the whole clearing: coarse ripples over a 0.5m log read as the log
 // bending, fine ones read as air.
 const SCALE = 5.5;
 
@@ -155,6 +155,6 @@ export function initHeat(): Heat {
 
 // Shimmer rides the sustained intensity and surges on each blast. The generous
 // pulse kick (0.9) makes a stoke ripple the air distinctly from the glow.
-export function updateHeat(heat: Heat, furnace: Furnace): void {
-    heat.uFed.value = furnaceHeat(furnace, 0.9);
+export function updateHeat(heat: Heat, fire: Fire): void {
+    heat.uFed.value = fireHeat(fire, 0.9);
 }

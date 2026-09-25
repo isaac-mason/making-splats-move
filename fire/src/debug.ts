@@ -2,7 +2,7 @@ import type { SparkRenderer } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import type { Furnace } from './furnace';
+import type { Fire } from './fire';
 import type { Performance } from './performance';
 
 export type DebugOverlay = {
@@ -20,7 +20,7 @@ export type DebugOverlay = {
     firefliesEnabled: boolean;
     /** Whether the smoke generator is drawn. */
     smokeEnabled: boolean;
-    /** Whether the fire's SplatEdit lighting (hot core + room ambient) and point light apply. */
+    /** Whether the fire's SplatEdit lighting (hot core + clearing ambient) and point light apply. */
     lightingEnabled: boolean;
     /**
      * Free-look. Off by default: the shipped camera is the fixed framing plus the
@@ -28,8 +28,8 @@ export type DebugOverlay = {
      * tool for measuring the scene, not a feature of it.
      */
     orbit: boolean;
-    /** Furnace intensity override: 0..1 forces all VFX to that heat, null = live. */
-    furnaceOverride: number | null;
+    /** Heat override: 0..1 forces all VFX to that heat, null = live. */
+    heatOverride: number | null;
     /** Raycaster used for click-to-raycast against the scene. */
     raycaster: THREE.Raycaster;
     /** Marker placed at the last raycast hit point. Add to your scene. */
@@ -148,7 +148,7 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
         firefliesEnabled: true,
         lightingEnabled: true,
         orbit: false,
-        furnaceOverride: null,
+        heatOverride: null,
         raycaster: new THREE.Raycaster(),
         raycastMarker,
         lastHit: null,
@@ -169,8 +169,8 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
     const firefliesCheckbox = createCheckbox('fireflies', (checked) => (overlay.firefliesEnabled = checked), true);
     const lightingCheckbox = createCheckbox('lighting', (checked) => (overlay.lightingEnabled = checked), true);
 
-    const furnaceSlider = createSlider('fire heat', (value) => {
-        overlay.furnaceOverride = value;
+    const heatSlider = createSlider('fire heat', (value) => {
+        overlay.heatOverride = value;
     });
 
     const lodSlider = createRange('lod scale', { min: 0.2, max: 2, step: 0.05, value: perf.lodScale }, (value) => {
@@ -187,7 +187,7 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
         smokeCheckbox,
         firefliesCheckbox,
         lightingCheckbox,
-        furnaceSlider,
+        heatSlider,
         lodSlider,
         overlay.text,
     );
@@ -236,7 +236,7 @@ export function updateDebugOverlay(
     overlay: DebugOverlay,
     camera: THREE.PerspectiveCamera,
     controls: OrbitControls,
-    furnace: Furnace,
+    fire: Fire,
     spark: SparkRenderer,
 ): void {
     if (!overlay.enabled) return;
@@ -251,6 +251,6 @@ export function updateDebugOverlay(
         `pos     ${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}\n` +
         `target  ${t.x.toFixed(2)}, ${t.y.toFixed(2)}, ${t.z.toFixed(2)}\n` +
         `hit     ${h ? `${h.x.toFixed(2)}, ${h.y.toFixed(2)}, ${h.z.toFixed(2)}` : '-'}\n` +
-        `fire    int ${furnace.intensity.toFixed(2)}  pulse ${furnace.pulse.toFixed(2)}\n` +
+        `fire    int ${fire.intensity.toFixed(2)}  pulse ${fire.pulse.toFixed(2)}\n` +
         `splats  ${active} / ${max}  (lod x${spark.lodSplatScale.toFixed(2)})`;
 }

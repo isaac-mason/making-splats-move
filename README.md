@@ -2,9 +2,11 @@
 
 | Example | What it does |
 | --- | --- |
-| [`fire/`](fire) | A campfire under a starry sky: a procedural splat flame, splat-space lighting, heat shimmer and embers. |
+| [`reveal/`](reveal) | A splat city that assembles itself from a single point: a wavefront ripples outward, surging splats into place as it passes. |
 | [`wind/`](wind) | Trees swaying in a splat city: foliage displaced in Spark's draw-time splat shader, with an edit mode for placing the volumes. |
 | [`dust/`](dust) | Dust motes drifting through a splat greenhouse: a stateless procedural particle generator. |
+| [`fire/`](fire) | A campfire under a starry sky: a procedural splat flame, splat-space lighting, heat shimmer and embers. |
+| [`avatars/`](avatars) | Procedural rigged characters built out of splats, skinned with Spark's `SplatSkinning` and walking around a town square. |
 
 ## Quick start
 

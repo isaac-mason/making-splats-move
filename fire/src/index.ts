@@ -1,14 +1,12 @@
 import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
 import { createCameraDrift } from './camera-drift';
 import { attachDebugRaycast, createDebugOverlay, updateDebugOverlay } from './debug';
 import { initEmbers, updateEmbers } from './embers';
 import { initFire, stokeFire, updateFire } from './fire';
 import { initFireflies } from './fireflies';
 import { initFlame, updateFlame } from './flame';
-import { initFurnace, updateFurnace } from './furnace';
 import { initHeat, updateHeat } from './heat';
 import { attachInteraction } from './interaction';
 import { initLighting, updateLighting } from './lighting';
@@ -90,8 +88,9 @@ function init() {
     scene.add(debug.raycastMarker);
     attachDebugRaycast(debug, camera, scene, renderer.domElement);
 
-    // Shared "how hot is the fire" signal — every visual system reads this.
-    const furnace = initFurnace();
+    // The fire tends itself — a resting burn and self-crackles — and every visual
+    // system reads how hot it's burning.
+    const fire = initFire();
 
     const lighting = initLighting();
     scene.add(lighting.coreLayer);
@@ -102,7 +101,7 @@ function init() {
     // anything you add with a standard material is lit by the fire too.
     scene.add(lighting.pointLight);
 
-    // The flame body: real splats, so the grate and the iron shell occlude it.
+    // The flame body: real splats, so the logs and stones occlude it.
     const flame = initFlame();
     scene.add(flame.object);
 
@@ -116,18 +115,15 @@ function init() {
     const embers = initEmbers();
     scene.add(embers.object);
 
-    // Fireflies out in the dark past the fire. They don't read the furnace, so
+    // Fireflies out in the dark past the fire. They don't read it, so
     // there's no update call — the generator animates itself.
     const fireflies = initFireflies();
     scene.add(fireflies.object);
 
-    // The fire tends itself: resting burn, self-crackles, and an ember trickle.
-    const fire = initFire(furnace);
-
     // Tap anywhere to throw another log on — unless the debug panel has taken clicks
     // over for raycasting.
     attachInteraction(renderer.domElement, {
-        onStoke: () => stokeFire(fire, furnace),
+        onStoke: () => stokeFire(fire),
         enabled: () => !debug.enabled,
     });
 
@@ -147,7 +143,6 @@ function init() {
         drift,
         debug,
         perf,
-        furnace,
         lighting,
         heat,
         flame,
@@ -161,10 +156,9 @@ function init() {
 type State = ReturnType<typeof init>;
 
 function update(state: State, time: number, dt: number) {
-    // Drive the shared fire signal first so every system reads this frame's value.
-    state.furnace.override = state.debug.furnaceOverride;
-    updateFire(state.fire, state.furnace, dt);
-    updateFurnace(state.furnace, dt);
+    // Advance the fire first so every system reads this frame's value.
+    state.fire.override = state.debug.heatOverride;
+    updateFire(state.fire, dt);
 
     // Debug-panel toggles. Spark only gathers visible generators and edits, so
     // hiding them is enough to take them out of the frame.
@@ -176,17 +170,17 @@ function update(state: State, time: number, dt: number) {
     state.lighting.ambientLayer.visible = state.debug.lightingEnabled;
     state.lighting.pointLight.visible = state.debug.lightingEnabled;
 
-    updateFlame(state.flame, state.furnace);
-    updateSmoke(state.smoke, state.furnace, dt);
-    updateEmbers(state.embers, state.furnace);
+    updateFlame(state.flame, state.fire);
+    updateSmoke(state.smoke, state.fire, dt);
+    updateEmbers(state.embers, state.fire);
     // Replaces controls.update() — camera-drift.ts has to own it so the lean
     // can't compound into OrbitControls' own state. While free-look is on the
     // lean stands down, so the two never fight over the camera.
     state.drift.apply(dt, !state.debug.orbit);
-    updateLighting(state.lighting, state.furnace, time, state.debug.showLights);
-    updateHeat(state.heat, state.furnace);
+    updateLighting(state.lighting, state.fire, time, state.debug.showLights);
+    updateHeat(state.heat, state.fire);
     applyPerformance(state.perf, state.spark);
-    updateDebugOverlay(state.debug, state.camera, state.controls, state.furnace, state.spark);
+    updateDebugOverlay(state.debug, state.camera, state.controls, state.fire, state.spark);
     state.renderer.render(state.scene, state.camera);
 }
 

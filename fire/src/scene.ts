@@ -21,7 +21,7 @@ export const CAMERA_POSITION: Vec3 = [0, 0.5, 1];
 export const CAMERA_TARGET: Vec3 = [-0.06, 0.45, -7.64];
 
 // --- World landmarks (world-space) ---
-export const FIRE_ORIGIN: Vec3 = [-0.06, 0.3, -7.64]; // the firepit — drives lighting, heat shimmer, dust
+export const FIRE_ORIGIN: Vec3 = [-0.06, 0.3, -7.64]; // the firepit — drives lighting and heat shimmer
 export const SPARK_ORIGIN: Vec3 = [-0.06, 0.4, -7.64]; // where embers leave the fire
 
 // The log pile, measured with the debug raycast (backtick, then click a point and
