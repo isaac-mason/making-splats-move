@@ -19,14 +19,14 @@ export type DebugOverlay = {
     frozen: boolean;
     /** Draw the box the crowd is allowed to wander inside. */
     showBounds: boolean;
-    /**
-     * Skinning on. Off shows the raw splats in their rest pose, bones ignored — and
-     * with them every face the avatar can pull, stacked, since it's the bones that
-     * tuck the unused ones into the skull.
-     */
+    /** Skinning on. Off shows the raw splats in their rest pose, bones ignored. */
     skinning: boolean;
     /** Walkers travel. Off, they keep walking but stay on the spot. */
     movement: boolean;
+    /** The leaves falling from the trees. */
+    leaves: boolean;
+    /** The trees swaying in the wind. */
+    sway: boolean;
     fields: {
         cam: HTMLSpanElement;
         look: HTMLSpanElement;
@@ -111,6 +111,8 @@ export function createDebugOverlay(): DebugOverlay {
         showBounds: false,
         skinning: true,
         movement: true,
+        leaves: true,
+        sway: true,
         fields: { cam: camRow.value, look: lookRow.value, splats: splatsRow.value, picked: pickedRow.value },
         selected: -1,
     };
@@ -123,11 +125,13 @@ export function createDebugOverlay(): DebugOverlay {
     });
     const skinning = createCheckbox('skinning', (checked) => (overlay.skinning = checked), true);
     const movement = createCheckbox('movement', (checked) => (overlay.movement = checked), true);
+    const leaves = createCheckbox('leaves', (checked) => (overlay.leaves = checked), true);
+    const sway = createCheckbox('tree sway', (checked) => (overlay.sway = checked), true);
     const hint = document.createElement('div');
     hint.style.cssText = 'opacity:0.5';
     hint.textContent = 'tools are on the bar at the bottom';
 
-    element.append(freeze, bounds, skinning, movement, text, hint);
+    element.append(freeze, bounds, skinning, movement, leaves, sway, text, hint);
     document.body.appendChild(element);
 
     window.addEventListener('keydown', (event) => {
@@ -152,6 +156,10 @@ export function updateDebugOverlay(
     const f = overlay.fields;
     f.cam.textContent = `${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}`;
     f.look.textContent = `${target.x.toFixed(2)}, ${target.y.toFixed(2)}, ${target.z.toFixed(2)}`;
-    f.splats.textContent = `${spark.activeSplats.toLocaleString()} active`;
+    // The avatars' share, since they're the part we build — and the part that drives
+    // sort time, which is what ragdolls are sensitive to.
+    let avatars = 0;
+    for (const w of crowd?.walkers ?? []) avatars += w.avatar.mesh.numSplats;
+    f.splats.textContent = `${spark.activeSplats.toLocaleString()} active${avatars ? ` · ${avatars.toLocaleString()} avatars` : ''}`;
     f.picked.textContent = overlay.selected >= 0 && crowd ? `walker ${overlay.selected} of ${crowd.walkers.length}` : '-';
 }

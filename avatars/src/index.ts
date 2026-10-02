@@ -5,6 +5,7 @@ import { createDebugOverlay, updateDebugOverlay } from './debug';
 import { type Options, readOptions } from './options';
 import { CAMERA_POSITION, CAMERA_TARGET } from './scene';
 import { initTownSquare, type TownSquare, townSquareSplats, updateTownSquare } from './town-square';
+import { applyTreeSway, createSwayUniforms, type SwayUniforms, setTreeSwayEnabled, tickTreeSway } from './tree-sway';
 import { initWorkbench, updateWorkbench, type Workbench, workbenchSplats } from './workbench';
 import './style.css';
 
@@ -29,6 +30,7 @@ type State = {
     camera: THREE.PerspectiveCamera;
     renderer: THREE.WebGLRenderer;
     spark: SparkRenderer;
+    sway: SwayUniforms;
     controls: OrbitControls;
     debug: ReturnType<typeof createDebugOverlay>;
     square: TownSquare | null;
@@ -50,7 +52,11 @@ function init(): State {
     renderer.setPixelRatio(window.devicePixelRatio);
     (document.querySelector<HTMLDivElement>('#app') ?? document.body).appendChild(renderer.domElement);
 
-    const spark = new SparkRenderer({ renderer });
+    // The trees' wind is drawn in Spark's splat shader, so its uniforms have to be
+    // handed over at construction. Harmless in the workbench: there are no trees there.
+    const sway = createSwayUniforms(undefined, options.sway);
+    const spark = new SparkRenderer({ renderer, extraUniforms: sway });
+    applyTreeSway(spark);
     scene.add(spark);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -74,7 +80,7 @@ function init(): State {
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    return { options, scene, camera, renderer, spark, controls, debug, square, bench };
+    return { options, scene, camera, renderer, spark, sway, controls, debug, square, bench };
 }
 
 /**
@@ -117,6 +123,8 @@ function update(state: State, time: number, dt: number): void {
     if (state.bench) updateWorkbench(state.bench, state.options, state.options.frozenTime ?? time, time);
 
     state.controls.update();
+    setTreeSwayEnabled(state.sway, state.debug.sway);
+    tickTreeSway(state.spark, state.sway, time);
     updateDebugOverlay(state.debug, state.camera, state.controls.target, state.spark, state.square?.crowd ?? null);
     state.renderer.render(state.scene, state.camera);
 }

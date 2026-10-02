@@ -18,7 +18,7 @@ export type Options = {
     editor: boolean;
     /** `?crowd=N` — a grid of N avatars, for measuring what one costs. */
     benchmark: number;
-    /** `?seed=3` rolls different proportions and colours; seed 1 is the authored look. */
+    /** `?seed=3` shows the third of the cast; seed 1 is the default. */
     seed: number;
 
     /** `?view=front|side|quarter|top|bust`, and `?face` for a tighter head framing. */
@@ -32,11 +32,15 @@ export type Options = {
 
     /** `?expression=scared` holds the workbench avatar on one face. */
     expression: Expression;
+    /** `?gaze=0.8,-0.2` points the workbench avatar's eyes, -1..1 each way. */
+    gaze: [number, number];
     /** `?bend=85` and `?t=1.25` freeze the pose, in radians and seconds. */
     frozenBend: number | null;
     frozenTime: number | null;
     /** `?bounds` draws the box the crowd may wander inside. */
     bounds: boolean;
+    /** `?sway` tints whatever the trees' wind claims, to check the volumes. */
+    sway: boolean;
     /** `?bare` drops the capture, for judging silhouettes against a plain ground. */
     bare: boolean;
     /** `?stats` prints frame time to the console. */
@@ -61,6 +65,7 @@ export function readOptions(search = window.location.search): Options {
         return parts?.length === 3 && parts.every(Number.isFinite) ? new THREE.Vector3(...parts) : null;
     };
 
+    const gaze = (url.get('gaze') ?? '').split(',').map(Number);
     const limb = url.has('limb');
     const figure = url.has('figure');
     const editor = url.has('editor');
@@ -81,9 +86,12 @@ export function readOptions(search = window.location.search): Options {
         look: vector('look'),
         background: url.has('bg') ? Number.parseInt(url.get('bg') as string, 16) : null,
         expression: EXPRESSIONS.find((e) => e === url.get('expression')) ?? 'happy',
+        // NaN || 0: a missing or garbled axis just looks ahead.
+        gaze: [gaze[0] || 0, gaze[1] || 0],
         frozenBend: url.has('bend') ? THREE.MathUtils.degToRad(number('bend', 0)) : null,
         frozenTime: url.has('t') ? number('t', 0) : null,
         bounds: url.has('bounds'),
+        sway: url.has('sway'),
         bare: url.has('bare') || limb || figure || editor,
         // A benchmark exists to be measured, so it turns stats on by itself.
         stats: url.has('stats') || benchmark > 0,

@@ -8,7 +8,7 @@ import {
     sphere,
     type World,
 } from 'crashcat';
-import { quat, vec3 } from 'mathcat';
+import { quat, vec3 } from 'math';
 import * as THREE from 'three';
 import type { Crowd, Walker } from './crowd';
 import { bodyPosition, LAYER_HAND, type Puppet } from './physics';

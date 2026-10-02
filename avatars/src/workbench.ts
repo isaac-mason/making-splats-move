@@ -7,7 +7,7 @@ import {
     syncAvatarEditor,
     updateAvatarEditor,
 } from './avatar-editor';
-import { DEFAULT_AVATAR, randomAvatarParams } from './avatar-params';
+import { CAST } from './avatar-params';
 import { type Figure, initFigure, updateFigure } from './figure';
 import { initLimb, JOINT_Y, type Limb, setLimbBend } from './limb';
 import type { Options } from './options';
@@ -51,7 +51,7 @@ export function initWorkbench(scene: THREE.Scene, camera: THREE.PerspectiveCamer
 
     // `?view` or `?face` with no rig named: one avatar, framed how they asked.
     if (!options.limb && !options.figure && !options.editor && options.benchmark === 0) {
-        bench.rig = initAvatar(options.seed === 1 ? DEFAULT_AVATAR : randomAvatarParams(options.seed), options.seed);
+        bench.rig = initAvatar(castMember(options.seed), options.seed);
         scene.add(bench.rig.mesh);
     }
 
@@ -67,7 +67,7 @@ export function initWorkbench(scene: THREE.Scene, camera: THREE.PerspectiveCamer
             scene.add(bench.rig.mesh);
         });
         if (options.seed !== 1) {
-            Object.assign(bench.editor.params, randomAvatarParams(options.seed));
+            Object.assign(bench.editor.params, castMember(options.seed));
             syncAvatarEditor(bench.editor);
         }
         bench.rig = initAvatar(bench.editor.params, options.seed);
@@ -79,7 +79,7 @@ export function initWorkbench(scene: THREE.Scene, camera: THREE.PerspectiveCamer
         const side = Math.ceil(Math.sqrt(options.benchmark));
         const started = performance.now();
         for (let i = 0; i < options.benchmark; i++) {
-            const avatar = initAvatar(i === 0 ? DEFAULT_AVATAR : randomAvatarParams(i + 1), i + 1);
+            const avatar = initAvatar(castMember(i + 1), i + 1);
             const x = ((i % side) - (side - 1) / 2) * 1.1;
             const z = (Math.floor(i / side) - (side - 1) / 2) * 1.1;
             avatar.mesh.position.set(x, 0, z);
@@ -108,6 +108,7 @@ export function updateWorkbench(bench: Workbench, options: Options, posedTime: n
     if (bench.rig) {
         if (bench.rig.kind === 'avatar') {
             bench.rig.expression = options.expression;
+            bench.rig.gaze.set(...options.gaze);
             updateAvatar(bench.rig, posedTime * SOLO_GAIT);
         } else updateFigure(bench.rig, posedTime * SOLO_GAIT);
     }
@@ -128,4 +129,9 @@ function restPoseGuides(): THREE.Object3D[] {
     const joint = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff3366 }));
     joint.position.set(0, JOINT_Y, 0);
     return [line, joint];
+}
+
+/** `?seed=N` picks the Nth of the cast, wrapping. */
+function castMember(seed: number) {
+    return CAST[(((seed - 1) % CAST.length) + CAST.length) % CAST.length];
 }

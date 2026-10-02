@@ -1,4 +1,4 @@
-import { SplatMesh, SplatSkinning, SplatSkinningMode } from '@sparkjsdev/spark';
+import { dyno as d, SplatMesh, SplatSkinning, SplatSkinningMode } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import { type AvatarParams, DEFAULT_AVATAR } from './avatar-params';
 import { type BoneDef, initSkeleton, poseSkeleton, pushSkeleton, type Skeleton, setBoneWorld, weightsForPoint } from './bones';
@@ -28,15 +28,21 @@ const THIGH_L = 7;
 const SHIN_L = 8;
 const THIGH_R = 9;
 const SHIN_R = 10;
+/** Not part of the skeleton: the pupils' own bone, riding the head. See `gaze`. */
+const GAZE = SHIN_R + 1;
 
 /**
  * Faces the avatar can pull.
  *
  * A face is assembled from PARTS — a pair of eyes, a pair of brows, a mouth — and
- * every variant of every part is built into the mesh on its own bone that rides the
- * head. `pushAvatar` leaves the parts the current expression uses on the face and
- * pulls the rest back inside the skull, where the skin hides them. So changing
- * expression is a bone move — no rebuild, and it can happen every frame.
+ * every variant of every part is built into the mesh, riding the head. The parts
+ * the current expression doesn't use are switched off by opacity, so changing
+ * expression is a uniform write — no rebuild, and it can happen every frame.
+ *
+ * Opacity rather than moving them out of sight: Spark sorts asynchronously, so a
+ * part that jumps from inside the skull to the face is drawn in its old order —
+ * behind the skin — until the next sort lands, and the face blinks out. Parts that
+ * never move are always sorted right.
  *
  * Parts rather than whole faces so that expressions sharing a feature share the
  * SPLATS: a blink swaps the eyes and nothing else. Swap whole faces and the mouth and
@@ -66,9 +72,6 @@ const EXPRESSION_PARTS: Record<Expression, readonly FacePart[]> = {
     dizzy: ['eyesCrossed', 'browsDizzy', 'mouthWobble'],
 };
 
-/** How far an inactive face is pulled back into the head, in headRadius. */
-const FACE_HIDE_DEPTH = 0.5;
-
 // Distance between adjacent splats on a surface. Tightening this is what buys
 // sharpness — see OVERLAP in shell.ts — at a cost of splats going as 1/spacing².
 
@@ -95,8 +98,17 @@ export type Avatar = {
     skeleton: Skeleton;
     /** Which face is showing. Set it freely; `pushAvatar` applies it. */
     expression: Expression;
-    /** Skinning index of the first face bone — one per FACE_PARTS entry, after the skeleton's. */
-    faceBone: number;
+    /** Bitmask of the FACE_PARTS currently showing, read by the mesh's modifier. */
+    faceShowing: ReturnType<typeof d.dynoInt>;
+    /**
+     * Where the eyes are looking, -1..1 on each axis: +x toward the avatar's own left
+     * (the mesh's +X — it faces +Z), +y up. Set freely; `pushAvatar` applies it.
+     */
+    gaze: THREE.Vector2;
+    /** How far the pupils can slide before leaving the whites, in metres. */
+    gazeRange: THREE.Vector2;
+    /** Extra head turn toward what they're looking at: yaw, pitch in radians. */
+    look: THREE.Vector2;
     /**
      * `mesh.dispose()` is not enough: SplatSkinning owns two GPU textures nothing
      * else releases, and a few seconds of dragging a slider leaks hundreds of MB.
@@ -123,6 +135,7 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
     const trousers = splatColor(p.trousers);
     const hair = splatColor(p.hair);
     const shoe = splatColor(p.shoes);
+    const pupil = splatColor(p.eyes);
     const dark = splatColor('#1b1a20');
     const sclera = splatColor('#f8f5f1');
     const blush = skin.clone().lerp(splatColor('#ff7f93'), p.blushStrength);
@@ -187,6 +200,7 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
         roundness: p.torsoRoundness,
         spacing: p.spacing,
         colorAt: (y) => (y < hemY ? trousers : shirt),
+        edges: [hemY],
         ownerAt: (y) => (y < waistY ? PELVIS : CHEST),
         layers: p.layers,
         capBottom: true,
@@ -235,8 +249,8 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
         taper: headTaper,
         keep: (u) => !hairCovers(u, SCALP_LIFT),
     });
+    // One layer is enough under the hair: it only has to plug the hair's gaps.
     addSphere(shell, v(0, headY, 0), headRadius, p.spacing, hair, HEAD, {
-        layers: p.layers,
         radii: skullRadii,
         taper: headTaper,
         keep: (u) => hairCovers(u, SCALP_LIFT),
@@ -244,8 +258,8 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
 
     // Hair as a VOLUME on the skull, not paint: at 1.04x radius it has no silhouette
     // of its own, at 1.13x it reads as a mass with thickness.
+    // One layer: the hair-coloured skull under it already plugs its gaps.
     addSphere(shell, v(0, headY, 0), headRadius, p.spacing * p.hairSpacingScale, hair, HEAD, {
-        layers: p.layers,
         radii: v(
             headRadius * p.headWidth * p.hairThickness,
             headRadius * p.headHeight * p.hairThickness,
@@ -255,11 +269,70 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
         keep: (u) => hairCovers(u),
     });
 
+    // Long hair, in two pieces so it can't pass through the arms.
+    //
+    // A curtain round the sides and back of the head, stopping just above the tops
+    // of the arms so it rests ON the shoulders. An ellipsoid rather than straight
+    // sheets, so it rounds in under the ends like a bob does; kept off the front so
+    // it frames the face instead of covering it.
+    //
+    // Anything longer than that hangs as a narrow panel down the back, behind the
+    // torso and inside the arms' swing — which is where long hair actually goes.
+    //
+    // Both are skinned RIGIDLY (see `rigid` below): weighted by distance like the
+    // rest of the body, the hair over the shoulders would partly follow the arms.
+    const rigid: { start: number; end: number; bone: number }[] = [];
+    if (p.hairLength > 0) {
+        const top = headY + headRadius * p.headHeight * p.hairThickness;
+        const bottom = headY - headRadius * (0.55 + p.hairLength);
+        const armTop = shoulderY - p.armDrop + limbRadius * 1.5 + 0.03;
+
+        // The ellipsoid runs a little past the cut, so the cut lands where it's
+        // still wide rather than on the rounded tip.
+        const BLUNT = -0.78;
+        const curtainBottom = Math.max(bottom, armTop);
+        const halfHeight = (top - curtainBottom) / (1 - BLUNT);
+        const centreY = top - halfHeight;
+        let start = shell.centers.length;
+        addSphere(shell, v(0, centreY, -headRadius * 0.04), headRadius, p.spacing * p.hairSpacingScale, hair, HEAD, {
+            layers: p.layers,
+            radii: v(
+                headRadius * p.headWidth * p.hairThickness * 1.03,
+                halfHeight,
+                headRadius * p.headDepth * p.hairThickness * 1.03,
+            ),
+            keep: (u) => u.y > BLUNT && u.z < 0.3,
+        });
+        rigid.push({ start, end: shell.centers.length, bone: HEAD });
+
+        if (bottom < armTop) {
+            // From inside the curtain (so the join is hidden) down to the ends.
+            const panelTop = armTop + headRadius * 0.35;
+            const panelHalf = (panelTop - bottom) / 1.8;
+            start = shell.centers.length;
+            addSphere(
+                shell,
+                v(0, panelTop - panelHalf, -(torsoWidth * 0.78 + 0.07)),
+                headRadius,
+                p.spacing * p.hairSpacingScale,
+                hair,
+                CHEST,
+                {
+                    layers: p.layers,
+                    radii: v(torsoWidth * 1.05, panelHalf, 0.06),
+                    keep: (u) => u.y > -0.8,
+                },
+            );
+            rigid.push({ start, end: shell.centers.length, bone: CHEST });
+        }
+    }
+
     // Face. Everything sits proud of the skull so it draws in front of it — far
     // enough that the skin's own soft discs, which reach past its surface, can't sort
-    // over a feature and bleed pale into it. Every feature is placed relative to this,
-    // so raising it lifts the whole face at once. The character faces +Z.
-    const faceR = headRadius * 1.025;
+    // over a feature and bleed pale into it. Features stack outward in layers, each a
+    // clear gap above the last so the sort can't swap them. The character faces +Z.
+    const faceR = headRadius * (1 + p.faceLift);
+    const layer = (n: number) => faceR * (1 + n * p.faceLayerGap);
     const eyeX = headRadius * p.eyeSpacing;
     const eyeY = headY + headRadius * p.eyeHeight;
     const eyeSize = headRadius * p.eyeSize;
@@ -292,7 +365,7 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
     // Decals, not ellipsoids (see addDecal): an ellipsoid can only draw an ellipse,
     // and none of a face's features is one.
     const eyeOutline = lidShape(p.eyeTopFlat, p.eyeBottomRound);
-    const featureSpacing = p.spacing * p.featureSpacingScale;
+    const featureSpacing = p.featureSpacing;
 
     const decal = (owner: number, opts: FaceDecal) =>
         addDecal(shell, {
@@ -304,10 +377,10 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
             ...opts,
         });
 
-    // Mouths sit a little further out than the rest of the face. They're thin dark
+    // Mouths sit a layer further out than the eye outlines. They're thin dark
     // strokes on light skin, so any skin splat that sorts in front of one shows as
     // the line bleeding pale; the extra lift keeps them clear.
-    const mouthR = faceR * 1.02;
+    const mouthR = layer(3);
 
     // A stroke of constant thickness along a curve, thinning to points at the ends.
     // `rise(u)` is the curve's height across the decal, u in [-1, 1], in world units —
@@ -346,13 +419,13 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
         const eyeDir = faceDir(sx * eyeX, eyeY - headY);
         const w = eyeSize * p.eyeWidth * look.wide;
         const h = eyeSize * p.eyeTall * look.tall;
-        decal(owner, { dir: eyeDir, radius: faceR * 1.005, halfWidth: w, halfHeight: h, inside: eyeOutline, color: dark });
+        decal(owner, { dir: eyeDir, radius: layer(1), halfWidth: w, halfHeight: h, inside: eyeOutline, color: dark });
         // A CONSTANT inset, not a scale factor: scaling a tall outline leaves the rim
         // thicker top and bottom than at the sides.
         const rim = eyeSize * p.eyeOutline;
         decal(owner, {
             dir: eyeDir,
-            radius: faceR * 1.012,
+            radius: layer(2),
             halfWidth: Math.max(1e-4, w - rim),
             halfHeight: Math.max(1e-4, h - rim),
             inside: eyeOutline,
@@ -361,13 +434,15 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
         const pupilW = eyeSize * p.eyeWidth * look.pupil;
         const pupilH = eyeSize * p.eyeTall * look.pupil;
         const pupilY = eyeY - headY + eyeSize * p.pupilY * look.tall;
+        // Pupil and glints ride the GAZE bone, so the eyes can look around.
+        const gazeStart = shell.centers.length;
         decal(owner, {
             dir: faceDir(sx * eyeX, pupilY),
-            radius: faceR * 1.02,
+            radius: layer(3),
             halfWidth: pupilW,
             halfHeight: pupilH,
             inside: superellipse(2),
-            color: dark,
+            color: pupil,
         });
         // The glint. Up and to the same side on BOTH eyes — it's a reflection of one
         // light, and mirroring it makes them look cross-eyed. A second, smaller one
@@ -380,7 +455,7 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
                 const r = pupilW * look.shine * size;
                 decal(owner, {
                     dir: faceDir(sx * eyeX + pupilW * ox, pupilY + pupilH * oy),
-                    radius: faceR * 1.028,
+                    radius: layer(4),
                     halfWidth: r,
                     halfHeight: r,
                     inside: superellipse(2),
@@ -388,14 +463,23 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
                 });
             }
         }
+        rigid.push({ start: gazeStart, end: shell.centers.length, bone: GAZE });
     };
+
+    // How far the pupils can slide and stay inside the whites of the open eyes:
+    // the white's half-extent less the pupil's, with a margin so the rim stays clear.
+    const rimWidth = eyeSize * p.eyeOutline;
+    const gazeRange = new THREE.Vector2(
+        Math.max(0, eyeSize * p.eyeWidth * (1 - p.pupilSize) - rimWidth) * 0.8,
+        Math.max(0, eyeSize * p.eyeTall * (1 - p.pupilSize) - rimWidth) * 0.6,
+    );
 
     // A rounded BAR, not an ellipse — squarer ends give it weight. The inner end
     // sits lower, which is most of the expression; negative angles lift it instead.
     const brow = (owner: number, sx: number, gap: number, angle: number) =>
         decal(owner, {
             dir: faceDir(sx * eyeX * 1.04, eyeY - headY + eyeSize * gap),
-            radius: faceR * 1.015,
+            radius: layer(2),
             halfWidth: eyeSize * p.browWidth,
             halfHeight: eyeSize * p.browThickness,
             roll: sx * angle,
@@ -411,6 +495,8 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
         stroke(owner, mouthDir, headRadius * p.mouthWidth, mouthThick, Math.abs(bend) / 2, (u) => bend * (u * u - 0.5));
     };
 
+    // Face splats are tagged with an owner past the skeleton's bones, one per part,
+    // so the mesh can tell which part each splat belongs to. They skin to the head.
     const faceBone = BONES.length;
     const part = (name: FacePart) => faceBone + FACE_PARTS.indexOf(name);
 
@@ -429,7 +515,7 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
             eyeSize * 0.13,
             arch / 2,
             (u) => -arch * (u * u - 0.5),
-            faceR * 1.012,
+            layer(2),
         );
 
         // An X for each eye. Two bars, clipped to a disc so the arms finish round
@@ -437,7 +523,7 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
         const size = eyeSize * Math.min(p.eyeWidth, p.eyeTall) * 1.05;
         decal(part('eyesCrossed'), {
             dir: faceDir(sx * eyeX, eyeY - headY),
-            radius: faceR * 1.012,
+            radius: layer(2),
             halfWidth: size,
             halfHeight: size,
             inside: (u, vv) => (Math.abs(u - vv) < 0.3 || Math.abs(u + vv) < 0.3) && u * u + vv * vv < 1.15,
@@ -478,7 +564,7 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
         for (const sx of [1, -1]) {
             decal(HEAD, {
                 dir: faceDir(sx * eyeX * 1.4, eyeY - headY - eyeSize * 1.35),
-                radius: faceR * 1.003,
+                radius: layer(0),
                 halfWidth: eyeSize * p.blushSize,
                 halfHeight: eyeSize * p.blushSize * 0.6,
                 inside: superellipse(2),
@@ -490,7 +576,7 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
     // Nose: barely there, just a soft shadow under the eyes.
     addSphere(
         shell,
-        v(0, headY - headRadius * 0.12, faceR * 0.97),
+        v(0, headY - headRadius * 0.12, headRadius * 0.995),
         headRadius * p.noseSize,
         p.spacing * 0.7,
         skin.clone().multiplyScalar(0.92),
@@ -518,7 +604,11 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
             capB: 'none',
             layers: p.layers,
         });
+        // The hand rides the forearm rigidly: weighted by distance it also leans on
+        // the upper arm, and a sharply bent elbow — a ragdoll's — stretches it into strands.
+        const handStart = shell.centers.length;
         addSphere(shell, handP, limbRadius * 1.45, p.spacing, skin, fore, { layers: p.layers });
+        rigid.push({ start: handStart, end: shell.centers.length, bone: fore });
 
         // The sleeve is fabric OVER that arm, cut with a flat ring — what a short
         // sleeve is, and a hard edge instead of a blend between two colours.
@@ -527,6 +617,7 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
             capA: 'round',
             capB: 'flat',
             innerB: limbRadius * 0.98,
+            crispB: true,
             layers: p.layers,
         });
     }
@@ -567,8 +658,14 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
     // SplatSkinning below needs numSplats on the next line. pushSplat leaves the two
     // lines after the loop to the caller.
     const mesh = new SplatMesh({});
+    // Opacity past 1 needs `lodOpacity`, which stores it halved and doubles it on the
+    // way out. pushSplat doesn't apply the encoding itself, so halve it here.
+    if (mesh.packedSplats) mesh.packedSplats.splatEncoding = { ...mesh.packedSplats.splatEncoding, lodOpacity: true };
     for (let i = 0; i < shell.centers.length; i++) {
-        mesh.pushSplat(shell.centers[i], shell.scales[i], shell.quats[i], 1.0, shell.colors[i]);
+        // Face decals stay soft: they're fine-grained already, and hard discs that
+        // small read as scratchy rather than crisp.
+        const hardness = shell.owners[i] >= faceBone ? 1 : p.hardness;
+        mesh.pushSplat(shell.centers[i], shell.scales[i], shell.quats[i], hardness / 2, shell.colors[i]);
     }
     mesh.numSplats = mesh.packedSplats?.numSplats ?? 0;
     if (mesh.packedSplats) mesh.packedSplats.needsUpdate = true;
@@ -576,24 +673,28 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
     const skinning = new SplatSkinning({
         mesh,
         numSplats: mesh.numSplats,
-        numBones: BONES.length + FACE_PARTS.length,
+        numBones: BONES.length + 1,
         mode: SplatSkinningMode.DUAL_QUATERNION,
     });
 
     const restQuat = new THREE.Quaternion();
     for (let b = 0; b < BONES.length; b++) skinning.setRestQuatPos(b, restQuat, BONES[b].head);
-    // Face bones rest exactly where the head does, so at rest they ARE the head.
-    for (let k = 0; k < FACE_PARTS.length; k++) skinning.setRestQuatPos(faceBone + k, restQuat, BONES[HEAD].head);
+    // The gaze bone rests where the head does, so at rest it IS the head.
+    skinning.setRestQuatPos(GAZE, restQuat, BONES[HEAD].head);
 
     // Distance falloff, BIASED toward the bone that authored each splat — which is
     // what keeps the hands from grabbing the hips as the arms swing past them.
     const indices = new THREE.Vector4();
     const weights = new THREE.Vector4();
     for (let i = 0; i < shell.centers.length; i++) {
-        if (shell.owners[i] >= faceBone) {
-            // Face features belong wholly to their face bone: blending one with its
-            // neighbours would leave half of a hidden expression showing.
-            indices.set(shell.owners[i], 0, 0, 0);
+        const pinned = rigid.find((r) => i >= r.start && i < r.end);
+        if (pinned) {
+            indices.set(pinned.bone, 0, 0, 0);
+            weights.set(1, 0, 0, 0);
+        } else if (shell.owners[i] >= faceBone) {
+            // Face features belong wholly to the head: blended with the neck they'd
+            // shear off the face as it turns.
+            indices.set(HEAD, 0, 0, 0);
             weights.set(1, 0, 0, 0);
         } else {
             weightsForPoint(shell.centers[i], BONES, indices, weights, shell.owners[i]);
@@ -603,6 +704,18 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
     skinning.skinTexture.needsUpdate = true;
 
     mesh.skinning = skinning;
+
+    // Which face part each splat belongs to (part index + 1; 0 for the body), for the
+    // modifier below to look up by splat index.
+    const partRows = Math.max(1, Math.ceil(shell.owners.length / PART_TEX_WIDTH));
+    const partData = new Float32Array(PART_TEX_WIDTH * partRows);
+    for (let i = 0; i < shell.owners.length; i++) {
+        partData[i] = shell.owners[i] >= faceBone ? shell.owners[i] - faceBone + 1 : 0;
+    }
+    const partTexture = new THREE.DataTexture(partData, PART_TEX_WIDTH, partRows, THREE.RedFormat, THREE.FloatType);
+    partTexture.needsUpdate = true;
+    const faceShowing = d.dynoInt(partMask('happy'));
+    mesh.objectModifier = faceModifier(d.dynoSampler2D(partTexture), faceShowing);
     mesh.updateGenerator();
 
     const skeleton = initSkeleton(BONES);
@@ -615,8 +728,12 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
         skinning,
         skeleton,
         expression: 'happy',
-        faceBone,
+        faceShowing,
+        gaze: new THREE.Vector2(),
+        gazeRange,
+        look: new THREE.Vector2(),
         dispose() {
+            partTexture.dispose();
             skinning.skinTexture.dispose();
             skinning.boneTexture.dispose();
             mesh.dispose();
@@ -628,6 +745,7 @@ const xAxis = new THREE.Vector3(1, 0, 0);
 const yAxis = new THREE.Vector3(0, 1, 0);
 const zAxis = new THREE.Vector3(0, 0, 1);
 const armSet = new THREE.Quaternion();
+const lookTurn = new THREE.Quaternion();
 
 /** Advance the walk cycle and push the pose through to the splats. */
 /** Peak thigh swing, in radians. Stride length follows from this and leg length. */
@@ -683,6 +801,9 @@ export function poseAvatar(avatar: Avatar, phase: number, gait = 1): void {
     // walk reading as a rigid puppet. Standing, it becomes a slow look-around.
     const still = 1 - gait;
     pose[HEAD].setFromAxisAngle(yAxis, -Math.sin(phase - 0.45) * 0.14 * gait + Math.sin(phase * 0.37) * 0.07 * still);
+    // ...plus whatever they're looking at.
+    pose[HEAD].multiply(lookTurn.setFromAxisAngle(yAxis, avatar.look.x));
+    pose[HEAD].multiply(lookTurn.setFromAxisAngle(xAxis, -avatar.look.y));
 
     // Twice per cycle: highest as the legs pass, lowest split widest, since a split
     // stance is geometrically shorter. Without it they're a torso on a conveyor belt.
@@ -705,23 +826,57 @@ export function updateAvatar(avatar: Avatar, phase: number): void {
     pushAvatar(avatar);
 }
 
-const faceRest = new THREE.Quaternion();
-const facePos = new THREE.Vector3();
+const gazeQuat = new THREE.Quaternion();
+const gazePos = new THREE.Vector3();
 
-/**
- * Hand the pose to Spark, face included. Every face bone copies the head's
- * transform; all but the current expression's parts are also pushed back along the head's
- * own -Z, into the skull. Use this rather than `pushSkeleton`, which knows nothing
- * of faces and would leave them at rest while the head walks off.
- */
+/** Hand the pose to Spark, along with which face is showing and where it's looking. */
 export function pushAvatar(avatar: Avatar): void {
-    const { skeleton, skinning } = avatar;
-    const headQuat = skeleton.worldQuat[HEAD];
-    const showing = EXPRESSION_PARTS[avatar.expression];
-    for (let k = 0; k < FACE_PARTS.length; k++) {
-        facePos.set(0, 0, showing.includes(FACE_PARTS[k]) ? 0 : -avatar.params.headRadius * FACE_HIDE_DEPTH);
-        facePos.applyQuaternion(headQuat).add(skeleton.worldPos[HEAD]);
-        setBoneWorld(skinning, avatar.faceBone + k, faceRest, skeleton.bones[HEAD].head, headQuat, facePos);
+    const mask = partMask(avatar.expression);
+    if (avatar.faceShowing.value !== mask) {
+        avatar.faceShowing.value = mask;
+        avatar.mesh.updateVersion();
     }
-    pushSkeleton(skeleton, skinning);
+    // The gaze bone is the head, slid across the face by the gaze. Set before
+    // pushSkeleton, which is what uploads the bones.
+    const { skeleton } = avatar;
+    gazeQuat.copy(skeleton.worldQuat[HEAD]);
+    gazePos
+        .set(avatar.gaze.x * avatar.gazeRange.x, avatar.gaze.y * avatar.gazeRange.y, 0)
+        .applyQuaternion(gazeQuat)
+        .add(skeleton.worldPos[HEAD]);
+    setBoneWorld(avatar.skinning, GAZE, restIdentity, skeleton.bones[HEAD].head, gazeQuat, gazePos);
+    pushSkeleton(skeleton, avatar.skinning);
+}
+
+const restIdentity = new THREE.Quaternion();
+
+const PART_TEX_WIDTH = 4096;
+
+function partMask(expression: Expression): number {
+    let mask = 0;
+    for (const name of EXPRESSION_PARTS[expression]) mask |= 1 << FACE_PARTS.indexOf(name);
+    return mask;
+}
+
+/** Zeroes the opacity of every face part not in `showing`. Body splats pass through. */
+function faceModifier(parts: ReturnType<typeof d.dynoSampler2D>, showing: ReturnType<typeof d.dynoInt>) {
+    return d.dynoBlock({ gsplat: d.Gsplat }, { gsplat: d.Gsplat }, ({ gsplat }) => {
+        if (!gsplat) throw new Error('face modifier: no gsplat input');
+        const node = d.dyno({
+            inTypes: { gsplat: d.Gsplat, parts: 'sampler2D', showing: 'int' },
+            outTypes: { gsplat: d.Gsplat },
+            inputs: { gsplat, parts, showing },
+            globals: () => [d.defineGsplat],
+            statements: ({ inputs, outputs }) =>
+                d.unindentLines(`
+                    ${outputs.gsplat} = ${inputs.gsplat};
+                    int i = ${inputs.gsplat}.index;
+                    int part = int(texelFetch(${inputs.parts}, ivec2(i % ${PART_TEX_WIDTH}, i / ${PART_TEX_WIDTH}), 0).r);
+                    if (part > 0 && ((${inputs.showing} >> (part - 1)) & 1) == 0) {
+                        ${outputs.gsplat}.rgba.a = 0.0;
+                    }
+                `),
+        });
+        return { gsplat: node.outputs.gsplat };
+    });
 }

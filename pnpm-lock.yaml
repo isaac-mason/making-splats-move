@@ -33,9 +33,9 @@ importers:
       crashcat:
         specifier: ^0.0.5
         version: 0.0.5(three@0.185.1)
-      mathcat:
-        specifier: ^0.0.14
-        version: 0.0.14
+      math:
+        specifier: ^0.1.0
+        version: 0.1.0
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -429,11 +429,11 @@ packages:
     resolution: {integrity: sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==}
     engines: {node: '>= 12.0.0'}
 
+  math@0.1.0:
+    resolution: {integrity: sha512-hq5KkLblFiR8OO8ZYqPK02mBqrXuxJ6hwvhL3ZM9OFkAR82/20n4H768SWl4yVVrufh8VijEm42D4V9N8hDa2g==}
+
   mathcat@0.0.13:
     resolution: {integrity: sha512-d5KhlEP3p6/ACSGpgwSBPCiiubdVXYb95mkK/rfQd5DirqHjMTYpvX5AP3vZXiQGO4y9DomRgSjOYwXW3dhA+w==}
-
-  mathcat@0.0.14:
-    resolution: {integrity: sha512-70enjjLHu2xk/xQqrfhAU/kr1qcOxghPqgBHUDfWMZB+4x1Th/SoRbTVI9hiF0jfPLT/SJ46F098hm3k0fZ71w==}
 
   meshoptimizer@1.1.1:
     resolution: {integrity: sha512-oRFNWJRDA/WTrVj7NWvqa5HqE1t9MYDj2VaWirQCzCCrAd2GHrqR/sQezCxiWATPNlKTcRaPRHPJwIRoPBAp5g==}
@@ -692,9 +692,9 @@ snapshots:
       lightningcss-win32-arm64-msvc: 1.33.0
       lightningcss-win32-x64-msvc: 1.33.0
 
-  mathcat@0.0.13: {}
+  math@0.1.0: {}
 
-  mathcat@0.0.14: {}
+  mathcat@0.0.13: {}
 
   meshoptimizer@1.1.1: {}
 

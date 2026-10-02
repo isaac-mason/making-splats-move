@@ -9,12 +9,13 @@
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "build:lod": "scripts/build-lod.sh"
     },
     "dependencies": {
         "@sparkjsdev/spark": "^2.1.0",
         "crashcat": "^0.0.5",
-        "mathcat": "^0.0.14",
+        "math": "^0.1.0",
         "three": "^0.185.1"
     },
     "devDependencies": {

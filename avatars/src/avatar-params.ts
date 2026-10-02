@@ -7,6 +7,9 @@
  */
 
 export type AvatarParams = {
+    /** What the editor calls them. */
+    name: string;
+
     // --- Proportions ---
     headRadius: number;
     /** Head ellipsoid, as multiples of headRadius. The head is taller than wide. */
@@ -63,6 +66,11 @@ export type AvatarParams = {
     fringeY: number;
     /** How far the hair comes down at the back and sides. */
     hairBackY: number;
+    /**
+     * How far the hair falls below the head, in headRadius. 0 is a short crop; a
+     * little is a bob, more is long hair down to the shoulders.
+     */
+    hairLength: number;
     /** Number of triangular spikes in the hairline, and how far they come down. */
     fringePoints: number;
     fringeDepth: number;
@@ -71,6 +79,13 @@ export type AvatarParams = {
     fringePhase: number;
 
     // --- Face ---
+    /**
+     * How far the face stands off the skull, in headRadius. The skin's soft discs
+     * reach past its surface, so a feature closer than that sorts into it and mushes.
+     */
+    faceLift: number;
+    /** Gap between stacked face layers (outline, white, pupil, glint), in headRadius. */
+    faceLayerGap: number;
     eyeSpacing: number;
     eyeHeight: number;
     eyeSize: number;
@@ -113,16 +128,26 @@ export type AvatarParams = {
     trousers: string;
     shoes: string;
     hair: string;
+    /** Pupil colour. */
+    eyes: string;
 
     // --- Sampling ---
     /** Distance between splats on a surface. Cost goes as 1/spacing². */
     spacing: number;
     /** The hair is dark against a light background, so it shows gaps first. */
     hairSpacingScale: number;
-    /** Face features need finer splats than the body — they're small. */
-    featureSpacingScale: number;
+    /**
+     * Splat spacing for the face, in world units — its own number, not a fraction of
+     * the body's, so the body can go coarse without smearing the eyes.
+     */
+    featureSpacing: number;
     /** Disc radius over spacing. Low is sharp and gappy; high is solid and soft. */
     overlap: number;
+    /**
+     * Splat opacity, 1..2. Past 1 Spark draws a flatter, harder-edged disc instead of
+     * a soft Gaussian, so a surface can use fewer, bigger splats and stay crisp.
+     */
+    hardness: number;
     /** Extra disc fattening for flat decals, which can't stack layers. */
     decalSize: number;
     /** Shells stacked inward — the cure for a see-through surface. */
@@ -131,43 +156,8 @@ export type AvatarParams = {
     jitter: number;
 };
 
-// Palettes for `randomAvatarParams`. The first entry of each is the authored look.
-//
-// Clothes come as whole OUTFITS rather than as independent shirt/trouser/shoe
-// draws. Picking each garment separately is what gives you a lilac shirt with olive
-// trousers and white shoes: every combination is possible, so most of them are ugly.
-// A dozen pairings someone chose is a much better generator than three lists and a
-// die, and it's the same reason the walk cycle is authored rather than randomised.
-const OUTFITS: { shirt: string; trousers: string; shoes: string }[] = [
-    { shirt: '#e2564d', trousers: '#39415c', shoes: '#2b2b31' }, // coral / indigo
-    { shirt: '#2fa39b', trousers: '#c4a678', shoes: '#4a3b2f' }, // teal / sand
-    { shirt: '#e0a63c', trousers: '#33343a', shoes: '#22232a' }, // mustard / charcoal
-    { shirt: '#9b7fd4', trousers: '#4a5468', shoes: '#2e3340' }, // lilac / slate
-    { shirt: '#7d8c4a', trousers: '#d8cfbc', shoes: '#4a4236' }, // olive / cream
-    { shirt: '#5aa9e6', trousers: '#26304a', shoes: '#e8e6e1' }, // sky / navy, white shoes
-    { shirt: '#e08a9b', trousers: '#3b5578', shoes: '#33333a' }, // rose / denim
-    { shirt: '#2f7d55', trousers: '#b08a5e', shoes: '#3a2f28' }, // forest / tan
-    { shirt: '#7a3b6b', trousers: '#4d4d55', shoes: '#2b2b31' }, // plum / grey
-    { shirt: '#ef7d4a', trousers: '#5a4230', shoes: '#332a22' }, // sunset / brown
-    { shirt: '#d8cfbc', trousers: '#2f3a56', shoes: '#4a4a52' }, // cream / indigo
-    { shirt: '#3d4c8f', trousers: '#8a8f99', shoes: '#26262c' }, // cobalt / stone
-];
-
-const SKIN_TONES = ['#f6e3d2', '#fbe0cf', '#f2c9a0', '#eab68d', '#d29b6e', '#b57a4d', '#8d5a3b', '#66402a'];
-const HAIR_HUES = [
-    '#241f1d', // black
-    '#3b2a20', // dark brown
-    '#6a4426', // brown
-    '#a9742f', // dark blonde
-    '#d9b26a', // blonde
-    '#8f3b26', // auburn
-    '#b5513a', // ginger
-    '#c9c4bd', // silver
-    '#4a6fa5', // dyed blue
-    '#a45a7f', // dyed pink
-];
-
 export const DEFAULT_AVATAR: AvatarParams = {
+    name: 'Mo',
     headRadius: 0.34,
     headWidth: 1.03,
     headHeight: 0.98,
@@ -189,14 +179,17 @@ export const DEFAULT_AVATAR: AvatarParams = {
     hairThickness: 1.13,
     fringeY: 0.58,
     hairBackY: -0.5,
+    hairLength: 0,
     fringePoints: 4,
     fringeDepth: 0.15,
     fringeSweep: 0.02,
     fringePhase: 0.7,
 
-    eyeSpacing: 0.25,
-    eyeHeight: -0.1,
-    eyeSize: 0.16,
+    faceLift: 0.045,
+    faceLayerGap: 0.012,
+    eyeSpacing: 0.27,
+    eyeHeight: -0.15,
+    eyeSize: 0.175,
     eyeWidth: 0.7,
     eyeTall: 1.05,
     eyeTopFlat: 2.2,
@@ -205,30 +198,32 @@ export const DEFAULT_AVATAR: AvatarParams = {
     pupilSize: 0.66,
     pupilY: -0.05,
     eyeShine: 0.32,
-    browGap: 1.75,
-    browAngle: 0.08,
-    browWidth: 0.95,
-    browThickness: 0.14,
-    browShape: 3.0,
-    mouthY: -0.47,
-    mouthWidth: 0.16,
-    mouthThickness: 0.022,
+    browGap: 1.9,
+    browAngle: 0.06,
+    browWidth: 0.8,
+    browThickness: 0.1,
+    browShape: 2.6,
+    mouthY: -0.42,
+    mouthWidth: 0.12,
+    mouthThickness: 0.02,
     mouthShape: 3.0,
-    mouthCurve: 0.07,
-    noseSize: 0.045,
-    blushSize: 0.8,
-    blushStrength: 0.35,
+    mouthCurve: 0.06,
+    noseSize: 0.03,
+    blushSize: 0.85,
+    blushStrength: 0.45,
 
-    skin: '#f6e3d2',
-    shirt: '#e2564d',
-    trousers: '#39415c',
-    shoes: '#2b2b31',
-    hair: '#241f1d',
+    skin: '#ffd3ae',
+    shirt: '#d31e15',
+    trousers: '#3f4148',
+    shoes: '#2a2a2e',
+    hair: '#000000',
+    eyes: '#000000',
 
-    spacing: 0.008,
-    hairSpacingScale: 0.75,
-    featureSpacingScale: 0.2,
+    spacing: 0.014,
+    hairSpacingScale: 1.0,
+    featureSpacing: 0.0024,
     overlap: 0.55,
+    hardness: 2,
     decalSize: 1.8,
     layers: 2,
     jitter: 0.3,
@@ -257,11 +252,14 @@ export const AVATAR_RANGES: Record<string, [number, number, number]> = {
     hairThickness: [1.0, 1.35, 0.005],
     fringeY: [0.1, 0.8, 0.01],
     hairBackY: [-0.9, 0.2, 0.02],
+    hairLength: [0, 1.6, 0.02],
     fringePoints: [1, 12, 1],
     fringeDepth: [0, 0.5, 0.005],
     fringeSweep: [-0.2, 0.2, 0.005],
     fringePhase: [0, 6.28, 0.05],
 
+    faceLift: [0, 0.15, 0.005],
+    faceLayerGap: [0, 0.04, 0.001],
     eyeSpacing: [0.1, 0.4, 0.005],
     eyeHeight: [-0.2, 0.25, 0.005],
     eyeSize: [0.06, 0.22, 0.005],
@@ -289,14 +287,15 @@ export const AVATAR_RANGES: Record<string, [number, number, number]> = {
 
     spacing: [0.005, 0.03, 0.0005],
     hairSpacingScale: [0.3, 1.2, 0.05],
-    featureSpacingScale: [0.15, 1, 0.01],
+    featureSpacing: [0.0012, 0.008, 0.0001],
     overlap: [0.3, 1.1, 0.02],
+    hardness: [1, 2, 0.05],
     decalSize: [1, 3, 0.05],
     layers: [1, 4, 1],
     jitter: [0, 1.2, 0.05],
 };
 
-export const AVATAR_COLORS = ['skin', 'shirt', 'trousers', 'shoes', 'hair'] as const;
+export const AVATAR_COLORS = ['skin', 'shirt', 'trousers', 'shoes', 'hair', 'eyes'] as const;
 
 /**
  * Friendly names for the panel. `chestTaper` and `eyeTopFlat` are the right names in
@@ -324,11 +323,14 @@ const AVATAR_LABELS: Record<string, string> = {
     hairThickness: 'Volume',
     fringeY: 'Hairline height',
     hairBackY: 'Back length',
+    hairLength: 'Hair length',
     fringePoints: 'Spikes',
     fringeDepth: 'Spike depth',
     fringeSweep: 'Sweep',
     fringePhase: 'Spike offset',
 
+    faceLift: 'Face lift',
+    faceLayerGap: 'Layer gap',
     eyeSpacing: 'Spacing',
     eyeHeight: 'Height',
     eyeSize: 'Size',
@@ -358,8 +360,9 @@ const AVATAR_LABELS: Record<string, string> = {
 
     spacing: 'Splat spacing',
     hairSpacingScale: 'Hair detail',
-    featureSpacingScale: 'Face detail',
+    featureSpacing: 'Face detail',
     overlap: 'Overlap',
+    hardness: 'Hardness',
     decalSize: 'Decal size',
     layers: 'Shell layers',
     jitter: 'Jitter',
@@ -369,6 +372,7 @@ const AVATAR_LABELS: Record<string, string> = {
     trousers: 'Trousers',
     shoes: 'Shoes',
     hair: 'Hair',
+    eyes: 'Eyes',
 };
 
 /** Whatever the panel is showing, falling back to the raw key. */
@@ -395,11 +399,22 @@ export const AVATAR_GROUPS: { title: string; keys: string[]; advanced?: boolean 
     },
     {
         title: 'Hair',
-        keys: ['hairThickness', 'fringeY', 'hairBackY', 'fringePoints', 'fringeDepth', 'fringeSweep', 'fringePhase'],
+        keys: [
+            'hairThickness',
+            'fringeY',
+            'hairBackY',
+            'hairLength',
+            'fringePoints',
+            'fringeDepth',
+            'fringeSweep',
+            'fringePhase',
+        ],
     },
     {
         title: 'Eyes',
         keys: [
+            'faceLift',
+            'faceLayerGap',
             'eyeSpacing',
             'eyeHeight',
             'eyeSize',
@@ -424,85 +439,278 @@ export const AVATAR_GROUPS: { title: string; keys: string[]; advanced?: boolean 
     {
         title: 'Detail',
         advanced: true,
-        keys: ['spacing', 'hairSpacingScale', 'featureSpacingScale', 'overlap', 'decalSize', 'layers', 'jitter'],
+        keys: ['spacing', 'hairSpacingScale', 'featureSpacing', 'overlap', 'hardness', 'decalSize', 'layers', 'jitter'],
     },
 ];
 
-/** A varied avatar from a seed. Without this the seed only feeds the lattice
- *  jitter, and a crowd of sixteen is sixteen identical people. */
-export function randomAvatarParams(seed: number): AvatarParams {
-    let state = (seed * 1664525 + 1013904223) >>> 0;
-    const rand = () => {
-        state = (state * 1664525 + 1013904223) >>> 0;
-        return state / 0x100000000;
-    };
-    const pick = <T>(list: readonly T[]): T => list[Math.floor(rand() * list.length)];
-    const vary = (base: number, spread: number) => base * (1 - spread + rand() * spread * 2);
+/** Some of an avatar's numbers: what a style sets. */
+type NumericKey = { [K in keyof AvatarParams]: AvatarParams[K] extends number ? K : never }[keyof AvatarParams];
+export type Bundle = Partial<Pick<AvatarParams, NumericKey>>;
+export type Style = { name: string; set: Bundle };
 
-    // Two correlated axes, then per-parameter jitter on top.
-    //
-    // Drawing every proportion independently is the same mistake as drawing shirt
-    // and trousers independently: it makes a thin torso with thick arms just as
-    // likely as a consistent build, so you get more variety and less believability.
-    // One `stature` and one `build` draw keep each body internally consistent, and
-    // the jitter stops them looking like five points on a line.
-    const stature = 0.82 + rand() * 0.4;
-    const build = 0.74 + rand() * 0.56;
-    // Heads vary hard and INDEPENDENTLY of stature — a big head on a short body is
-    // half the charm, and tying the two together throws that away.
-    const headScale = 0.82 + rand() * 0.42;
+// --- The styles --------------------------------------------------------------
+//
+// Designed by hand, like the cast. The first of each is the default look.
 
-    const headHeight = vary(DEFAULT_AVATAR.headHeight, 0.1);
+const HEAD_SHAPES: Style[] = [
+    { name: 'Round', set: { headWidth: 1.03, headHeight: 0.98, headDepth: 0.96, chinTaper: 0.2, headSit: 1.16 } },
+    { name: 'Egg', set: { headWidth: 0.95, headHeight: 1.08, headDepth: 0.94, chinTaper: 0.35, headSit: 1.26 } },
+    { name: 'Wide', set: { headWidth: 1.12, headHeight: 0.94, headDepth: 0.98, chinTaper: 0.15, headSit: 1.12 } },
+    { name: 'Square', set: { headWidth: 1.06, headHeight: 1.0, headDepth: 0.98, chinTaper: 0.04, headSit: 1.18 } },
+];
 
-    return {
-        ...DEFAULT_AVATAR,
-        headRadius: DEFAULT_AVATAR.headRadius * headScale * vary(1, 0.05),
-        headWidth: vary(DEFAULT_AVATAR.headWidth, 0.1),
-        headHeight,
-        headDepth: vary(DEFAULT_AVATAR.headDepth, 0.08),
-        chinTaper: vary(DEFAULT_AVATAR.chinTaper, 0.4),
-        // DERIVED, not drawn. The head's base sits at headRadius x (headSit -
-        // headHeight) above the shoulders, so any headSit below headHeight buries
-        // the skull in the chest. Rolling the two separately would do exactly that,
-        // some of the time, and it looks fine head-on — which is how it would go
-        // unnoticed. Roll the GAP instead and the invariant can't break.
-        headSit: headHeight + 0.14 + rand() * 0.12,
+const HAIR_STYLES: Style[] = [
+    {
+        name: 'Crop',
+        set: {
+            hairLength: 0,
+            fringeY: 0.58,
+            fringePoints: 4,
+            fringeDepth: 0.15,
+            fringeSweep: 0.02,
+            hairBackY: -0.5,
+            hairThickness: 1.13,
+        },
+    },
+    {
+        name: 'Spiky',
+        set: {
+            hairLength: 0,
+            fringeY: 0.62,
+            fringePoints: 6,
+            fringeDepth: 0.28,
+            fringeSweep: 0,
+            hairBackY: -0.45,
+            hairThickness: 1.16,
+        },
+    },
+    {
+        name: 'Swept',
+        set: {
+            hairLength: 0,
+            fringeY: 0.55,
+            fringePoints: 3,
+            fringeDepth: 0.12,
+            fringeSweep: 0.18,
+            hairBackY: -0.5,
+            hairThickness: 1.13,
+        },
+    },
+    {
+        name: 'Buzz',
+        set: {
+            hairLength: 0,
+            fringeY: 0.7,
+            fringePoints: 8,
+            fringeDepth: 0.04,
+            fringeSweep: 0,
+            hairBackY: -0.35,
+            hairThickness: 1.05,
+        },
+    },
+    {
+        name: 'Bob',
+        set: {
+            hairLength: 0.5,
+            fringeY: 0.42,
+            fringePoints: 9,
+            fringeDepth: 0.05,
+            fringeSweep: 0,
+            hairBackY: -0.9,
+            hairThickness: 1.13,
+        },
+    },
+    {
+        name: 'Long',
+        set: {
+            hairLength: 1.1,
+            fringeY: 0.5,
+            fringePoints: 3,
+            fringeDepth: 0.12,
+            fringeSweep: 0.18,
+            hairBackY: -0.9,
+            hairThickness: 1.13,
+        },
+    },
+];
 
-        hipY: DEFAULT_AVATAR.hipY * stature * vary(1, 0.07),
-        torsoHeight: DEFAULT_AVATAR.torsoHeight * stature * vary(1, 0.1),
-        torsoWidth: DEFAULT_AVATAR.torsoWidth * build * vary(1, 0.09),
-        torsoRoundness: vary(DEFAULT_AVATAR.torsoRoundness, 0.18),
-        shoulderWidth: vary(DEFAULT_AVATAR.shoulderWidth, 0.14),
-        chestRise: vary(DEFAULT_AVATAR.chestRise, 0.2),
-        chestTaper: vary(DEFAULT_AVATAR.chestTaper, 0.18),
-        hemDrop: vary(DEFAULT_AVATAR.hemDrop, 0.5),
-        armLength: DEFAULT_AVATAR.armLength * (0.9 + stature * 0.12) * vary(1, 0.1),
-        armDrop: vary(DEFAULT_AVATAR.armDrop, 0.25),
-        limbRadius: DEFAULT_AVATAR.limbRadius * build * vary(1, 0.14),
+const EYE_SHAPES: Style[] = [
+    {
+        name: 'Classic',
+        set: { eyeSize: 0.175, eyeWidth: 0.7, eyeTall: 1.05, pupilSize: 0.66, eyeShine: 0.32, eyeTopFlat: 2.2, eyeOutline: 0.08 },
+    },
+    {
+        name: 'Big',
+        set: { eyeSize: 0.19, eyeWidth: 0.72, eyeTall: 1.15, pupilSize: 0.72, eyeShine: 0.36, eyeTopFlat: 2.2, eyeOutline: 0.08 },
+    },
+    {
+        name: 'Round',
+        set: { eyeSize: 0.15, eyeWidth: 0.85, eyeTall: 0.9, pupilSize: 0.6, eyeShine: 0.3, eyeTopFlat: 2, eyeOutline: 0.08 },
+    },
+    {
+        name: 'Sleepy',
+        set: { eyeSize: 0.15, eyeWidth: 0.8, eyeTall: 0.7, pupilSize: 0.62, eyeShine: 0.25, eyeTopFlat: 4.5, eyeOutline: 0.08 },
+    },
+    {
+        name: 'Narrow',
+        set: { eyeSize: 0.15, eyeWidth: 0.9, eyeTall: 0.6, pupilSize: 0.55, eyeShine: 0.28, eyeTopFlat: 3, eyeOutline: 0.08 },
+    },
+    {
+        name: 'Dot',
+        set: { eyeSize: 0.11, eyeWidth: 0.6, eyeTall: 0.9, pupilSize: 0.9, eyeShine: 0.2, eyeTopFlat: 2, eyeOutline: 0 },
+    },
+];
 
-        // Hair and face, which is where a character becomes recognisable.
-        fringeY: vary(DEFAULT_AVATAR.fringeY, 0.14),
-        fringePoints: 3 + Math.floor(rand() * 5),
-        fringeDepth: vary(DEFAULT_AVATAR.fringeDepth, 0.45),
-        fringePhase: rand() * Math.PI * 2,
-        hairThickness: vary(DEFAULT_AVATAR.hairThickness, 0.02),
-        hairBackY: vary(DEFAULT_AVATAR.hairBackY, 0.35),
-        eyeSpacing: vary(DEFAULT_AVATAR.eyeSpacing, 0.14),
-        eyeSize: vary(DEFAULT_AVATAR.eyeSize, 0.18),
-        eyeTall: vary(DEFAULT_AVATAR.eyeTall, 0.18),
-        eyeHeight: vary(DEFAULT_AVATAR.eyeHeight, 0.8),
-        pupilSize: vary(DEFAULT_AVATAR.pupilSize, 0.18),
-        pupilY: (rand() - 0.5) * 0.3,
-        browAngle: vary(DEFAULT_AVATAR.browAngle, 0.7),
-        browGap: vary(DEFAULT_AVATAR.browGap, 0.22),
-        browThickness: vary(DEFAULT_AVATAR.browThickness, 0.3),
-        mouthWidth: vary(DEFAULT_AVATAR.mouthWidth, 0.3),
-        mouthY: vary(DEFAULT_AVATAR.mouthY, 0.14),
-        mouthCurve: vary(DEFAULT_AVATAR.mouthCurve, 0.6),
-        blushStrength: vary(DEFAULT_AVATAR.blushStrength, 0.5),
+const BROW_STYLES: Style[] = [
+    { name: 'Soft', set: { browThickness: 0.1, browAngle: 0.06, browWidth: 0.8, browShape: 2.6 } },
+    { name: 'Bold', set: { browThickness: 0.22, browAngle: 0.05, browWidth: 1.1, browShape: 3.5 } },
+    { name: 'Thin', set: { browThickness: 0.08, browAngle: 0.08, browWidth: 0.9, browShape: 2.5 } },
+    { name: 'Worried', set: { browThickness: 0.13, browAngle: -0.15, browWidth: 0.95, browShape: 3 } },
+    { name: 'Stern', set: { browThickness: 0.16, browAngle: 0.3, browWidth: 1.0, browShape: 4 } },
+    { name: 'Short', set: { browThickness: 0.15, browAngle: 0.05, browWidth: 0.6, browShape: 2.2 } },
+];
 
-        skin: pick(SKIN_TONES),
-        hair: pick(HAIR_HUES),
-        ...pick(OUTFITS),
-    };
+const MOUTHS: Style[] = [
+    { name: 'Smile', set: { mouthCurve: 0.06, mouthWidth: 0.12, mouthThickness: 0.02 } },
+    { name: 'Grin', set: { mouthCurve: 0.12, mouthWidth: 0.2, mouthThickness: 0.026 } },
+    { name: 'Small', set: { mouthCurve: 0.05, mouthWidth: 0.1, mouthThickness: 0.02 } },
+    { name: 'Wide', set: { mouthCurve: 0.04, mouthWidth: 0.24, mouthThickness: 0.02 } },
+    { name: 'Flat', set: { mouthCurve: 0, mouthWidth: 0.14, mouthThickness: 0.02 } },
+    { name: 'Pout', set: { mouthCurve: -0.04, mouthWidth: 0.12, mouthThickness: 0.022 } },
+];
+
+const BUILDS: Style[] = [
+    { name: 'Slim', set: { torsoWidth: 0.135, limbRadius: 0.055, torsoRoundness: 2.8, shoulderWidth: 1.4 } },
+    { name: 'Regular', set: { torsoWidth: 0.15, limbRadius: 0.06, torsoRoundness: 2.8, shoulderWidth: 1.4 } },
+    { name: 'Sturdy', set: { torsoWidth: 0.17, limbRadius: 0.066, torsoRoundness: 3.2, shoulderWidth: 1.5 } },
+    { name: 'Round', set: { torsoWidth: 0.19, limbRadius: 0.07, torsoRoundness: 2.2, shoulderWidth: 1.4 } },
+];
+
+/** Every style, by part — the editor's tiles, and what the cast is built from. */
+export const STYLES = {
+    head: HEAD_SHAPES,
+    hair: HAIR_STYLES,
+    eyes: EYE_SHAPES,
+    brows: BROW_STYLES,
+    mouth: MOUTHS,
+    build: BUILDS,
+};
+
+/** One style's numbers, by part and name. Throws on a typo rather than doing nothing. */
+export function style(part: keyof typeof STYLES, name: string): Bundle {
+    const found = STYLES[part].find((s) => s.name === name);
+    if (!found) throw new Error(`no ${part} style called ${name}`);
+    return found.set;
 }
+
+/**
+ * The cast: a handful of people designed by hand rather than rolled. Random
+ * proportions and palettes give you variety, but most of what they give you is
+ * ugly; six characters someone looked at are worth more than any number of rolls.
+ *
+ * Each is the default plus what makes them THEM. Shirts are Mii favourite colours
+ * over the same charcoal trousers, so the crowd reads as one cast.
+ */
+const person = (overrides: Partial<AvatarParams>): AvatarParams => ({ ...DEFAULT_AVATAR, ...overrides });
+
+export const CAST: readonly AvatarParams[] = [
+    // Mo: the default. Red shirt, black crop, a little smile.
+    person({}),
+    // Ada: shy. Dark brown bob with straight bangs, big blue eyes, a tiny mouth.
+    person({
+        name: 'Ada',
+        ...style('eyes', 'Big'),
+        ...style('brows', 'Thin'),
+        ...style('mouth', 'Small'),
+        skin: '#ffbfa6',
+        shirt: '#f55a7c',
+        hair: '#402011',
+        eyes: '#4554a7',
+        hairLength: 0.5,
+        fringeY: 0.42,
+        fringePoints: 9,
+        fringeDepth: 0.05,
+        fringeSweep: 0,
+        hairBackY: -0.9,
+        torsoWidth: 0.135,
+        limbRadius: 0.055,
+        blushStrength: 0.6,
+    }),
+    // Kofi: friendly. Tall, short black hair, bold brows and a big grin.
+    person({
+        name: 'Kofi',
+        ...style('eyes', 'Round'),
+        ...style('brows', 'Bold'),
+        ...style('mouth', 'Grin'),
+        skin: '#632c18',
+        shirt: '#78d320',
+        hair: '#000000',
+        eyes: '#663c2c',
+        hipY: 0.56,
+        torsoHeight: 0.4,
+        armLength: 0.36,
+        fringeY: 0.64,
+        fringeDepth: 0.06,
+        fringePoints: 6,
+        hairThickness: 1.08,
+        blushStrength: 0.2,
+    }),
+    // June: dreamy. Long blonde hair with a side parting, sleepy green eyes.
+    person({
+        name: 'June',
+        ...style('eyes', 'Sleepy'),
+        ...style('brows', 'Thin'),
+        ...style('mouth', 'Small'),
+        skin: '#fec58e',
+        shirt: '#3caadf',
+        hair: '#d0a04b',
+        eyes: '#397158',
+        hairLength: 1.1,
+        fringeY: 0.5,
+        fringePoints: 3,
+        fringeDepth: 0.12,
+        fringeSweep: 0.18,
+        hairBackY: -0.9,
+        torsoWidth: 0.14,
+        limbRadius: 0.055,
+        blushStrength: 0.5,
+    }),
+    // Gus: calm. Big and round, square head, grey hair, narrow eyes under heavy brows.
+    person({
+        name: 'Gus',
+        ...style('head', 'Square'),
+        ...style('eyes', 'Narrow'),
+        ...style('brows', 'Bold'),
+        ...style('mouth', 'Wide'),
+        ...style('build', 'Round'),
+        skin: '#de7941',
+        shirt: '#0a49b3',
+        hair: '#787880',
+        eyes: '#6c7071',
+        headRadius: 0.36,
+        hipY: 0.48,
+        fringeY: 0.7,
+        fringeDepth: 0.04,
+        blushStrength: 0.25,
+    }),
+    // Pip: curious. Small, spiky auburn hair, big eyes, short brows, grinning.
+    person({
+        name: 'Pip',
+        ...style('hair', 'Spiky'),
+        ...style('eyes', 'Big'),
+        ...style('brows', 'Short'),
+        ...style('mouth', 'Grin'),
+        // Brows lower than most, or the spiky fringe swallows them.
+        browGap: 1.55,
+        skin: '#ffd3ae',
+        shirt: '#ffd920',
+        hair: '#7b3a14',
+        eyes: '#605d30',
+        headRadius: 0.31,
+        hipY: 0.42,
+        torsoHeight: 0.3,
+        armLength: 0.29,
+        fringePhase: 2.1,
+        blushStrength: 0.6,
+    }),
+];

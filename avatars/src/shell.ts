@@ -20,12 +20,25 @@ import * as THREE from 'three';
  * straight in and it's linearised twice — skin tones go to mud while saturated reds
  * survive, which looks like a lighting problem rather than the encoding bug it is.
  */
+/**
+ * Saturation boost applied to every avatar colour, pushing each channel away from
+ * the colour's own grey. 1 = as authored, which is right for the hand-picked cast;
+ * raise it to punch everything up at once.
+ */
+const VIBRANCE = 1;
+
+function vibrant(color: THREE.Color): THREE.Color {
+    const grey = 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+    const push = (c: number) => THREE.MathUtils.clamp(grey + (c - grey) * VIBRANCE, 0, 1);
+    return color.setRGB(push(color.r), push(color.g), push(color.b));
+}
+
 export function splatColor(style: string | number): THREE.Color {
-    return new THREE.Color(style).convertLinearToSRGB();
+    return vibrant(new THREE.Color(style).convertLinearToSRGB());
 }
 
 export function splatColorHSL(h: number, s: number, l: number): THREE.Color {
-    return new THREE.Color().setHSL(h, s, l).convertLinearToSRGB();
+    return vibrant(new THREE.Color().setHSL(h, s, l).convertLinearToSRGB());
 }
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
@@ -117,6 +130,46 @@ function addDisc(
     // two fat axes lying in the tangent plane.
     shell.quats.push(new THREE.Quaternion().setFromUnitVectors(Z, normal));
     shell.scales.push(new THREE.Vector3(size, size, size * FLATNESS));
+    shell.colors.push(color.clone());
+    shell.owners.push(owner);
+}
+
+/**
+ * How far a disc visibly reaches, in multiples of its scale. A Gaussian has no edge,
+ * but past about this it's faint enough not to read as colour.
+ */
+const DISC_REACH = 2.2;
+const edgeBasis = new THREE.Matrix4();
+const edgeU = new THREE.Vector3();
+const edgeV = new THREE.Vector3();
+
+/**
+ * A disc beside a colour edge or a cut: unjittered, and squashed ACROSS the edge so
+ * its reach stops at the line instead of spilling over it. `across` is the direction
+ * pointing across the edge; `distance` is how far the disc's centre is from it.
+ *
+ * Without this, a boundary is decided per splat centre and every disc pokes past it
+ * by its own radius — which reads as a ragged, spiky edge once splats get big.
+ */
+function addEdgeDisc(
+    shell: Shell,
+    center: THREE.Vector3,
+    normal: THREE.Vector3,
+    across: THREE.Vector3,
+    distance: number,
+    spacing: number,
+    color: THREE.Color,
+    owner: number,
+): void {
+    const size = spacing * shell.settings.overlap;
+    // Tangent frame: v across the edge, u along it, normal through the disc.
+    edgeU.copy(across).cross(normal).normalize();
+    edgeV.copy(normal).cross(edgeU).normalize();
+    edgeBasis.makeBasis(edgeU, edgeV, normal);
+    const squash = THREE.MathUtils.clamp(distance / (DISC_REACH * size), 0.25, 1);
+    shell.centers.push(center.clone());
+    shell.quats.push(new THREE.Quaternion().setFromRotationMatrix(edgeBasis));
+    shell.scales.push(new THREE.Vector3(size, size * squash, size * FLATNESS));
     shell.colors.push(color.clone());
     shell.owners.push(owner);
 }
@@ -243,6 +296,25 @@ export function addFlatCap(
 ): void {
     const side = (Math.abs(normal.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).cross(normal).normalize();
     const other = normal.clone().cross(side).normalize();
+    const radial = new THREE.Vector3();
+
+    // A ring narrower than a couple of discs (a cuff): one circle down its middle,
+    // each disc squashed to fit the ring's width. Scattered over the area instead, a
+    // disc bigger than the ring is wide pokes out both sides and the cut looks frayed.
+    const width = radius - innerRadius;
+    if (innerRadius > 0 && width < 2 * spacing) {
+        const mid = innerRadius + width / 2;
+        const around = Math.max(8, Math.ceil((2 * Math.PI * mid) / (spacing * 0.7)));
+        const point = new THREE.Vector3();
+        for (let i = 0; i < around; i++) {
+            const theta = (i / around) * Math.PI * 2;
+            radial.copy(side).multiplyScalar(Math.cos(theta)).addScaledVector(other, Math.sin(theta));
+            point.copy(center).addScaledVector(radial, mid);
+            addEdgeDisc(shell, point, normal, radial, width / 2, spacing, color, owner);
+        }
+        return;
+    }
+
     const area = Math.PI * (radius * radius - innerRadius * innerRadius);
     const count = Math.max(8, Math.round(area / (spacing * spacing)));
     const point = new THREE.Vector3();
@@ -256,6 +328,12 @@ export function addFlatCap(
             .copy(center)
             .addScaledVector(side, Math.cos(theta) * r)
             .addScaledVector(other, Math.sin(theta) * r);
+        // Near the rim, keep the disc inside it.
+        if (radius - r < spacing) {
+            radial.copy(point).sub(center).normalize();
+            addEdgeDisc(shell, point, normal, radial, radius - r, spacing, color, owner);
+            continue;
+        }
         jitter(shell, point, normal, spacing);
         addDisc(shell, point, normal, spacing, color, owner);
     }
@@ -276,6 +354,9 @@ export type CapsuleOptions = {
     innerB?: number;
     /** See SphereOptions.layers — the cure for a see-through surface. */
     layers?: number;
+    /** A clean cut at that end: rings stop half a step short and don't spill past it. */
+    crispA?: boolean;
+    crispB?: boolean;
 };
 
 export function addCapsule(
@@ -310,14 +391,21 @@ export function addCapsule(
     for (let layer = 0; layer < layers; layer++) {
         const rA = Math.max(1e-4, radiusA - layer * inset);
         const rB = Math.max(1e-4, radiusB - layer * inset);
-        for (let i = 0; i <= rings; i++) {
+        // A crisp end puts its last ring half a step in, so the cut falls between
+        // rings rather than through one.
+        const first = options.crispA ? 0.5 : 0;
+        const last = options.crispB ? rings - 0.5 : rings;
+        for (let i = first; i <= last + 1e-6; i++) {
             const t = i / rings;
             const radius = THREE.MathUtils.lerp(rA, rB, t);
+            const toA = options.crispA ? t * length : Number.POSITIVE_INFINITY;
+            const toB = options.crispB ? (1 - t) * length : Number.POSITIVE_INFINITY;
+            const toEnd = Math.min(toA, toB);
             const around = Math.max(6, Math.round((2 * Math.PI * radius) / spacing));
             for (let j = 0; j < around; j++) {
                 // Stagger alternate rings, and each layer again, so nothing lines up
                 // into a visible lattice.
-                const ang = ((j + (i % 2) * 0.5 + layer * 0.37) / around) * Math.PI * 2;
+                const ang = ((j + (Math.floor(i) % 2) * 0.5 + layer * 0.37) / around) * Math.PI * 2;
                 const cos = Math.cos(ang);
                 const sin = Math.sin(ang);
                 point
@@ -331,6 +419,10 @@ export function addCapsule(
                     .addScaledVector(other, sin)
                     .addScaledVector(axis, lean)
                     .normalize();
+                if (toEnd < spacing) {
+                    addEdgeDisc(shell, point, normal, axis, toEnd, spacing, color, owner);
+                    continue;
+                }
                 jitter(shell, point, normal, spacing);
                 addDisc(shell, point, normal, spacing, color, owner);
             }
@@ -517,6 +609,11 @@ export function addLoft(
         layers?: number;
         /** Close the bottom with a flat disc (a hem); the top is left open. */
         capBottom?: boolean;
+        /**
+         * Heights where `colorAt` changes. Rings straddle each one half a step either
+         * side, unjittered and squashed, so the colour change is a clean line.
+         */
+        edges?: number[];
     },
 ): void {
     const { profile, roundness, spacing, colorAt, ownerAt } = opts;
@@ -527,12 +624,35 @@ export function addLoft(
     const y1 = profile[profile.length - 1].y;
     const rings = Math.max(2, Math.ceil((y1 - y0) / spacing));
 
+    // Ring heights. With no edges, evenly from end to end; with edges, each segment
+    // between them gets its own even run, stopping half a step short of an edge.
+    const edges = (opts.edges ?? []).filter((e) => e > y0 && e < y1).sort((a, b) => a - b);
+    const heights: number[] = [];
+    if (edges.length === 0) {
+        for (let i = 0; i <= rings; i++) heights.push(y0 + ((y1 - y0) * i) / rings);
+    } else {
+        const stops = [y0, ...edges, y1];
+        for (let k = 0; k < stops.length - 1; k++) {
+            const a = stops[k];
+            const b = stops[k + 1];
+            const n = Math.max(1, Math.round((b - a) / spacing));
+            const step = (b - a) / n;
+            const start = k > 0 ? a + step / 2 : a;
+            const end = k < stops.length - 2 ? b - step / 2 : b;
+            const count = Math.max(0, Math.round((end - start) / step));
+            for (let i = 0; i <= count; i++) heights.push(count ? start + ((end - start) * i) / count : (start + end) / 2);
+        }
+    }
+    const up = new THREE.Vector3(0, 1, 0);
+
     const point = new THREE.Vector3();
     const normal = new THREE.Vector3();
 
     for (let layer = 0; layer < layers; layer++) {
-        for (let i = 0; i <= rings; i++) {
-            const y = y0 + ((y1 - y0) * i) / rings;
+        for (let i = 0; i < heights.length; i++) {
+            const y = heights[i];
+            let toEdge = Number.POSITIVE_INFINITY;
+            for (const e of edges) toEdge = Math.min(toEdge, Math.abs(y - e));
             const w = Math.max(1e-4, sampleProfile(profile, y, 'width') - layer * inset);
             const d = Math.max(1e-4, sampleProfile(profile, y, 'depth') - layer * inset);
             // Local slope of the silhouette, so the surface normal tilts with it
@@ -575,6 +695,10 @@ export function addLoft(
                 normal.set(gx, 0, gz).normalize();
                 normal.y = -slope;
                 normal.normalize();
+                if (toEdge < spacing) {
+                    addEdgeDisc(shell, point, normal, up, toEdge, spacing, colorAt(y), ownerAt(y));
+                    continue;
+                }
                 jitter(shell, point, normal, spacing);
                 addDisc(shell, point, normal, spacing, colorAt(y), ownerAt(y));
             }

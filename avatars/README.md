@@ -96,7 +96,7 @@ bone its world transform.
 
 ## Then: ragdolls, almost for free
 
-The default scene is five of them wandering a town square, and with the debug panel
+The default scene is six of them wandering a school courtyard, and with the debug panel
 open (backtick) and **drag to ragdoll** ticked, you can press on one, drop it, and
 carry it around by whatever limb you grabbed. Let go and they fall. Leave them a
 couple of seconds and they get back up. Physics is
@@ -233,7 +233,7 @@ as I can tell nobody has shown that. It's the reason this is worth continuing.
 pnpm --filter avatars dev
 ```
 
-Shows five avatars walking a town square. Three tools on the bar at the bottom:
+Shows six avatars walking a school courtyard. Three tools on the bar at the bottom:
 
 - **customize** — click a walker and they run out to the front, turn to face you and
   stand still while the camera drops to meet them; the sliders that built them open,
@@ -271,7 +271,10 @@ before reading any of it:
 - **`town-square.ts`** — the finished one. The crowd, the physics world, and the two
   tools you can point at them. `crowd.ts` walks them and decides when they fall and
   get up; `physics.ts` is the rigid-body double; `grab.ts`, `picking.ts`,
-  `showcase.ts` and `toolbar.ts` are the interaction.
+  `showcase.ts` and `toolbar.ts` are the interaction. `gaze.ts` is where each of
+  them looks and how they blink — their personalities live there. `tree-sway.ts`
+  sways the capture's trees (the wind example's technique, drawn in Spark's splat
+  shader) and `leaves.ts` drops leaves off them.
 - **`workbench.ts`** — where it came from. One rig on a plain stage, behind `?limb`,
   `?figure`, `?editor` and `?crowd=N`.
 
@@ -282,3 +285,13 @@ to THIS capture, so swapping in another world is a one-file edit.
 
 `index.ts` does none of that. It reads `options.ts`, builds a renderer, frames a
 camera, picks one of the two worlds, and runs a loop.
+
+## Assets
+
+The school courtyard is a Gaussian-splat capture (`project-cartoon-school-campus-courtyard.spz`).
+
+- `assets/school-courtyard.spz` — the source splat. Not served: only the LOD file is.
+- `public/school-courtyard-lod.rad` — the LOD-paged build, what the browser loads.
+
+Rebuild the `.rad` with `pnpm build:lod` (needs a Rust toolchain; see
+[`dust/README.md`](../dust/README.md#assets) for how the script and the paging work).

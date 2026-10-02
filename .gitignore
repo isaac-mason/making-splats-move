@@ -11,7 +11,7 @@ dist-ssr
 *.local
 
 # Vendored Spark source (cloned by scripts/build-lod.sh)
-vendor/
+vendor
 
 # Editor directories and files
 .vscode/*

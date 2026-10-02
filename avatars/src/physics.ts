@@ -22,7 +22,7 @@ import {
     updateWorld,
     type World,
 } from 'crashcat';
-import { quat, vec3 } from 'mathcat';
+import { quat, vec3 } from 'math';
 import * as THREE from 'three';
 import type { Avatar } from './avatar';
 import type { Skeleton } from './bones';
@@ -269,6 +269,51 @@ export function goDriven(world: World, puppet: Puppet): void {
 
 const bodyQuat = new THREE.Quaternion();
 const bodyPos = new THREE.Vector3();
+const parentInv = new THREE.Quaternion();
+const local = new THREE.Quaternion();
+const twist = new THREE.Quaternion();
+const swing = new THREE.Quaternion();
+const twistInv = new THREE.Quaternion();
+const boneAxis = new THREE.Vector3();
+
+/**
+ * The most a joint is DRAWN bent, whatever the bodies are doing. A little past the
+ * constraint limits (45° swing, 22.5° twist), so a limp body drapes freely; well
+ * short of where the skin bridging a joint stretches thin enough to see through.
+ */
+const DRAWN_SWING = THREE.MathUtils.degToRad(55);
+const DRAWN_TWIST = THREE.MathUtils.degToRad(30);
+
+/** Scale a unit quaternion's rotation angle down to `max`, if it's past it. */
+function clampAngle(q: THREE.Quaternion, max: number): void {
+    if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w);
+    const angle = 2 * Math.acos(Math.min(1, q.w));
+    if (angle <= max) return;
+    const s = Math.sin(max / 2) / Math.sqrt(Math.max(1e-12, 1 - q.w * q.w));
+    q.set(q.x * s, q.y * s, q.z * s, Math.cos(max / 2));
+}
+
+/**
+ * Hold a joint's rotation within what the skin can bend to. The joints are soft,
+ * and a hard pull — the grab, mostly — drives them far past their limits (a waist
+ * at 80-90° against a 45° cone). The skin across the joint can't fold that far: it
+ * stretches thin on the outside of the bend until the parts visibly come apart.
+ *
+ * Split into swing (the bone's direction) and twist (spin about it), and clamp
+ * each. Only the drawn pose is held; the bodies carry on as they were.
+ */
+function clampJoint(child: THREE.Quaternion, parent: THREE.Quaternion, axis: THREE.Vector3): void {
+    local.copy(parentInv.copy(parent).invert()).multiply(child);
+    // Twist is the part of the rotation about the bone; swing is what's left.
+    const d = local.x * axis.x + local.y * axis.y + local.z * axis.z;
+    twist.set(axis.x * d, axis.y * d, axis.z * d, local.w);
+    if (twist.lengthSq() < 1e-12) twist.identity();
+    else twist.normalize();
+    swing.copy(local).multiply(twistInv.copy(twist).invert());
+    clampAngle(twist, DRAWN_TWIST);
+    clampAngle(swing, DRAWN_SWING);
+    child.copy(parent).multiply(swing).multiply(twist);
+}
 
 /**
  * Read the bodies back into the pose arrays — forward kinematics, run backwards.
@@ -291,6 +336,8 @@ export function readPuppet(puppet: Puppet, skeleton: Skeleton): void {
             offset.copy(skeleton.bones[i].head).sub(restPos[i]).applyQuaternion(skeleton.worldQuat[i]);
             skeleton.worldPos[i].copy(bodyPos).add(offset);
         } else {
+            boneAxis.copy(skeleton.bones[i].tail).sub(skeleton.bones[i].head).normalize();
+            clampJoint(skeleton.worldQuat[i], skeleton.worldQuat[parent], boneAxis);
             // Children take only their ROTATION from the bodies, and hang off their
             // parent's joint. The constraints are soft, and a hard pull — the grab,
             // mostly — drags bodies centimetres apart at the joints (8cm at the waist,
