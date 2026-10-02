@@ -1,3 +1,8 @@
+/**
+ * The default scene: the cast walking a captured school courtyard, and the toolbar's
+ * customize, grab and camera tools wired up against them.
+ */
+
 import { SplatMesh } from '@sparkjsdev/spark';
 import type { World } from 'crashcat';
 import * as THREE from 'three';
@@ -13,11 +18,24 @@ import {
 import { CAST } from './avatar-params';
 import { type Crowd, initCrowd, knockDown, rebuildWalker, updateCrowd } from './crowd';
 import type { DebugOverlay } from './debug';
-import { attachGrabbing, type Grab, initGrab, updateGrab } from './grab';
+import {
+    attachGrabbing,
+    attachPicking,
+    beginShowcase,
+    endShowcase,
+    type Grab,
+    initGrab,
+    initShowcase,
+    initToolbar,
+    type Showcase,
+    setToolCursor,
+    type Toolbar,
+    updateGrab,
+    updateShowcase,
+} from './interaction';
 import { initLeaves } from './leaves';
 import type { Options } from './options';
 import { addGroundPlane, initPhysicsWorld, stepPhysics } from './physics';
-import { attachPicking } from './picking';
 import {
     GROUND_Y,
     SPLAT_OFFSET,
@@ -28,25 +46,13 @@ import {
     WALK_HALF_ACROSS,
     WALK_HALF_DEEP,
 } from './scene';
-import { beginShowcase, endShowcase, initShowcase, type Showcase, updateShowcase } from './showcase';
-import { initToolbar, setToolCursor, type Toolbar } from './toolbar';
 
-/**
- * The finished thing: a crowd walking a captured town square, and the two tools you
- * can point at them.
- *
- * Customize and grab are two readings of the same pointer, so they're wired together
- * against the same crowd and the toolbar decides what a press means.
- */
-
-/** One of each of the cast. */
 const WALKERS = CAST.length;
-/** Seed for the splat lattice jitter. Who's in the crowd is the cast, not this. */
+/** Only seeds the splat jitter: who's in the crowd is the cast. */
 const CROWD_SEED = 7;
 
-export type TownSquare = {
-    /** Held rather than passed back in, so a frame needs no arguments. */
-    context: TownSquareContext;
+export type Courtyard = {
+    context: CourtyardContext;
     physics: World;
     crowd: Crowd;
     grab: Grab;
@@ -54,11 +60,11 @@ export type TownSquare = {
     toolbar: Toolbar;
     editor: AvatarEditor;
     boundsBox: THREE.LineSegments;
-    /** The falling leaves, when the capture is loaded. */
+    /** Null under `?bare`, with no capture. */
     leaves: THREE.Object3D | null;
 };
 
-export type TownSquareContext = {
+export type CourtyardContext = {
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
     domElement: HTMLElement;
@@ -67,12 +73,8 @@ export type TownSquareContext = {
     options: Options;
 };
 
-export function initTownSquare(context: TownSquareContext): TownSquare {
+export function initCourtyard(context: CourtyardContext): Courtyard {
     const { scene, camera, domElement, controls, debug, options } = context;
-
-    // Physics is what makes the walkers solid to each other and what catches them
-    // when they're knocked over, so it comes before the crowd that needs it.
-    if (options.bounds) debug.showBounds = true;
 
     const physics = initPhysicsWorld();
     addGroundPlane(physics, GROUND_Y);
@@ -86,7 +88,6 @@ export function initTownSquare(context: TownSquareContext): TownSquare {
         world.scale.setScalar(SPLAT_SCALE);
         world.position.set(...SPLAT_OFFSET);
         scene.add(world);
-        // Leaves off the trees — they belong to the capture, so go with it.
         leaves = initLeaves().object;
         scene.add(leaves);
     }
@@ -102,16 +103,15 @@ export function initTownSquare(context: TownSquareContext): TownSquare {
             setAvatarEditorVisible(editor, false);
             endShowcase(showcase);
         }
-        // Its own tool: left always-on, every attempt to grab someone also swung it.
+        // Its own tool: always-on, every grab also swung the camera.
         controls.enabled = tool === 'camera';
         setToolCursor(domElement, tool);
     });
     controls.enabled = false;
 
-    // CUSTOMIZE: click a walker, they run out to the front, sliders bound to THAT one.
+    // Customize: click a walker and they run to the front, with the editor bound to them.
     attachPicking(physics, camera, crowd, domElement, (pick) => {
         debug.selected = pick?.index ?? -1;
-        // Under the grab tool a press means "pick them up" — handled below.
         if (toolbar.tool !== 'customize') return;
         const walker = pick?.walker;
         if (!walker) {
@@ -130,7 +130,7 @@ export function initTownSquare(context: TownSquareContext): TownSquare {
         setAvatarEditorVisible(editor, true);
     });
 
-    // GRAB: press and they drop and come with you; let go and they fall.
+    // Grab: press and they go limp and come with you; let go and they fall.
     attachGrabbing({
         world: physics,
         grab,
@@ -146,38 +146,34 @@ export function initTownSquare(context: TownSquareContext): TownSquare {
     return { context, physics, crowd, grab, showcase, toolbar, editor, leaves, boundsBox: addBoundsBox(scene) };
 }
 
-export function updateTownSquare(square: TownSquare, dt: number): void {
-    const { camera, controls, debug } = square.context;
-    square.boundsBox.visible = debug.showBounds;
-    if (square.leaves) square.leaves.visible = debug.leaves;
-    square.crowd.moving = debug.movement;
-    // Checked every frame rather than on the toggle, so a walker rebuilt by the
-    // editor — which comes back skinned — follows the panel too.
-    for (const w of square.crowd.walkers) {
+export function updateCourtyard(courtyard: Courtyard, dt: number): void {
+    const { camera, controls, debug } = courtyard.context;
+    courtyard.boundsBox.visible = debug.showBounds;
+    if (courtyard.leaves) courtyard.leaves.visible = debug.leaves;
+    courtyard.crowd.moving = debug.movement;
+    // Every frame, not on the toggle, so a walker the editor rebuilds follows it too.
+    for (const w of courtyard.crowd.walkers) {
         const skinning = debug.skinning ? w.avatar.skinning : null;
         if (w.avatar.mesh.skinning === skinning) continue;
         w.avatar.mesh.skinning = skinning;
-        // Skinning is compiled into the mesh's generator, so swapping it rebuilds that.
         w.avatar.mesh.updateGenerator();
     }
-    updateAvatarEditor(square.editor);
+    updateAvatarEditor(courtyard.editor);
     if (!debug.frozen) {
-        // Physics first, so a walker reads the step that just happened.
-        updateGrab(square.grab, dt);
-        stepPhysics(square.physics, dt);
-        updateCrowd(square.crowd, square.physics, dt, camera.position);
+        updateGrab(courtyard.grab, dt);
+        stepPhysics(courtyard.physics, dt);
+        updateCrowd(courtyard.crowd, courtyard.physics, dt, camera.position);
     }
     // After the orbit controls, so the camera travel isn't fighting them.
-    updateShowcase(square.showcase, camera, controls, dt);
+    updateShowcase(courtyard.showcase, camera, controls, dt);
 }
 
-export function townSquareSplats(square: TownSquare): number {
-    return square.crowd.walkers.reduce((n, w) => n + w.avatar.mesh.numSplats, 0);
+export function courtyardSplats(courtyard: Courtyard): number {
+    return courtyard.crowd.walkers.reduce((n, w) => n + w.avatar.mesh.numSplats, 0);
 }
 
-/** The box the crowd may wander inside, drawn on demand. */
+/** The box the crowd may wander inside, turned like the walk area. */
 function addBoundsBox(scene: THREE.Scene): THREE.LineSegments {
-    // Turned like the walk area: its local x runs across the view.
     const height = 1.8;
     const box = new THREE.LineSegments(
         new THREE.EdgesGeometry(new THREE.BoxGeometry(WALK_HALF_ACROSS * 2, height, WALK_HALF_DEEP * 2)),

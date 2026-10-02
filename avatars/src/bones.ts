@@ -1,6 +1,3 @@
-import type { SplatSkinning } from '@sparkjsdev/spark';
-import * as THREE from 'three';
-
 /**
  * Posing bones, and a small forward-kinematics skeleton to drive them.
  *
@@ -21,8 +18,11 @@ import * as THREE from 'three';
  * so pass `quat = restQuat · Rm` and `pos = restPos + curPos − Rm·restPos`. That's
  * all `setBoneWorld` does, and every bone goes through it.
  */
-// Scratch: this runs per bone per avatar per frame, and the clone-per-step version
-// allocated ~3,300 short-lived objects a second per character.
+
+import type { SplatSkinning } from '@sparkjsdev/spark';
+import * as THREE from 'three';
+
+// Scratch: this runs per bone, per avatar, per frame.
 const rmScratch = new THREE.Quaternion();
 const quatScratch = new THREE.Quaternion();
 const posScratch = new THREE.Vector3();
@@ -61,7 +61,7 @@ export type Skeleton = {
     pose: THREE.Quaternion[];
     /** Whole-body offset, for a bob or a step. */
     rootOffset: THREE.Vector3;
-    /** Scratch: world transforms, rebuilt by applySkeleton each frame. */
+    /** World transforms, rebuilt by poseSkeleton (or read out of the ragdoll). */
     worldQuat: THREE.Quaternion[];
     worldPos: THREE.Vector3[];
 };
@@ -80,11 +80,8 @@ const restIdentity = new THREE.Quaternion(); // every bone rests world-aligned
 const offsetScratch = new THREE.Vector3();
 
 /**
- * Walk the hierarchy and fill in every bone's world transform.
- *
- * Split from the push because forward kinematics isn't the only thing that produces
- * a pose — a ragdoll reads one out of its bodies, and getting up blends the two.
- * `worldQuat`/`worldPos` is the common currency.
+ * Forward kinematics: fill in every bone's world transform. Separate from the push
+ * because a ragdoll writes the same arrays from its bodies instead.
  */
 export function poseSkeleton(skeleton: Skeleton): void {
     const { bones, pose, worldQuat, worldPos } = skeleton;
@@ -94,9 +91,7 @@ export function poseSkeleton(skeleton: Skeleton): void {
             worldQuat[i].copy(pose[i]);
             worldPos[i].copy(bone.head).add(skeleton.rootOffset);
         } else {
-            // Rotation accumulates down the chain; position is the parent's plus the
-            // rest offset carried by its rotation. Bones are authored world-aligned
-            // at rest, so there's no rest orientation to unwind.
+            // Bones rest world-aligned, so there's no rest orientation to unwind.
             worldQuat[i].copy(worldQuat[bone.parent]).multiply(pose[i]);
             offsetScratch.copy(bone.head).sub(bones[bone.parent].head).applyQuaternion(worldQuat[bone.parent]);
             worldPos[i].copy(worldPos[bone.parent]).add(offsetScratch);
@@ -113,18 +108,10 @@ export function pushSkeleton(skeleton: Skeleton, skinning: SplatSkinning): void 
     skinning.updateBones();
 }
 
-/** Both halves, for the rigs that only ever pose themselves by forward kinematics. */
-export function applySkeleton(skeleton: Skeleton, skinning: SplatSkinning): void {
-    poseSkeleton(skeleton);
-    pushSkeleton(skeleton, skinning);
-}
-
 /**
- * Bone weights by distance to each bone's segment — the approach that generalises to
- * a real scan, where nothing in the file says which splat belongs to which limb.
- *
- * Gaussian falloff scaled by the bone's own radius, so a thick thigh claims further
- * than a thin forearm. Best four only (Spark stores four per splat), normalised.
+ * Bone weights by distance to each bone's segment, with a Gaussian falloff scaled by
+ * the bone's radius so a thick thigh claims further than a thin forearm. The best
+ * four (all Spark stores), normalised.
  */
 export function weightsForPoint(
     point: THREE.Vector3,
@@ -132,18 +119,12 @@ export function weightsForPoint(
     outIndices: THREE.Vector4,
     outWeights: THREE.Vector4,
     /**
-     * The bone this splat was authored as part of, if known — only procedural
-     * geometry gets this for free.
-     *
-     * Distance alone is blind to what a thing IS: where a hand swings past a hip the
-     * nearest bone is the wrong one, and the splat tears away with the wrong limb. A
-     * scan has no such hint, which is exactly why rigging one is hard.
+     * The bone this splat was built as part of, favoured over its neighbours. Distance
+     * alone gets it wrong where a hand passes a hip, and the splat leaves with the hip.
      */
     owner?: number,
 ): void {
-    // Insertion into a fixed top-four rather than score-everything-then-sort: this
-    // runs ~160k times per rebuild, and the sort-and-slice version allocated a couple
-    // of million objects per character and dominated build time.
+    // Insertion into a fixed top four: this runs for every splat, so nothing allocates.
     bestWeight[0] = bestWeight[1] = bestWeight[2] = bestWeight[3] = 0;
     bestIndex[0] = bestIndex[1] = bestIndex[2] = bestIndex[3] = 0;
 
@@ -169,11 +150,9 @@ export function weightsForPoint(
     outWeights.set(bestWeight[0] / total, bestWeight[1] / total, bestWeight[2] / total, bestWeight[3] / total);
 }
 
+const OTHER_BONE_BIAS = 0.34;
 const bestWeight = new Float64Array(4);
 const bestIndex = new Int32Array(4);
-
-const OTHER_BONE_BIAS = 0.34;
-
 const ab = new THREE.Vector3();
 const ap = new THREE.Vector3();
 

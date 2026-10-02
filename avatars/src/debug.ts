@@ -1,32 +1,26 @@
+/**
+ * The debug panel the other examples have: backtick to toggle, click a readout to
+ * copy it. Tools for authoring the scene, not features of it.
+ */
+
 import type { SparkRenderer } from '@sparkjsdev/spark';
 import type * as THREE from 'three';
 import type { Crowd } from './crowd';
 
-/**
- * Minimal debug overlay (plain DOM), in the shape the other examples use: press
- * backtick to toggle, coordinate readouts are click-to-copy, and everything on it
- * is a tool for authoring the scene rather than a feature of it.
- *
- * Clicking an avatar opens the parameter sliders bound to THAT walker, so you can
- * stretch one of them taller or repaint their shirt while the rest carry on
- * walking around them.
- */
-
 export type DebugOverlay = {
     element: HTMLDivElement;
     enabled: boolean;
-    /** Freeze the crowd where it stands, so a frame can be studied. */
+    /** Freeze the crowd, to study a frame. */
     frozen: boolean;
-    /** Draw the box the crowd is allowed to wander inside. */
     showBounds: boolean;
-    /** Skinning on. Off shows the raw splats in their rest pose, bones ignored. */
+    /** Off shows the raw splats in their rest pose. */
     skinning: boolean;
-    /** Walkers travel. Off, they keep walking but stay on the spot. */
+    /** Off, they walk on the spot. */
     movement: boolean;
-    /** The leaves falling from the trees. */
     leaves: boolean;
-    /** The trees swaying in the wind. */
     sway: boolean;
+    /** Tint what the trees' wind claims, to check the spheres against the trees. */
+    swayTint: boolean;
     fields: {
         cam: HTMLSpanElement;
         look: HTMLSpanElement;
@@ -113,6 +107,7 @@ export function createDebugOverlay(): DebugOverlay {
         movement: true,
         leaves: true,
         sway: true,
+        swayTint: false,
         fields: { cam: camRow.value, look: lookRow.value, splats: splatsRow.value, picked: pickedRow.value },
         selected: -1,
     };
@@ -127,11 +122,12 @@ export function createDebugOverlay(): DebugOverlay {
     const movement = createCheckbox('movement', (checked) => (overlay.movement = checked), true);
     const leaves = createCheckbox('leaves', (checked) => (overlay.leaves = checked), true);
     const sway = createCheckbox('tree sway', (checked) => (overlay.sway = checked), true);
+    const swayTint = createCheckbox('tint sway', (checked) => (overlay.swayTint = checked));
     const hint = document.createElement('div');
     hint.style.cssText = 'opacity:0.5';
     hint.textContent = 'tools are on the bar at the bottom';
 
-    element.append(freeze, bounds, skinning, movement, leaves, sway, text, hint);
+    element.append(freeze, bounds, skinning, movement, leaves, sway, swayTint, text, hint);
     document.body.appendChild(element);
 
     window.addEventListener('keydown', (event) => {
@@ -156,8 +152,7 @@ export function updateDebugOverlay(
     const f = overlay.fields;
     f.cam.textContent = `${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}`;
     f.look.textContent = `${target.x.toFixed(2)}, ${target.y.toFixed(2)}, ${target.z.toFixed(2)}`;
-    // The avatars' share, since they're the part we build — and the part that drives
-    // sort time, which is what ragdolls are sensitive to.
+    // The avatars' share: they drive the sort time that ragdolls are sensitive to.
     let avatars = 0;
     for (const w of crowd?.walkers ?? []) avatars += w.avatar.mesh.numSplats;
     f.splats.textContent = `${spark.activeSplats.toLocaleString()} active${avatars ? ` · ${avatars.toLocaleString()} avatars` : ''}`;

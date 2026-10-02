@@ -1,44 +1,30 @@
+/**
+ * The character editor, in the spirit of a Mii maker: you pick styles from little
+ * pictures and colours from swatches, and the only sliders are "how much" ones. The
+ * raw parameters, and JSON to paste back into source, are behind the cog.
+ *
+ * Each tile's picture is drawn from its style's own numbers, so it can't promise
+ * something the style doesn't do.
+ */
+
 import {
     AVATAR_GROUPS,
     AVATAR_RANGES,
     type AvatarParams,
     avatarLabel,
     type Bundle,
+    COLORS,
     DEFAULT_AVATAR,
     STYLES,
     type Style,
 } from './avatar-params';
-
-/**
- * The character editor, in the spirit of a Mii maker rather than a tuning panel.
- *
- * You PICK things more than you tune them: each part has a handful of hand-made
- * styles drawn as little pictures, colours are swatches from the Mii palettes, and
- * the only sliders left are "how much" ones with no numbers on them. Forty-five raw
- * sliders are still here, behind the cog, along with the JSON to paste back into
- * source — that's a tool for whoever is tuning the code, not for dressing a person.
- *
- * Each style is a bundle of parameters, and its picture is drawn FROM that bundle, so
- * a tile can't promise something it doesn't do. A tile shows as selected when the
- * avatar matches it exactly; nudge a slider and you're in between styles, which is
- * fine.
- *
- * The rebuild timing is the whole performance problem — see updateAvatarEditor.
- */
 
 export type AvatarEditor = {
     params: AvatarParams;
     /** Internals the free functions below drive; not meant for callers. */
     controls: Control[];
     panel: HTMLDivElement;
-    /**
-     * What Reset goes back to.
-     *
-     * Not DEFAULT_AVATAR: pointed at a member of the crowd, "reset" should undo YOUR
-     * edits and give that walker back, not replace them with the stock character.
-     * Captured by syncAvatarEditor, which is exactly the moment something else has
-     * written `params`.
-     */
+    /** What Reset goes back to: whoever was loaded in (see syncAvatarEditor), not the default. */
     baseline: AvatarParams;
     dirty: boolean;
     rebuild(params: AvatarParams): void;
@@ -49,29 +35,7 @@ export type AvatarEditor = {
 type Control = { sync(): void };
 
 type Numeric = Record<string, number>;
-// --- The palettes, from the Mii editor ------------------------------------------
-
-const SKIN = ['#ffd3ae', '#fec58e', '#ffb56a', '#ffbfa6', '#ffaa8d', '#de7941', '#ad5128', '#8c3c23', '#632c18', '#3b2d22'];
-const HAIR = ['#000000', '#402011', '#5c180b', '#7b3a14', '#4f3e10', '#885818', '#d0a04b', '#787880'];
-const EYES = ['#000000', '#6c7071', '#663c2c', '#605d30', '#4554a7', '#397158'];
-const SHIRTS = [
-    '#d31e15',
-    '#fd6f19',
-    '#ffd920',
-    '#78d320',
-    '#007830',
-    '#0a49b3',
-    '#3caadf',
-    '#f55a7c',
-    '#7428ae',
-    '#483817',
-    '#e0e0e0',
-    '#181914',
-];
-const TROUSERS = ['#3f4148', '#2a3550', '#4a5f82', '#8a7458', '#1d1d22', '#d8d2c4'];
-const SHOES = ['#2a2a2e', '#5a3a24', '#e8e4dc', '#b0283a'];
-
-// --- Look ----------------------------------------------------------------------
+/* look */
 
 const STYLE_ID = 'avatar-editor-style';
 const FONT_HREF = 'https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap';
@@ -220,7 +184,7 @@ function button(className: string, html = ''): HTMLButtonElement {
     return b;
 }
 
-// --- Icons -----------------------------------------------------------------------
+/* icons */
 
 const icon = (body: string) =>
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
@@ -239,7 +203,7 @@ const ICONS = {
     close: icon('<path d="M6 6l12 12M18 6L6 18"/>'),
 };
 
-// --- Tile pictures, drawn from each style's own numbers ---------------------------
+/* tile pictures, drawn from each style's own numbers */
 
 const INK = '#3b3346';
 const SKIN_FILL = '#f6cfae';
@@ -345,7 +309,7 @@ function buildPicture(s: Bundle): string {
     </svg>`;
 }
 
-// --- Controls --------------------------------------------------------------------
+/* controls */
 
 type Context = { params: AvatarParams; changed: () => void; controls: Control[] };
 
@@ -533,7 +497,7 @@ function accentFor(hex: string): { accent: string; on: string } {
     return { accent: hex, on: luma > 0.6 ? '#3b3346' : '#fff' };
 }
 
-// --- The editor ------------------------------------------------------------------
+/* the editor */
 
 export function createAvatarEditor(
     onChange: (params: AvatarParams) => void,
@@ -567,8 +531,6 @@ export function createAvatarEditor(
         onClose?.();
     };
     close.addEventListener('click', dismiss);
-    // Escape closes it, because by then the camera has travelled and the only way
-    // back out to the scene is through this panel.
     window.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && panel.style.display !== 'none') dismiss();
     });
@@ -602,7 +564,7 @@ export function createAvatarEditor(
                 tiles(ctx, STYLES.head, headPicture),
                 slider(ctx, { label: 'Size', ends: ['small', 'big'], min: 0.26, max: 0.42, ...param('headRadius') }),
                 label('Skin'),
-                swatches(ctx, 'skin', SKIN),
+                swatches(ctx, 'skin', COLORS.skin),
             ),
         },
         {
@@ -614,7 +576,7 @@ export function createAvatarEditor(
                 tiles(ctx, STYLES.hair, hairPicture),
                 slider(ctx, { label: 'Volume', ends: ['flat', 'fluffy'], min: 1.04, max: 1.25, ...param('hairThickness') }),
                 label('Colour'),
-                swatches(ctx, 'hair', HAIR),
+                swatches(ctx, 'hair', COLORS.hair),
             ),
         },
         {
@@ -627,7 +589,7 @@ export function createAvatarEditor(
                 slider(ctx, { label: 'Spacing', ends: ['close', 'apart'], min: 0.18, max: 0.34, ...param('eyeSpacing') }),
                 slider(ctx, { label: 'Height', ends: ['low', 'high'], min: -0.2, max: 0.1, ...param('eyeHeight') }),
                 label('Colour'),
-                swatches(ctx, 'eyes', EYES),
+                swatches(ctx, 'eyes', COLORS.eyes),
             ),
         },
         {
@@ -681,11 +643,11 @@ export function createAvatarEditor(
             node: page(
                 'Clothes',
                 label('Favourite colour'),
-                swatches(ctx, 'shirt', SHIRTS),
+                swatches(ctx, 'shirt', COLORS.shirt),
                 label('Trousers'),
-                swatches(ctx, 'trousers', TROUSERS),
+                swatches(ctx, 'trousers', COLORS.trousers),
                 label('Shoes'),
-                swatches(ctx, 'shoes', SHOES),
+                swatches(ctx, 'shoes', COLORS.shoes),
             ),
         },
     ];
@@ -715,7 +677,6 @@ export function createAvatarEditor(
     fineButton.addEventListener('click', () => show(fine.classList.contains('on') ? 0 : -1));
     show(0);
 
-    // Done is the primary action because it's also what puts the camera back.
     const foot = element('div', 'av-foot');
     const reset = button('av-btn', 'Reset');
     const done = button('av-btn av-btn-primary', 'Looks good!');
@@ -769,12 +730,8 @@ export function createAvatarEditor(
 }
 
 /**
- * Call each frame. Rebuilds at most once, and only if something changed.
- *
- * Changing a parameter regenerates every splat, rebinds every bone weight and
- * recompiles the generator — far too slow to run on every `input` event while a
- * slider is dragged. So edits only mark the model dirty and the rebuild happens
- * here, which turns a drag from hundreds of rebuilds into one per displayed frame.
+ * Call each frame. A rebuild regenerates every splat, far too slow for every `input`
+ * event of a slider drag, so edits only mark it dirty and it rebuilds here, once.
  */
 export function updateAvatarEditor(editor: AvatarEditor): void {
     if (!editor.dirty) return;

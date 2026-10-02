@@ -1,3 +1,12 @@
+/**
+ * A rigid-body double for an avatar, via crashcat: one capsule per bone.
+ *
+ * Walking, the bodies are KINEMATIC and follow the pose. Knocked over, the same
+ * bodies go DYNAMIC and the pose flows the other way. That's cheap because a pose is
+ * just a world transform per bone, and so is a rigid body: forward kinematics and
+ * `readPuppet` write the same arrays, and `pushSkeleton` can't tell which did.
+ */
+
 import {
     addBroadphaseLayer,
     addObjectLayer,
@@ -22,25 +31,12 @@ import {
     updateWorld,
     type World,
 } from 'crashcat';
-import { quat, vec3 } from 'math';
+import { type Quat, quat, type Vec3, vec3 } from 'math';
 import * as THREE from 'three';
 import type { Avatar } from './avatar';
 import type { Skeleton } from './bones';
 
-/**
- * A rigid-body double for an avatar, via crashcat.
- *
- * Walking, the bodies are KINEMATIC and driven from the pose the splats are drawn
- * with. Knocked over, the same bodies go DYNAMIC and the pose flows the other way.
- *
- * That reversal is cheap because a pose is eleven world transforms
- * (`skeleton.worldQuat`/`worldPos`) and a rigid body IS a world transform. Forward
- * kinematics writes those arrays, `readPuppet` writes the same arrays from the
- * bodies, and `pushSkeleton` can't tell which did.
- */
-
-/** Object layers, in the order `initPhysicsWorld` registers them. Asserted rather
- *  than assigned, so a second world can't rewrite them under the first. */
+/** Object layers, in the order `initPhysicsWorld` registers them (and asserts). */
 const LAYER_STATIC = 0;
 const LAYER_BODY = 1;
 /** Collides with nothing. The hand only ever acts through the grab constraint. */
@@ -49,18 +45,14 @@ export const LAYER_HAND = 2;
 export type Puppet = {
     bodies: RigidBody[];
     joints: SwingTwistConstraint[];
-    /** Each body's rest transform, in the MESH's local space — where the bones live. */
+    /** Each body's rest transform, in the mesh's local space, where the bones live. */
     restPos: THREE.Vector3[];
     restQuat: THREE.Quaternion[];
-    /** True while the bodies are dynamic and owning the pose. */
     limp: boolean;
     /**
      * The mesh transform the bodies are read against: live while driven, frozen the
-     * moment they go limp.
-     *
-     * Tempting to skip and pose the bones in world space, since the bodies are
-     * already there — but a SplatMesh whose splats wander twelve metres from its own
-     * transform is outside its own bounds and gets frustum-culled. It vanishes.
+     * moment they go limp. Not just world space: a SplatMesh whose splats wander far
+     * from its own transform falls outside its bounds and gets frustum-culled.
      */
     origin: THREE.Vector3;
     yaw: THREE.Quaternion;
@@ -80,7 +72,6 @@ export function initPhysicsWorld(): World {
     return createWorld(settings);
 }
 
-/** Fail loudly if crashcat ever stops handing back indices in registration order. */
 function expectLayer(got: number, want: number): void {
     if (got !== want) throw new Error(`physics: expected object layer ${want}, got ${got}`);
 }
@@ -92,7 +83,6 @@ export function addGroundPlane(world: World, y: number): void {
         objectLayer: LAYER_STATIC,
         motionType: MotionType.STATIC,
         position: vec3.fromValues(0, y - 0.5, 0),
-        // Collides with every group, so no puppet can ever fall through it.
         collisionGroups: 0xffffffff,
         collisionMask: 0xffffffff,
     });
@@ -106,12 +96,11 @@ const worldQuat = new THREE.Quaternion();
 const worldPos = new THREE.Vector3();
 
 /**
- * Build the bodies for one avatar, standing where it currently stands.
+ * Build the bodies for one avatar where it stands. `meshOrigin` is the mesh's
+ * position, not the walker's ground point: they differ by the sole lift.
  *
- * `index` only picks a collision group, so a puppet's own capsules never collide
- * with each other — adjacent limbs overlap permanently at the joints and would fight
- * the constraint holding them together. Groups wrap at 30, so the 31st walker passes
- * through the 1st; nobody will see it at the sizes this runs at.
+ * `index` picks a collision group, so a puppet's own capsules (which overlap at every
+ * joint) don't collide with each other. Groups wrap at 30.
  */
 export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vector3, heading: number, index: number): Puppet {
     const bones = avatar.skeleton.bones;
@@ -120,9 +109,6 @@ export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vecto
     const restPos: THREE.Vector3[] = [];
     const restQuat: THREE.Quaternion[] = [];
     const yaw = new THREE.Quaternion().setFromAxisAngle(up, heading);
-    // The bodies are built against the MESH's origin, not the walker's ground
-    // position — the two differ by the sole lift, and getting that wrong spawns the
-    // whole ragdoll hovering by exactly that much.
     const origin = meshOrigin.clone();
     const group = 1 << (index % 30);
 
@@ -132,8 +118,7 @@ export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vecto
         axis.normalize();
         mid.copy(bone.head).addScaledVector(axis, length * 0.5);
 
-        // +Y onto the bone, so a capsule built along Y lies along the limb. Recorded
-        // in local space; only the copy handed to the body is lifted into the world.
+        // +Y onto the bone, so a capsule built along Y lies along the limb.
         alignQuat.setFromUnitVectors(up, axis);
         restPos.push(mid.clone());
         restQuat.push(alignQuat.clone());
@@ -150,8 +135,8 @@ export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vecto
                 }),
                 objectLayer: LAYER_BODY,
                 motionType: MotionType.KINEMATIC,
-                position: vec3.fromValues(worldPos.x, worldPos.y, worldPos.z),
-                quaternion: quat.fromValues(worldQuat.x, worldQuat.y, worldQuat.z, worldQuat.w),
+                position: toVec3(vec3.create(), worldPos),
+                quaternion: toQuat(quat.create(), worldQuat),
                 collisionGroups: group,
                 collisionMask: ~group,
                 linearDamping: 0.05,
@@ -161,9 +146,8 @@ export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vecto
         );
     }
 
-    // Joints at each bone's head, which is where it meets its parent. Built once and
-    // never rebuilt: the constraint converts the world frame it's given into each
-    // body's local frame, so it means the same joint however far the walker wanders.
+    // A joint at each bone's head, where it meets its parent. Given in world space but
+    // stored per body, so it holds however far the walker wanders.
     for (let i = 0; i < bones.length; i++) {
         const parent = bones[i].parent;
         if (parent < 0) continue;
@@ -171,16 +155,14 @@ export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vecto
         const twist = new THREE.Vector3().copy(bones[i].tail).sub(bones[i].head).normalize().applyQuaternion(yaw);
         // Any direction perpendicular to the twist axis will do.
         const plane = new THREE.Vector3(twist.y, twist.z, twist.x).cross(twist).normalize();
-        const pos = vec3.fromValues(joint.x, joint.y, joint.z);
-        const tw = vec3.fromValues(twist.x, twist.y, twist.z);
-        const pl = vec3.fromValues(plane.x, plane.y, plane.z);
+        const pos = toVec3(vec3.create(), joint);
+        const tw = toVec3(vec3.create(), twist);
+        const pl = toVec3(vec3.create(), plane);
 
         joints.push(
             swingTwistConstraint.create(world, {
                 bodyIdA: bodies[parent].id,
                 bodyIdB: bodies[i].id,
-                // Both pivots are the same world point, which is what makes this a
-                // joint rather than a spring.
                 position1: pos,
                 position2: vec3.clone(pos),
                 twistAxis1: tw,
@@ -192,10 +174,8 @@ export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vecto
                 planeHalfConeAngle: Math.PI / 4,
                 twistMinAngle: -Math.PI / 8,
                 twistMaxAngle: Math.PI / 8,
-                // Well above the world's defaults (10 and 2). The grab pulls on one
-                // limb hard enough to overrun the limits on every joint behind it —
-                // a waist bent to 80-90° against a 45° cone — and the skin can't be
-                // folded that far without stretching thin.
+                // Well above the defaults (10 and 2): a grab pulls hard enough on one
+                // limb to overrun every joint limit behind it.
                 numVelocityStepsOverride: 20,
                 numPositionStepsOverride: 8,
             }),
@@ -205,7 +185,7 @@ export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vecto
     return { bodies, joints, restPos, restQuat, limp: false, origin, yaw, yawInv: yaw.clone().invert() };
 }
 
-/** For when an avatar is rebuilt and the old capsules no longer fit it. */
+/** When an avatar is rebuilt and the old capsules no longer fit. */
 export function disposePuppet(world: World, puppet: Puppet): void {
     for (const joint of puppet.joints) swingTwistConstraint.remove(world, joint);
     for (const body of puppet.bodies) rigidBody.remove(world, body);
@@ -225,42 +205,30 @@ const bonePos = new THREE.Vector3();
 const offset = new THREE.Vector3();
 
 /**
- * Drive the kinematic bodies to wherever the current pose puts them.
- *
- * `moveKinematic` reaches its target by setting a velocity rather than teleporting,
- * which is the whole reason a walking avatar can kick something.
+ * Drive the kinematic bodies to the current pose. `moveKinematic` gets there by
+ * velocity rather than teleporting, which is what lets a walker kick someone.
  */
 export function drivePuppet(puppet: Puppet, skeleton: Skeleton, dt: number): void {
     const { bodies, restPos, restQuat, origin, yaw } = puppet;
     for (let i = 0; i < bodies.length; i++) {
-        // Bone transform, then mesh transform. A bone maps rest point p to
-        // q(p - head) + pos, so that's where this body's centre lands.
+        // A bone maps rest point p to q(p - head) + pos; then the mesh transform.
         boneQuat.copy(skeleton.worldQuat[i]);
         offset.copy(restPos[i]).sub(skeleton.bones[i].head).applyQuaternion(boneQuat);
         bonePos.copy(skeleton.worldPos[i]).add(offset);
 
         worldPos.copy(bonePos).applyQuaternion(yaw).add(origin);
         worldQuat.copy(restQuat[i]).premultiply(boneQuat).premultiply(yaw);
-        rigidBody.moveKinematic(
-            bodies[i],
-            vec3.fromValues(worldPos.x, worldPos.y, worldPos.z),
-            quat.fromValues(worldQuat.x, worldQuat.y, worldQuat.z, worldQuat.w),
-            Math.max(dt, 1 / 120),
-        );
+        rigidBody.moveKinematic(bodies[i], toVec3(_position, worldPos), toQuat(_rotation, worldQuat), Math.max(dt, 1 / 120));
     }
 }
 
-/**
- * Hand the pose over to physics. The bodies keep whatever velocity `moveKinematic`
- * last gave them, so a walker knocked down mid-stride falls with the stride in it.
- */
+/** Hand the pose to physics. Bodies keep their velocity, so a stride carries into the fall. */
 export function goLimp(world: World, puppet: Puppet): void {
     if (puppet.limp) return;
     puppet.limp = true;
     for (const body of puppet.bodies) rigidBody.setMotionType(world, body, MotionType.DYNAMIC, true);
 }
 
-/** Take it back, so the rig drives the bodies again. */
 export function goDriven(world: World, puppet: Puppet): void {
     if (!puppet.limp) return;
     puppet.limp = false;
@@ -269,58 +237,10 @@ export function goDriven(world: World, puppet: Puppet): void {
 
 const bodyQuat = new THREE.Quaternion();
 const bodyPos = new THREE.Vector3();
-const parentInv = new THREE.Quaternion();
-const local = new THREE.Quaternion();
-const twist = new THREE.Quaternion();
-const swing = new THREE.Quaternion();
-const twistInv = new THREE.Quaternion();
-const boneAxis = new THREE.Vector3();
 
 /**
- * The most a joint is DRAWN bent, whatever the bodies are doing. A little past the
- * constraint limits (45° swing, 22.5° twist), so a limp body drapes freely; well
- * short of where the skin bridging a joint stretches thin enough to see through.
- */
-const DRAWN_SWING = THREE.MathUtils.degToRad(55);
-const DRAWN_TWIST = THREE.MathUtils.degToRad(30);
-
-/** Scale a unit quaternion's rotation angle down to `max`, if it's past it. */
-function clampAngle(q: THREE.Quaternion, max: number): void {
-    if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w);
-    const angle = 2 * Math.acos(Math.min(1, q.w));
-    if (angle <= max) return;
-    const s = Math.sin(max / 2) / Math.sqrt(Math.max(1e-12, 1 - q.w * q.w));
-    q.set(q.x * s, q.y * s, q.z * s, Math.cos(max / 2));
-}
-
-/**
- * Hold a joint's rotation within what the skin can bend to. The joints are soft,
- * and a hard pull — the grab, mostly — drives them far past their limits (a waist
- * at 80-90° against a 45° cone). The skin across the joint can't fold that far: it
- * stretches thin on the outside of the bend until the parts visibly come apart.
- *
- * Split into swing (the bone's direction) and twist (spin about it), and clamp
- * each. Only the drawn pose is held; the bodies carry on as they were.
- */
-function clampJoint(child: THREE.Quaternion, parent: THREE.Quaternion, axis: THREE.Vector3): void {
-    local.copy(parentInv.copy(parent).invert()).multiply(child);
-    // Twist is the part of the rotation about the bone; swing is what's left.
-    const d = local.x * axis.x + local.y * axis.y + local.z * axis.z;
-    twist.set(axis.x * d, axis.y * d, axis.z * d, local.w);
-    if (twist.lengthSq() < 1e-12) twist.identity();
-    else twist.normalize();
-    swing.copy(local).multiply(twistInv.copy(twist).invert());
-    clampAngle(twist, DRAWN_TWIST);
-    clampAngle(swing, DRAWN_SWING);
-    child.copy(parent).multiply(swing).multiply(twist);
-}
-
-/**
- * Read the bodies back into the pose arrays — forward kinematics, run backwards.
- *
- * Each body has turned by `R = current x rest⁻¹` since it was built, so a point at
- * `p` is now at `body.position + R x (p - bodyRest)`. In the mesh's local space
- * that's exactly the `(quat, pos)` pair the bone wants.
+ * Read the bodies back into the pose arrays, in the mesh's local space — forward
+ * kinematics run backwards. Each bone's rotation is its body's, less the body's rest.
  */
 export function readPuppet(puppet: Puppet, skeleton: Skeleton): void {
     const { bodies, restPos, restQuat, origin, yawInv } = puppet;
@@ -328,7 +248,7 @@ export function readPuppet(puppet: Puppet, skeleton: Skeleton): void {
         const body = bodies[i];
         bodyQuat.set(body.quaternion[0], body.quaternion[1], body.quaternion[2], body.quaternion[3]);
         bodyQuat.premultiply(yawInv);
-        bodyPos.set(body.position[0], body.position[1], body.position[2]).sub(origin).applyQuaternion(yawInv);
+        bodyPosition(bodyPos, body).sub(origin).applyQuaternion(yawInv);
 
         skeleton.worldQuat[i].copy(restQuat[i]).invert().premultiply(bodyQuat);
         const parent = skeleton.bones[i].parent;
@@ -336,15 +256,10 @@ export function readPuppet(puppet: Puppet, skeleton: Skeleton): void {
             offset.copy(skeleton.bones[i].head).sub(restPos[i]).applyQuaternion(skeleton.worldQuat[i]);
             skeleton.worldPos[i].copy(bodyPos).add(offset);
         } else {
-            boneAxis.copy(skeleton.bones[i].tail).sub(skeleton.bones[i].head).normalize();
-            clampJoint(skeleton.worldQuat[i], skeleton.worldQuat[parent], boneAxis);
-            // Children take only their ROTATION from the bodies, and hang off their
-            // parent's joint. The constraints are soft, and a hard pull — the grab,
-            // mostly — drags bodies centimetres apart at the joints (8cm at the waist,
-            // measured). Positioned from their own bodies, the skin bridging that gap
-            // stretches and its splats thin out until you can see through it. Chained
-            // from the parent, the drawn body can't come apart however far the
-            // physics does. Parents come first in the bone list, so theirs is ready.
+            // Children take only their ROTATION from the bodies and hang off the
+            // parent's joint. The constraints are soft: a grab drags bodies cm apart,
+            // and skin stretched across that gap thins until you see through it.
+            // Chained, the drawn body can't come apart. (Parents come first.)
             offset.copy(skeleton.bones[i].head).sub(skeleton.bones[parent].head).applyQuaternion(skeleton.worldQuat[parent]);
             skeleton.worldPos[i].copy(skeleton.worldPos[parent]).add(offset);
         }
@@ -353,7 +268,6 @@ export function readPuppet(puppet: Puppet, skeleton: Skeleton): void {
 
 const rayCollector = createClosestCastRayCollector();
 const raySettings = createDefaultCastRaySettings();
-/** Keyed by world, so a filter built for one can't be handed to another. */
 const rayFilters = new WeakMap<World, ReturnType<typeof layerFilter.forWorld>>();
 
 function filterFor(world: World): ReturnType<typeof layerFilter.forWorld> {
@@ -366,7 +280,7 @@ function filterFor(world: World): ReturnType<typeof layerFilter.forWorld> {
     return filter;
 }
 
-/** Ray against the puppets. See picking.ts for why not against the splats. */
+/** Ray against the puppets — see interaction.ts for why not against the splats. */
 export function pickBody(
     world: World,
     origin: THREE.Vector3,
@@ -375,15 +289,7 @@ export function pickBody(
     outPoint: THREE.Vector3,
 ): RigidBody | null {
     rayCollector.reset();
-    castRay(
-        world,
-        rayCollector,
-        raySettings,
-        vec3.fromValues(origin.x, origin.y, origin.z),
-        vec3.fromValues(direction.x, direction.y, direction.z),
-        far,
-        filterFor(world),
-    );
+    castRay(world, rayCollector, raySettings, toVec3(_position, origin), toVec3(_direction, direction), far, filterFor(world));
     const { hit } = rayCollector;
     if (hit.status !== CastRayStatus.COLLIDING) return null;
     outPoint
@@ -393,23 +299,36 @@ export function pickBody(
     return rigidBody.get(world, hit.bodyIdB) ?? null;
 }
 
-/** Which puppet, if any, owns this body. */
 export function puppetOwns(puppet: Puppet, body: RigidBody): boolean {
     return puppet.bodies.includes(body);
 }
 
-/** How fast a body is moving — what "have they stopped tumbling?" asks. */
+/** Have they stopped tumbling? */
 export function bodySpeed(body: RigidBody): number {
     const v = body.motionProperties.linearVelocity;
     return Math.hypot(v[0], v[1], v[2]);
 }
 
-/** A body's position in world space, into `out`. */
 export function bodyPosition(out: THREE.Vector3, body: RigidBody): THREE.Vector3 {
     return out.set(body.position[0], body.position[1], body.position[2]);
 }
 
 export function stepPhysics(world: World, dt: number): void {
-    // Clamped: a step that scales with a stalled frame is how ragdolls reach orbit.
+    // Clamped: a step the size of a stalled frame is how ragdolls reach orbit.
     updateWorld(world, undefined, Math.min(dt, 1 / 30));
 }
+
+/* three.js ↔ crashcat, which speaks `math` vectors */
+
+function toVec3(out: Vec3, v: THREE.Vector3): Vec3 {
+    return vec3.set(out, v.x, v.y, v.z);
+}
+
+function toQuat(out: Quat, q: THREE.Quaternion): Quat {
+    return quat.set(out, q.x, q.y, q.z, q.w);
+}
+
+// Per-frame conversions land here; crashcat copies what it's handed.
+const _position = vec3.create();
+const _direction = vec3.create();
+const _rotation = quat.create();

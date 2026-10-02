@@ -21,20 +21,19 @@ else** — not in `src/`, not in `dist/`, and not in the published package at ei
 
 ## The answer: yes
 
-A tube of splats, two bones, one joint, bent 85° (`?limb`):
-
-Nothing here is a character on purpose. Everything is chosen so a bug is unmissable
+The first test was a tube of splats, two bones, one joint, bent 85°. Nothing about it
+was a character, on purpose: everything was chosen so a bug would be unmissable
 rather than merely suspicious:
 
 - **Uniform ring lattice**, so a hole or a pinch at the joint stands out.
 - **Splats elongated along the limb.** Skinning has to transform each splat's
   *orientation*, not just its centre. If it didn't, these would stay pointing at the
   sky while the limb swings sideways and the horizontal section would read as a comb.
-  It reads as a smooth tube, so the orientations are being carried. With round splats
+  It read as a smooth tube, so the orientations were being carried. With round splats
   you could never tell.
 - **Banded colour**, so twist and stretch are readable.
 
-The joint feathers cleanly, with no collapse — which is `DUAL_QUATERNION` doing its
+The joint feathered cleanly, with no collapse — which is `DUAL_QUATERNION` doing its
 job. Spark's linear-blend path refuses to run on a plain `Gsplat` at all (it throws,
 demanding `covSplats`), because linear-blending an anisotropic Gaussian is only
 meaningful on the full covariance. That matches the literature exactly:
@@ -68,16 +67,15 @@ const pos = pivot.clone().add(pivot.clone().sub(rotated));
 skinning.setBoneQuatPos(bone, quat, pos);
 ```
 
-That explanation was checked by removing the correction and rendering again — the
-limb tears away from the joint exactly as predicted. Worth doing: it's the cheapest
-way to be sure a diagnosis is the real one rather than a plausible story that
-happened to coincide with a working result.
+That was checked by removing the correction and rendering again: the limb tore away
+from the joint exactly as predicted — the cheapest way to know a diagnosis is real
+rather than a plausible story. It all lives in `setBoneWorld`, in `bones.ts`.
 
-## Then: a stick figure
+## Then: a skeleton
 
 Eleven bones, forward kinematics, and a walk cycle. The step up from the tube isn't
-the bone count — it's that **the weights now come from distance to a bone** rather
-than from a hand-written rule about height.
+the bone count — it's that **the weights come from distance to a bone** rather than
+from a hand-written rule about height.
 
 That's the part that generalises. A real scan arrives as an undifferentiated cloud
 with nothing in the file saying which splat is an arm; capsule distance is how you
@@ -88,19 +86,17 @@ forearm, keeps the best four (Spark stores four per splat) and normalises. Nothi
 loaded scan and it runs unchanged.
 
 It's also cheap enough not to matter: the weighting is O(splats × bones) but runs
-**once at load**, not per frame. A few hundred milliseconds at scan scale.
+**once at load**, not per frame.
 
-The `setBoneWorld` helper from the tube generalised too, and now every bone goes
-through it — `apply()` walks the hierarchy accumulating rotations, then hands each
-bone its world transform.
+`setBoneWorld` generalised too: `poseSkeleton` walks the hierarchy accumulating
+rotations, then `pushSkeleton` hands each bone its world transform through it.
 
 ## Then: ragdolls, almost for free
 
-The default scene is six of them wandering a school courtyard, and with the debug panel
-open (backtick) and **drag to ragdoll** ticked, you can press on one, drop it, and
-carry it around by whatever limb you grabbed. Let go and they fall. Leave them a
-couple of seconds and they get back up. Physics is
-[crashcat](https://www.npmjs.com/package/crashcat).
+The default scene is six of them wandering a school courtyard, and with the **grab**
+tool you can press on one, drop it, and carry it around by whatever limb you
+grabbed. Let go and they fall; leave them a couple of seconds and they get back up.
+Physics is [crashcat](https://www.npmjs.com/package/crashcat).
 
 The join is small, and it's small because of a decision made much earlier. A pose
 here is eleven **world** transforms — `skeleton.worldQuat`/`worldPos`, which
@@ -124,7 +120,7 @@ there's no retargeting step.
 Every walker carries those bodies the whole time, not just once it's been knocked
 over. On its feet they're **kinematic** and get driven from the same pose the splats
 are drawn with, so an upright avatar can trip over a fallen one and boot it across
-the square. Going limp doesn't build anything — it flips the same bodies to dynamic
+the courtyard. Going limp doesn't build anything — it flips the same bodies to dynamic
 and reverses which end of the pipe is the source.
 
 The detail that makes the kicking work is that `moveKinematic` reaches its target by
@@ -186,25 +182,29 @@ crashcat, and maps the body it hits back to its walker.
 
 ## What it costs
 
-Measured on an M1 Pro, every avatar animating every frame:
+An avatar is about 51k splats; the cast of six is 325k, built in ~350 ms on an M1
+Pro. **Cost tracks total splats, not avatar count**, because `updateBones()` dirties
+every mesh every frame and Spark re-sorts the lot.
 
-| avatars | splats | build (one-off) | steady state |
-| --- | --- | --- | --- |
-| 1 | 159k | 266 ms | 8.3 ms — vsync-capped |
-| 4 | 635k | 850 ms | 8.3 ms — vsync-capped |
-| 16 | 2.5M | 2.9 s | 25 ms |
+An earlier, denser build (159k splats an avatar) held vsync at four avatars and fell
+to 25 ms a frame at sixteen — 2.5M splats, about where the re-sort starts to
+dominate. `spacing` is the lever: cost goes as 1/spacing².
 
-One avatar is free; the wall is around a million splats, which is where the
-per-frame re-sort starts to dominate. Note the shape of that: **cost tracks total
-splats, not avatar count**, because `updateBones()` dirties every mesh every frame
-and Spark re-sorts the lot.
+## The trap: a slow sort pulls them apart
 
-Two levers if you wanted a real crowd. `spacing` is the big one, since cost goes as
-1/spacing² — it's at 0.008 for close-up sharpness, and back at 0.0125 an avatar is
-~66k splats, so you'd fit 2.4x as many for the same budget. Distant ones don't need
-the detail. And only animate what's moving: a still avatar needn't call
-`updateBones()`, so it never dirties and never forces a re-sort, which is likely a
-bigger win than the splat count.
+Spark sorts asynchronously, with a GPU readback, so what's drawn is ordered by where
+the splats were a frame or two ago. At rest nobody can tell. But a ragdoll limb
+swinging fast, or a face swapping features, gets drawn against a stale order: skin
+sorts over a feature for a frame and the face blinks out, or gaps open at the joints.
+
+The fix was fewer splats, not a cleverer sort. At 1.3M splats for the cast the lag was
+visible every time someone fell; at 325k it's gone. Expressions avoid it too: every
+feature is built into the mesh up front, and changing face only switches parts off by
+opacity, so no splat ever moves for it.
+
+That's also why the trees sway at draw time (`tree-sway.ts`) rather than by
+regenerating the capture: hundreds of thousands of scenery splats regenerating every
+frame would slow every sort.
 
 ## What still isn't solved
 
@@ -233,7 +233,8 @@ as I can tell nobody has shown that. It's the reason this is worth continuing.
 pnpm --filter avatars dev
 ```
 
-Shows six avatars walking a school courtyard. Three tools on the bar at the bottom:
+Six avatars walking a school courtyard, now and then stopping to look about or turn
+to someone. Three tools on the bar at the bottom:
 
 - **customize** — click a walker and they run out to the front, turn to face you and
   stand still while the camera drops to meet them; the sliders that built them open,
@@ -244,47 +245,41 @@ Shows six avatars walking a school courtyard. Three tools on the bar at the bott
 - **camera** — orbit. Its own tool on purpose: left always-on, every attempt to grab
   someone also swung the camera
 
-Press backtick for the debug panel on top of that — freeze the crowd, show the walk
-bounds, click-to-copy camera coordinates. `?figure` gives the plain stick figure
-and `?limb` the one-joint diagnostic tube — both kept because they fail more legibly
-than a finished character does.
+Press backtick for the debug panel: freeze the crowd, show the walk bounds, toggle
+skinning, movement, leaves and tree sway (and tint what the sway claims), and
+click-to-copy camera coordinates.
 
-- `?t=0.62` / `?bend=85` freeze the pose at a fixed moment or angle
-- `?view=front|side|quarter|top|bust` shows one avatar from that angle. **Use the side
-  view.** Judging a solid head-on is how a head ends up buried inside a chest:
-  front-on, an intersection and a clean join look identical
-- `?seed=3` rolls different proportions and colours; seed 1 is the authored look
-- `?expression=happy|blink|scared|dizzy` holds one face. In the square the face
-  follows the walker: scared while held, dizzy on the floor, blinking otherwise
-- `?crowd=16` builds a grid of them, for measuring what one actually costs
-- `?stats` prints frame time to the console (implied by `?crowd`)
+The rest is URL switches, mostly for looking at one avatar on a plain stage:
 
-Freezing matters more than it sounds: a moving rig is a terrible thing to test
-against, because you can never tell whether a still frame caught a bug or just caught
-the bottom of the swing.
+- `?view=front|side|quarter|top|bust` shows one from that angle, and `?face` frames
+  the head. **Use the side view**: front-on, a head buried in a chest and a clean
+  join look identical
+- `?editor` adds the full editor, `?seed=3` picks the third of the cast (1 is Mo)
+- `?expression=happy|blink|scared|dizzy` and `?gaze=0.8,-0.2` hold a face. In the
+  courtyard the face follows the walker: scared while held, dizzy on the floor
+- `?t=0.62` freezes the walk at a moment. A moving rig is a terrible thing to test
+  against: you can't tell whether a still frame caught a bug or the bottom of a swing
+- `?crowd=16` builds a grid of them, for measuring cost; `?stats` prints frame time
+- `?cam=x,y,z&look=x,y,z` places the camera, `?bare` drops the capture, and
+  `?bg=ff00ff` tells a gap in the splats from a dark splat
 
 ## How it's laid out
 
-Two worlds that share the avatar and nothing else, which is the main thing to know
-before reading any of it:
+Two scenes share the avatar and nothing else:
 
-- **`town-square.ts`** — the finished one. The crowd, the physics world, and the two
-  tools you can point at them. `crowd.ts` walks them and decides when they fall and
-  get up; `physics.ts` is the rigid-body double; `grab.ts`, `picking.ts`,
-  `showcase.ts` and `toolbar.ts` are the interaction. `gaze.ts` is where each of
-  them looks and how they blink — their personalities live there. `tree-sway.ts`
-  sways the capture's trees (the wind example's technique, drawn in Spark's splat
-  shader) and `leaves.ts` drops leaves off them.
-- **`workbench.ts`** — where it came from. One rig on a plain stage, behind `?limb`,
-  `?figure`, `?editor` and `?crowd=N`.
+- **`courtyard.ts`** — the default. `crowd.ts` is everything the avatars DO: walking,
+  pausing, falling and getting up, where they look, how they blink, and their
+  personalities. `physics.ts` is the rigid-body double; `interaction.ts` is
+  everything the pointer does — the toolbar, picking, grabbing and the customise
+  camera. `tree-sway.ts` sways the trees and `leaves.ts` drops leaves off them.
+- **`workbench.ts`** — one avatar on a plain stage, behind the URL switches above.
 
-Under both: `avatar.ts` builds a character out of `shell.ts` primitives and rigs it
-with `bones.ts`; `avatar-params.ts` holds every number that shapes one and
-`avatar-editor.ts` the panel that drives them; `scene.ts` holds everything specific
-to THIS capture, so swapping in another world is a one-file edit.
+Under both: `avatar.ts` builds a character out of splats and rigs it with `bones.ts`;
+`avatar-params.ts` holds every field, style and colour that shapes one, and the cast;
+`avatar-editor.ts` is the panel that drives them; `scene.ts` holds everything
+specific to this capture, so swapping in another world is a one-file edit.
 
-`index.ts` does none of that. It reads `options.ts`, builds a renderer, frames a
-camera, picks one of the two worlds, and runs a loop.
+`index.ts` reads `options.ts`, builds a renderer, picks a scene, and runs the loop.
 
 ## Assets
 
