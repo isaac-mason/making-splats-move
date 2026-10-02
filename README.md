@@ -7,6 +7,7 @@
 | [`dust/`](dust) | Dust motes drifting through a splat greenhouse: a stateless procedural particle generator. |
 | [`fire/`](fire) | A campfire under a starry sky: a procedural splat flame, splat-space lighting, heat shimmer and embers. |
 | [`avatars/`](avatars) | Procedural rigged characters built out of splats, skinned with Spark's `SplatSkinning` and walking around a town square. |
+| [`avatars-parts/`](avatars-parts) | How the avatars are drawn, in five short files: splat shapes, a face built from them, a body, that body skinned, and a flower that bends. The version to read first. |
 
 ## Quick start
 
