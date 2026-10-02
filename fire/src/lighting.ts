@@ -7,9 +7,8 @@ import { FIRE_ORIGIN } from './scene';
 // Where the fire's heat/light originates, in world space.
 export const LIGHT_ORIGIN = new THREE.Vector3(FIRE_ORIGIN[0], FIRE_ORIGIN[1], FIRE_ORIGIN[2]);
 
-// A tight, intense "hot core" right at the fire — a localized additive splat glow
-// that sells the heat. (A broad scene-wide glow recolored every splat and washed out
-// detail, so scene-level ambiance is handled elsewhere now; this stays small.)
+// A tight, intense "hot core" right at the fire — a localized additive splat glow.
+// Kept small: a broad additive glow washes out the scene's detail.
 const CORE_RADIUS = 0.85;
 const CORE_HUE = 0.075; // hotter, toward yellow-white
 const CORE_SAT = 0.55; // less saturated → whiter-hot, not deep orange
@@ -32,7 +31,7 @@ function flickerCalm(time: number): number {
     return (Math.sin(time * 2.0) + Math.sin(time * 3.6) * 0.25) / 1.25;
 }
 
-// Real point light for standard-material meshes; the SDFs above only affect splats.
+// Real point light for standard-material meshes; the SDF edits only affect splats.
 // Nothing in this scene is a mesh yet, so it lights whatever you add. Co-located with
 // the fire, swells with it + pops on a stoke.
 const POINT_LIGHT_COLOR = new THREE.Color(1, 0.55, 0.25); // warm fire
@@ -47,11 +46,8 @@ const POINT_LIGHT_HEIGHT = 0.4; // metres above LIGHT_ORIGIN
 const POINT_LIGHT_DISTANCE = 5; // range at which the light fades to nothing (falloff)
 const POINT_LIGHT_DECAY = 2; // physically-correct inverse-square falloff (three default)
 
-// Scene-wide ambient in the spirit of the Spark dynamic-lighting example: a
-// *multiplicative* edit (not additive!) that scales every splat toward a dark warm,
-// giving the clearing mood/shadow WITHOUT washing out detail the way a broad additive
-// light did. (The example uses DARKEN, which our pinned Spark lacks; MULTIPLY gives
-// the same "darken, don't wash" result.) The tight ADD core relights the fire.
+// Scene-wide ambient, after Spark's dynamic-lighting example: a MULTIPLY edit that
+// scales every splat toward a dark warm, darkening without washing out detail.
 const AMBIENT_RADIUS = 5; // covers the whole clearing (sharp edge → near-uniform inside)
 const AMBIENT_HUE = 0.05;
 const AMBIENT_SAT = 0.35; // gentle warm tint (multiply over-saturates if high)
@@ -69,7 +65,7 @@ export type Lighting = {
     core: SplatEditSdf;
     /** Wireframe sphere visualising the core SDF. Add to your scene; toggled via debug. */
     coreHelper: THREE.Mesh;
-    /** DARKEN layer giving the clearing its moody ambient. Add to your scene. */
+    /** MULTIPLY layer giving the clearing its moody ambient. Add to your scene. */
     ambientLayer: SplatEdit;
     /** Scene-wide SDF that darkens splats toward a dark warm. */
     ambient: SplatEditSdf;

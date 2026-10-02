@@ -4,18 +4,6 @@ import * as THREE from 'three';
 import { type Fire, fireHeat } from './fire';
 import { LIGHT_ORIGIN } from './lighting';
 
-// Heat shimmer — a Spark world-modifier. Instead of a screen-space filter, this
-// jiggles the actual scene splats' world positions in the hot air over the fire:
-// an upward-scrolling noise displacement. The geometry itself wobbles like air
-// over a flame, so it reads as "this thing is dangerously hot" from any angle.
-//
-// The shape of the hot zone is a PLUME, not a ball. Hot air goes up, so the air
-// you can see through is a column standing on the coals that widens as it rises.
-// A sphere gets it wrong at both ends: it wobbles the ground out to the side,
-// where nothing is hot, it stops just above the flame, where the distortion is
-// actually strongest, and it misses the best cue in the shot — the treeline
-// rippling behind the fire.
-
 const { dynoBlock, dynoFloat, dynoVec3, defineGsplat, unindentLines } = dyno;
 
 // Half-width of the column at its base, in world units. It widens with height.
@@ -34,15 +22,13 @@ const STRENGTH = 0.009;
 // bending, fine ones read as air.
 const SCALE = 5.5;
 
-// The noise tiles every NOISE_PERIOD units, so scrolling it by a whole number of
-// periods loops seamlessly — and keeps the sample coordinates bounded. (The old
-// version scrolled an infinite field by an ever-growing time, which drifted into
-// float32's bad range and made the shimmer pop over time.) Loops every LOOP_SECONDS.
+// The noise tiles every NOISE_PERIOD units, so scrolling it by whole periods loops
+// seamlessly every LOOP_SECONDS and keeps coordinates out of float32's bad range.
 const NOISE_PERIOD = 8;
 const LOOP_SECONDS = 6;
 
-// Tileable value noise: the lattice corners wrap at HEAT_PERIOD so the field
-// repeats, and the hash avoids large-argument sin() (the precision culprit).
+// Tileable value noise: the lattice wraps at HEAT_PERIOD, and the hash avoids
+// large-argument sin().
 const NOISE_GLSL = /* glsl */ `
     const float HEAT_PERIOD = ${NOISE_PERIOD.toFixed(1)};
 

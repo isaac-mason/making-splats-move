@@ -96,10 +96,6 @@ function createRange(
     return wrapper;
 }
 
-// Minimal debug overlay (plain DOM): a text panel showing the camera position
-// (toggle with the backtick `) plus controls for the fire and LOD budget. While it's
-// open, clicking raycasts the scene instead of stoking the fire — that's how the
-// world-space landmarks in scene.ts get measured.
 export type DebugOptions = {
     /**
      * Called when free-look is toggled. `false` means the presentation camera is
@@ -109,6 +105,9 @@ export type DebugOptions = {
     onOrbitChange?: (orbit: boolean) => void;
 };
 
+// Minimal debug overlay (plain DOM), toggled with backtick: camera readouts plus
+// controls for the fire and LOD budget. While it's open, clicking raycasts the scene
+// instead of stoking the fire — that's how the landmarks in scene.ts get measured.
 export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOptions = {}): DebugOverlay {
     const element = document.createElement('div');
     element.style.cssText = [
