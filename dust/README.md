@@ -11,6 +11,14 @@ whole point — they sort and blend with the environment splats, so a mote behin
 leaf is properly hidden instead of drawn over it. Getting that from `Points` would
 mean depth-sorting them against the splat scene yourself, every frame.
 
+To see the difference, open the debug panel (backtick) and tick **THREE.Points dust**.
+That turns on [`src/dust-points.ts`](src/dust-points.ts): the same motion ported
+to a `Points` shader. Spark draws splats with `depthWrite: false`, so there's no
+greenhouse in the depth buffer for the points to test against, and every mote
+draws over the leaves and frames in front of it. The points field reaches past the
+walls on purpose: splat motes out there would be hidden by the room, so points
+showing through it make the failure obvious, especially once you orbit.
+
 ## Nothing is stored
 
 A [`SplatGenerator`](src/dust.ts) is handed a splat index and must return that
@@ -76,6 +84,7 @@ new one, so OrbitControls only ever sees the camera where it put it.
 | File | Role |
 | --- | --- |
 | `src/dust.ts` | The generator: the mote kernel and every tunable. |
+| `src/dust-points.ts` | The same dust as a `THREE.Points` cloud — the counter-example. |
 | `src/camera-drift.ts` | The cursor lean. |
 | `src/scene.ts` | Asset URL, camera framing, and the volume the dust fills. |
 | `scripts/build-lod.sh` | Bakes the LOD-paged `.rad` from `assets/` into `public/`. |

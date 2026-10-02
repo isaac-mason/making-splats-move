@@ -3,7 +3,8 @@ import type * as THREE from 'three';
 
 /**
  * The debug panel the other examples have: backtick to toggle, click-to-copy
- * coordinates, and a switch to take the dust away and see the room without it.
+ * coordinates, a switch to take the dust away and see the room without it, and
+ * one to add a THREE.Points version alongside to see why the motes are splats.
  */
 
 export type DebugOverlay = {
@@ -18,8 +19,10 @@ export type DebugOverlay = {
 };
 
 export type DebugOptions = {
-    /** Called when the dust checkbox flips. */
+    /** Called when the splat dust checkbox flips. */
     onDustEnabled?: (enabled: boolean) => void;
+    /** Called when the THREE.Points comparison checkbox flips. */
+    onPointsEnabled?: (enabled: boolean) => void;
 };
 
 function createCheckbox(label: string, checked: boolean, onChange: (checked: boolean) => void): HTMLLabelElement {
@@ -62,7 +65,7 @@ function makeCopyable(value: HTMLSpanElement): void {
     });
 }
 
-export function createDebugOverlay({ onDustEnabled }: DebugOptions = {}): DebugOverlay {
+export function createDebugOverlay({ onDustEnabled, onPointsEnabled }: DebugOptions = {}): DebugOverlay {
     const element = document.createElement('div');
     element.style.cssText = [
         'position:fixed',
@@ -88,9 +91,11 @@ export function createDebugOverlay({ onDustEnabled }: DebugOptions = {}): DebugO
     makeCopyable(lookRow.value);
     text.append(camRow.row, lookRow.row, splatsRow.row, fpsRow.row);
 
-    const dustCheckbox = createCheckbox('dust', true, (checked) => onDustEnabled?.(checked));
+    const dustCheckbox = createCheckbox('splat dust', true, (checked) => onDustEnabled?.(checked));
 
-    element.append(dustCheckbox, text);
+    const pointsCheckbox = createCheckbox('THREE.Points dust (no depth)', false, (checked) => onPointsEnabled?.(checked));
+
+    element.append(dustCheckbox, pointsCheckbox, text);
     document.body.append(element);
 
     const overlay: DebugOverlay = {

@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createCameraDrift } from './camera-drift';
 import { createDebugOverlay, updateDebugOverlay } from './debug';
 import { createDust } from './dust';
+import { createDustPoints } from './dust-points';
 import { applyPerformance, initPerformance } from './performance';
 import { CAMERA_POSITION, CAMERA_TARGET, DUST_BOX } from './scene';
 import { createSplat } from './splat';
@@ -32,6 +33,13 @@ function init() {
     scene.add(dust.object);
     console.log(`dust: ${dust.count.toLocaleString()} motes`);
 
+    // The same field as a THREE.Points cloud, hidden unless switched on in the
+    // debug panel — there to show what goes wrong without splats (see the file).
+    // It's spread past the walls on purpose: splat motes out there would be
+    // hidden by the room, so the points showing through it is the failure made plain.
+    const dustPoints = createDustPoints(DUST_BOX.clone().expandByVector(new THREE.Vector3(15, 3, 15)));
+    scene.add(dustPoints.object);
+
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.target.set(CAMERA_TARGET[0], CAMERA_TARGET[1], CAMERA_TARGET[2]);
@@ -48,6 +56,9 @@ function init() {
         onDustEnabled: (enabled) => {
             dust.object.visible = enabled;
         },
+        onPointsEnabled: (enabled) => {
+            dustPoints.object.visible = enabled;
+        },
     });
 
     window.addEventListener('resize', () => {
@@ -56,7 +67,7 @@ function init() {
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    return { scene, camera, renderer, spark, splat, dust, controls, perf, drift, debug };
+    return { scene, camera, renderer, spark, splat, dust, dustPoints, controls, perf, drift, debug };
 }
 
 type State = ReturnType<typeof init>;
@@ -65,6 +76,7 @@ function update(state: State, dt: number) {
     // Drives controls.update() itself, so the lean can't compound into its state.
     state.drift.apply(dt);
     applyPerformance(state.perf, state.spark);
+    state.dustPoints.update(dt, state.camera, state.renderer);
     updateDebugOverlay(state.debug, state.camera, state.controls.target, state.spark, dt);
     state.renderer.render(state.scene, state.camera);
 }
