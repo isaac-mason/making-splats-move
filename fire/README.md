@@ -4,7 +4,7 @@ A campfire burning under a starry sky. The splat itself never changes on disk �
 everything here is done at render time, on top of a static scene:
 
 - **A flame** (`src/flame.ts`), **smoke** (`src/smoke.ts`) and **embers**
-  (`src/embers.ts`). Three Gaussian-splat generators running on the GPU with nothing
+  (`src/embers.ts`). Gaussian-splat generators running on the GPU with nothing
   stored, all riding one shared curl field so they churn together. See below.
 
 - **Splat-space lighting** (`src/lighting.ts`). Two Spark `SplatEdit` SDFs recolour the
@@ -13,13 +13,15 @@ everything here is done at render time, on top of a static scene:
   than add, so it gives the clearing mood without washing out detail). A real
   `THREE.PointLight` rides along for any standard-material mesh you add.
 - **Heat shimmer** (`src/heat.ts`). A Spark `worldModifier` — a GPU dyno graph — that
-  displaces the scene splats' world positions with upward-scrolling tileable noise
-  inside a sphere around the fire. The geometry genuinely wobbles like air over a
+  displaces the scene splats' world positions with scrolling tileable noise in a
+  column of hot air over the fire. The geometry genuinely wobbles like air over a
   flame, from any angle, rather than being a screen-space filter.
-- **Embers** (`src/embers.ts`). Splats too, so they sort with the flame and the
-  scene rather than drawing on top of both. They shoot off the coals, coast as they
-  cool, and hand themselves to the breeze — dying out somewhere out over the grass
-  rather than all at one height, which is what gives the clearing its scale.
+- **Embers** are splats too, so they sort with the flame and the scene rather than
+  drawing on top of both. They shoot off the coals, coast as they cool, and hand
+  themselves to the breeze — dying out over the grass rather than all at one height,
+  which is what gives the clearing its scale.
+- **Fireflies** (`src/fireflies.ts`) flash in the dark past the fire: a bright core
+  splat and a faint halo each, on a closed-form wander.
 
 ## The flame
 
@@ -100,18 +102,16 @@ barely register; without tone mapping the full exponent is too brutal, so it's a
 > has, so an acceleration produces a constant speed. It has to be a fraction of the
 > particle's **full lifetime** (`× age`) to be a clock at all.
 
-Three more things mattered far more than expected while tuning it:
+A few more things mattered far more than expected while tuning it:
 
 - **Low alpha, not high.** Fire is emissive: two overlapping tongues should add up.
   Spark blends premultiplied, so a bright colour at a *small* alpha approximates
   additive blending. Raise it and the flame stops being fire and becomes an orange
   lozenge, because alpha blending resolves overlap by showing only the nearest splat.
-- **Premultiply the smoke, but not the flame.** Same blend mode, opposite needs.
-  Writing a straight colour gets you that additive glow, which is right for flame
-  and embers and wrong for smoke — additive smoke can only ever brighten, so it
-  glows and takes on the hue of whatever it drifts across (over a dark treeline it
-  goes visibly green). Writing `col * alpha` gives ordinary compositing, so smoke
-  occludes and keeps its own grey.
+- **Never premultiply in the generator.** Spark premultiplies in its own shader, so
+  writing `col * alpha` squares the alpha: smoke turns into a near-black filter tinted
+  by whatever's behind it. Write straight colour, and make the smoke darker than the
+  sky behind it so it shades rather than glows.
 - **Solve for the accumulated alpha, don't guess it.** What you see along a view ray
   is `1 - (1 - a)^n` over n overlapping splats. Forty smoke puffs at a = 0.035 comes
   out at 0.83 — a solid black column. For a wisp reading about 0.35, a is nearer
@@ -142,7 +142,7 @@ different from the flame's.
   displacement is a static warp: the puff sits on a fixed path that the field
   wiggles, so the column reads as a rope taped to the fire rather than a gas
   rolling over itself. The fix is the same integration the flame uses, but the trip
-  is ~30x longer in seconds, so it needs ~24 steps rather than four. What has to
+  is ~30x longer in seconds, so it needs 24 steps rather than six. What has to
   stay small is the distance covered per step against the size of an eddy, not the
   step count.
 - **Turbulence cannot widen a plume.** Curl noise is divergence-free — that's the
@@ -215,7 +215,8 @@ for measuring the world-space landmarks in `src/scene.ts`.
 | `src/flame.ts` | The flame body: particles advected through the velocity field, carrying a temperature. |
 | `src/smoke.ts` | Smoke above it — long-lived, expanding, cooling to nothing; reads the fire signal *delayed*. |
 | `src/embers.ts` | Sparks lifting off, riding the same field. |
-| `src/curl.ts` | The shared curl noise, so all three churn together. |
+| `src/fireflies.ts` | Glints flashing in the dark past the fire. |
+| `src/glsl.ts` | What the generators share: the curl noise (so all three churn together), settings baked in as GLSL literals, and the generator plumbing. |
 | `src/lighting.ts`, `src/heat.ts` | Fire lighting and the heat-shimmer plume, each reading the signal. |
 | `src/interaction.ts` | Tap-to-stoke (tap, not drag — OrbitControls owns dragging). |
 | `src/camera-drift.ts` | Parallax lean toward the cursor while hovering, so the clearing reads as a space rather than a photo. |

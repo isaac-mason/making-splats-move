@@ -1,113 +1,51 @@
+/**
+ * The debug panel (backtick): camera readouts, layer toggles, a heat override and
+ * the LOD budget. While it's open, a click raycasts the scene instead of stoking
+ * the fire — that's how the landmarks in scene.ts were measured.
+ */
+
 import type { SparkRenderer } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
 import type { Fire } from './fire';
 import type { Performance } from './performance';
 
 export type DebugOverlay = {
     element: HTMLDivElement;
     text: HTMLDivElement;
-    /** Whether the panel is shown (toggled with the backtick key). */
     enabled: boolean;
-    /** Whether the SDF light wireframes are drawn (toggled by the checkbox). */
+    /** Draw the lighting's SDF spheres as wireframes. */
     showLights: boolean;
-    /** Whether the flame generator is drawn. */
     fireEnabled: boolean;
-    /** Whether the ember generator is drawn. */
     embersEnabled: boolean;
-    /** Whether the firefly generator is drawn. */
     firefliesEnabled: boolean;
-    /** Whether the smoke generator is drawn. */
     smokeEnabled: boolean;
-    /** Whether the fire's SplatEdit lighting (hot core + clearing ambient) and point light apply. */
     lightingEnabled: boolean;
-    /**
-     * Free-look. Off by default: the shipped camera is the fixed framing plus the
-     * parallax lean (src/camera-drift.ts), because that's the shot. Orbiting is a
-     * tool for measuring the scene, not a feature of it.
-     */
+    /** Free-look, for measuring. The shipped camera is the fixed shot plus the lean. */
     orbit: boolean;
-    /** Heat override: 0..1 forces all VFX to that heat, null = live. */
+    /** Pins the fire's heat, 0..1; null = live. */
     heatOverride: number | null;
-    /** Raycaster used for click-to-raycast against the scene. */
     raycaster: THREE.Raycaster;
-    /** Marker placed at the last raycast hit point. Add to your scene. */
+    /** Marks the last raycast hit. Add to the scene. */
     raycastMarker: THREE.Mesh;
-    /** World-space point of the last raycast hit, or null if nothing's been hit. */
     lastHit: THREE.Vector3 | null;
 };
 
-function createCheckbox(label: string, onChange: (checked: boolean) => void, checked = false): HTMLLabelElement {
-    const wrapper = document.createElement('label');
-    wrapper.style.cssText = 'display:flex;gap:6px;align-items:center;cursor:pointer;user-select:none';
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.checked = checked;
-    input.addEventListener('change', () => onChange(input.checked));
-    wrapper.append(input, label);
-    return wrapper;
-}
+type Toggle = 'fireEnabled' | 'embersEnabled' | 'smokeEnabled' | 'firefliesEnabled' | 'lightingEnabled';
 
-// A checkbox + range slider on one row. The checkbox arms the override; the
-// slider value is reported via onChange only while armed (else `null` = live).
-function createSlider(label: string, onChange: (value: number | null) => void): HTMLLabelElement {
-    const wrapper = document.createElement('label');
-    wrapper.style.cssText = 'display:flex;gap:6px;align-items:center;cursor:pointer;user-select:none';
-    const toggle = document.createElement('input');
-    toggle.type = 'checkbox';
-    const range = document.createElement('input');
-    range.type = 'range';
-    range.min = '0';
-    range.max = '1';
-    range.step = '0.01';
-    range.value = '0';
-    range.style.width = '90px';
-    const emit = () => onChange(toggle.checked ? Number(range.value) : null);
-    toggle.addEventListener('change', emit);
-    range.addEventListener('input', emit);
-    wrapper.append(toggle, label, range);
-    return wrapper;
-}
-
-// An always-on labelled range slider that reports its value live, with a readout.
-function createRange(
-    label: string,
-    opts: { min: number; max: number; step: number; value: number },
-    onChange: (value: number) => void,
-): HTMLLabelElement {
-    const wrapper = document.createElement('label');
-    wrapper.style.cssText = 'display:flex;gap:6px;align-items:center;cursor:pointer;user-select:none';
-    const range = document.createElement('input');
-    range.type = 'range';
-    range.min = String(opts.min);
-    range.max = String(opts.max);
-    range.step = String(opts.step);
-    range.value = String(opts.value);
-    range.style.width = '80px';
-    const readout = document.createElement('span');
-    readout.textContent = opts.value.toFixed(2);
-    range.addEventListener('input', () => {
-        const v = Number(range.value);
-        readout.textContent = v.toFixed(2);
-        onChange(v);
-    });
-    wrapper.append(label, range, readout);
-    return wrapper;
-}
+const LAYERS: [string, Toggle][] = [
+    ['fire', 'fireEnabled'],
+    ['embers', 'embersEnabled'],
+    ['smoke', 'smokeEnabled'],
+    ['fireflies', 'firefliesEnabled'],
+    ['lighting', 'lightingEnabled'],
+];
 
 export type DebugOptions = {
-    /**
-     * Called when free-look is toggled. `false` means the presentation camera is
-     * taking over again, which is the caller's cue to put it back where it belongs
-     * — the orbit camera will have left it wherever the last drag ended.
-     */
+    /** `false` is the cue to put the presentation camera back where the last drag left it. */
     onOrbitChange?: (orbit: boolean) => void;
 };
 
-// Minimal debug overlay (plain DOM), toggled with backtick: camera readouts plus
-// controls for the fire and LOD budget. While it's open, clicking raycasts the scene
-// instead of stoking the fire — that's how the landmarks in scene.ts get measured.
 export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOptions = {}): DebugOverlay {
     const element = document.createElement('div');
     element.style.cssText = [
@@ -124,11 +62,9 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
         'z-index:1000',
     ].join(';');
 
-    // Marker drawn at the last raycast hit. Non-raycastable so clicks don't hit it.
     const raycastMarker = new THREE.Mesh(
         new THREE.SphereGeometry(0.05, 16, 12),
-        // transparent:true → draws in the transparent pass, after (and on top of) the
-        // Spark splats; depthTest off + high renderOrder keeps it visible through geometry.
+        // Transparent, so it draws after the splats; no depth test, so on top.
         new THREE.MeshBasicMaterial({ color: 0xff3366, depthTest: false, depthWrite: false, transparent: true }),
     );
     raycastMarker.visible = false;
@@ -153,59 +89,32 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
         lastHit: null,
     };
 
-    const orbitCheckbox = createCheckbox('orbit camera', (checked) => {
-        overlay.orbit = checked;
-        onOrbitChange?.(checked);
-    });
-
-    const lightsCheckbox = createCheckbox('lights debug', (checked) => {
-        overlay.showLights = checked;
-    });
-
-    const fireCheckbox = createCheckbox('fire', (checked) => (overlay.fireEnabled = checked), true);
-    const embersCheckbox = createCheckbox('embers', (checked) => (overlay.embersEnabled = checked), true);
-    const smokeCheckbox = createCheckbox('smoke', (checked) => (overlay.smokeEnabled = checked), true);
-    const firefliesCheckbox = createCheckbox('fireflies', (checked) => (overlay.firefliesEnabled = checked), true);
-    const lightingCheckbox = createCheckbox('lighting', (checked) => (overlay.lightingEnabled = checked), true);
-
-    const heatSlider = createSlider('fire heat', (value) => {
-        overlay.heatOverride = value;
-    });
-
-    const lodSlider = createRange('lod scale', { min: 0.2, max: 2, step: 0.05, value: perf.lodScale }, (value) => {
-        perf.lodScale = value;
-    });
-
     overlay.text.style.cssText = 'white-space:pre;user-select:text;-webkit-user-select:text;cursor:text';
 
     element.append(
-        orbitCheckbox,
-        lightsCheckbox,
-        fireCheckbox,
-        embersCheckbox,
-        smokeCheckbox,
-        firefliesCheckbox,
-        lightingCheckbox,
-        heatSlider,
-        lodSlider,
+        checkbox('orbit camera', false, (on) => {
+            overlay.orbit = on;
+            onOrbitChange?.(on);
+        }),
+        checkbox('lights debug', false, (on) => (overlay.showLights = on)),
+        ...LAYERS.map(([label, key]) => checkbox(label, true, (on) => (overlay[key] = on))),
+        heatSlider((value) => (overlay.heatOverride = value)),
+        range('lod scale', { min: 0.2, max: 2, step: 0.05, value: perf.lodScale }, (value) => (perf.lodScale = value)),
         overlay.text,
     );
     document.body.appendChild(element);
 
     window.addEventListener('keydown', (event) => {
-        if (event.key === '`') {
-            overlay.enabled = !overlay.enabled;
-            element.style.display = overlay.enabled ? 'flex' : 'none';
-            // Raycast is a panel feature — hide its marker when the panel closes.
-            if (!overlay.enabled) overlay.raycastMarker.visible = false;
-        }
+        if (event.key !== '`') return;
+        overlay.enabled = !overlay.enabled;
+        element.style.display = overlay.enabled ? 'flex' : 'none';
+        if (!overlay.enabled) overlay.raycastMarker.visible = false;
     });
 
     return overlay;
 }
 
-// Wire up click-to-raycast against the scene (e.g. the splat). On each click the
-// marker jumps to the hit point and overlay.lastHit is updated.
+/** While the panel is open, a click moves the marker to whatever it hits. */
 export function attachDebugRaycast(
     overlay: DebugOverlay,
     camera: THREE.Camera,
@@ -215,7 +124,7 @@ export function attachDebugRaycast(
     const ndc = new THREE.Vector2();
 
     domElement.addEventListener('click', (event) => {
-        if (!overlay.enabled) return; // only raycast while the debug panel is open
+        if (!overlay.enabled) return;
 
         const rect = domElement.getBoundingClientRect();
         ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -240,16 +149,62 @@ export function updateDebugOverlay(
 ): void {
     if (!overlay.enabled) return;
 
-    const p = camera.position;
-    const t = controls.target;
+    const xyz = (v: THREE.Vector3) => `${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)}`;
     const h = overlay.lastHit;
-    const active = spark.activeSplats.toLocaleString();
-    const max = spark.maxSplats.toLocaleString();
 
     overlay.text.textContent =
-        `pos     ${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}\n` +
-        `target  ${t.x.toFixed(2)}, ${t.y.toFixed(2)}, ${t.z.toFixed(2)}\n` +
-        `hit     ${h ? `${h.x.toFixed(2)}, ${h.y.toFixed(2)}, ${h.z.toFixed(2)}` : '-'}\n` +
+        `pos     ${xyz(camera.position)}\n` +
+        `target  ${xyz(controls.target)}\n` +
+        `hit     ${h ? xyz(h) : '-'}\n` +
         `fire    int ${fire.intensity.toFixed(2)}  pulse ${fire.pulse.toFixed(2)}\n` +
-        `splats  ${active} / ${max}  (lod x${spark.lodSplatScale.toFixed(2)})`;
+        `splats  ${spark.activeSplats.toLocaleString()} / ${spark.maxSplats.toLocaleString()}  (lod x${spark.lodSplatScale.toFixed(2)})`;
+}
+
+/* controls */
+
+function row(...children: (Node | string)[]): HTMLLabelElement {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;gap:6px;align-items:center;cursor:pointer;user-select:none';
+    label.append(...children);
+    return label;
+}
+
+function input(type: string, props: Record<string, string | boolean> = {}): HTMLInputElement {
+    const el = document.createElement('input');
+    // In order: a range's value has to come after its min and max, or it's clamped to 0..100.
+    for (const [key, value] of Object.entries({ type, ...props })) Object.assign(el, { [key]: value });
+    return el;
+}
+
+function checkbox(label: string, checked: boolean, onChange: (checked: boolean) => void): HTMLLabelElement {
+    const box = input('checkbox', { checked });
+    box.addEventListener('change', () => onChange(box.checked));
+    return row(box, label);
+}
+
+/** A checkbox that arms an override, and its 0..1 value: reports null while unarmed. */
+function heatSlider(onChange: (value: number | null) => void): HTMLLabelElement {
+    const armed = input('checkbox');
+    const slider = input('range', { min: '0', max: '1', step: '0.01', value: '0' });
+    slider.style.width = '90px';
+    const emit = () => onChange(armed.checked ? Number(slider.value) : null);
+    armed.addEventListener('change', emit);
+    slider.addEventListener('input', emit);
+    return row(armed, 'fire heat', slider);
+}
+
+function range(
+    label: string,
+    { min, max, step, value }: { min: number; max: number; step: number; value: number },
+    onChange: (value: number) => void,
+): HTMLLabelElement {
+    const slider = input('range', { min: String(min), max: String(max), step: String(step), value: String(value) });
+    slider.style.width = '80px';
+    const readout = document.createElement('span');
+    readout.textContent = value.toFixed(2);
+    slider.addEventListener('input', () => {
+        readout.textContent = Number(slider.value).toFixed(2);
+        onChange(Number(slider.value));
+    });
+    return row(label, slider, readout);
 }
