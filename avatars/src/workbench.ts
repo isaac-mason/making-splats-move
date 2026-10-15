@@ -36,8 +36,8 @@ export function initWorkbench(scene: THREE.Scene, camera: THREE.PerspectiveCamer
     }
 
     if (options.editor) {
-        // A rebuild regenerates every splat, rebinds every weight and recompiles the
-        // generator, so it swaps the whole mesh rather than editing one.
+        // A rebuild regenerates every splat and rebinds every weight, so it swaps the
+        // whole avatar rather than editing one.
         bench.editor = createAvatarEditor((next) => {
             if (bench.rig) {
                 scene.remove(bench.rig.mesh);
@@ -66,7 +66,7 @@ export function initWorkbench(scene: THREE.Scene, camera: THREE.PerspectiveCamer
             scene.add(avatar.mesh);
             bench.benchmark.push(avatar);
         }
-        const splats = bench.benchmark.reduce((n, a) => n + a.mesh.numSplats, 0);
+        const splats = bench.benchmark.reduce((n, a) => n + a.count, 0);
         const built = (performance.now() - started).toFixed(0);
         console.log(`crowd: ${options.benchmark} avatars, ${splats.toLocaleString()} splats, built in ${built}ms`);
         camera.position.set(0, 1.6, 2.2 + side * 1.4);
@@ -87,7 +87,7 @@ export function updateWorkbench(bench: Workbench, options: Options, posedTime: n
 }
 
 export function workbenchSplats(bench: Workbench): number {
-    return bench.benchmark.reduce((n, a) => n + a.mesh.numSplats, bench.rig?.mesh.numSplats ?? 0);
+    return bench.benchmark.reduce((n, a) => n + a.count, bench.rig?.count ?? 0);
 }
 
 /** `?seed=N` picks the Nth of the cast, wrapping. */

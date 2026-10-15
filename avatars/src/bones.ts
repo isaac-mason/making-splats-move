@@ -1,9 +1,9 @@
 /**
  * Posing bones, and a small forward-kinematics skeleton to drive them.
  *
- * Read `setBoneWorld`: Spark's bone API does not mean what it looks like.
- * `setBoneQuatPos(i, quat, pos)` reads as "put bone i at pos, rotated by quat". It
- * isn't. Spark stores
+ * Read `setBoneWorld`: the bone API (Spark's, kept as it was) does not mean what it
+ * looks like. `setBoneQuatPos(i, quat, pos)` reads as "put bone i at pos, rotated by
+ * quat". It isn't. It stores
  *
  *     R = restQuat⁻¹ · quat        t = pos − restPos
  *
@@ -19,8 +19,8 @@
  * all `setBoneWorld` does, and every bone goes through it.
  */
 
-import type { SplatSkinning } from '@sparkjsdev/spark';
 import * as THREE from 'three';
+import type { Skinning } from './splats';
 
 // Scratch: this runs per bone, per avatar, per frame.
 const rmScratch = new THREE.Quaternion();
@@ -29,7 +29,7 @@ const posScratch = new THREE.Vector3();
 const rotatedRest = new THREE.Vector3();
 
 export function setBoneWorld(
-    skinning: SplatSkinning,
+    skinning: Skinning,
     bone: number,
     restQuat: THREE.Quaternion,
     restPos: THREE.Vector3,
@@ -99,8 +99,8 @@ export function poseSkeleton(skeleton: Skeleton): void {
     }
 }
 
-/** Hand the current world transforms to Spark. */
-export function pushSkeleton(skeleton: Skeleton, skinning: SplatSkinning): void {
+/** Hand the current world transforms to the GPU. */
+export function pushSkeleton(skeleton: Skeleton, skinning: Skinning): void {
     const { bones, worldQuat, worldPos } = skeleton;
     for (let i = 0; i < bones.length; i++) {
         setBoneWorld(skinning, i, restIdentity, bones[i].head, worldQuat[i], worldPos[i]);
@@ -111,7 +111,7 @@ export function pushSkeleton(skeleton: Skeleton, skinning: SplatSkinning): void 
 /**
  * Bone weights by distance to each bone's segment, with a Gaussian falloff scaled by
  * the bone's radius so a thick thigh claims further than a thin forearm. The best
- * four (all Spark stores), normalised.
+ * four (all the skinning stores), normalised.
  */
 export function weightsForPoint(
     point: THREE.Vector3,

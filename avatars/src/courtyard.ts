@@ -3,11 +3,11 @@
  * customize, grab and camera tools wired up against them.
  */
 
-import { SplatMesh } from '@sparkjsdev/spark';
 import type { World } from 'crashcat';
+import { GpuArrays, loadSplats, SplatCollection } from 'spark-radix';
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { initAvatar } from './avatar';
+import { initAvatar, setAvatarSkinned } from './avatar';
 import {
     type AvatarEditor,
     createAvatarEditor,
@@ -33,7 +33,7 @@ import {
     updateGrab,
     updateShowcase,
 } from './interaction';
-import { initLeaves } from './leaves';
+import { initLeaves, type Leaves, tickLeaves } from './leaves';
 import type { Options } from './options';
 import { addGroundPlane, initPhysicsWorld, stepPhysics } from './physics';
 import {
@@ -46,6 +46,7 @@ import {
     WALK_HALF_ACROSS,
     WALK_HALF_DEEP,
 } from './scene';
+import { displayColor, type Stage, stageAdd, stageRemove } from './splats';
 
 const WALKERS = CAST.length;
 /** Only seeds the splat jitter: who's in the crowd is the cast. */
@@ -61,7 +62,9 @@ export type Courtyard = {
     editor: AvatarEditor;
     boundsBox: THREE.LineSegments;
     /** Null under `?bare`, with no capture. */
-    leaves: THREE.Object3D | null;
+    leaves: Leaves | null;
+    /** Whether the leaves are on the stage: the debug toggle takes them off it. */
+    leavesShown: boolean;
 };
 
 export type CourtyardContext = {
@@ -71,10 +74,11 @@ export type CourtyardContext = {
     controls: OrbitControls;
     debug: DebugOverlay;
     options: Options;
+    stage: Stage;
 };
 
-export function initCourtyard(context: CourtyardContext): Courtyard {
-    const { scene, camera, domElement, controls, debug, options } = context;
+export async function initCourtyard(context: CourtyardContext): Promise<Courtyard> {
+    const { scene, camera, domElement, controls, debug, options, stage } = context;
 
     const physics = initPhysicsWorld();
     addGroundPlane(physics, GROUND_Y);
@@ -82,14 +86,17 @@ export function initCourtyard(context: CourtyardContext): Courtyard {
     const crowd = initCrowd(physics, WALKERS, CROWD_SEED);
     for (const walker of crowd.walkers) scene.add(walker.avatar.mesh);
 
-    let leaves: THREE.Object3D | null = null;
+    let leaves: Leaves | null = null;
     if (!options.bare) {
-        const world = new SplatMesh({ url: SPLAT_URL, paged: true });
+        // Decoded on a worker, then one object on the stage, placed by a group.
+        const world = new THREE.Group();
         world.scale.setScalar(SPLAT_SCALE);
         world.position.set(...SPLAT_OFFSET);
         scene.add(world);
-        leaves = initLeaves().object;
-        scene.add(leaves);
+        const data = await loadSplats(SPLAT_URL);
+        stageAdd(stage, SplatCollection.arrays(GpuArrays.fromData(stage.renderer, data), { matrixWorld: world.matrixWorld }));
+        leaves = initLeaves();
+        stageAdd(stage, leaves.object);
     }
 
     const showcase = initShowcase();
@@ -143,21 +150,34 @@ export function initCourtyard(context: CourtyardContext): Courtyard {
         onDragChange: (dragging) => setToolCursor(domElement, 'grab', dragging),
     });
 
-    return { context, physics, crowd, grab, showcase, toolbar, editor, leaves, boundsBox: addBoundsBox(scene) };
+    return {
+        context,
+        physics,
+        crowd,
+        grab,
+        showcase,
+        toolbar,
+        editor,
+        leaves,
+        leavesShown: leaves !== null,
+        boundsBox: addBoundsBox(scene),
+    };
 }
 
-export function updateCourtyard(courtyard: Courtyard, dt: number): void {
-    const { camera, controls, debug } = courtyard.context;
+export function updateCourtyard(courtyard: Courtyard, dt: number, time: number): void {
+    const { camera, controls, debug, stage } = courtyard.context;
     courtyard.boundsBox.visible = debug.showBounds;
-    if (courtyard.leaves) courtyard.leaves.visible = debug.leaves;
+    if (courtyard.leaves) {
+        tickLeaves(courtyard.leaves, time);
+        if (courtyard.leavesShown !== debug.leaves) {
+            courtyard.leavesShown = debug.leaves;
+            if (debug.leaves) stageAdd(stage, courtyard.leaves.object);
+            else stageRemove(stage, courtyard.leaves.object);
+        }
+    }
     courtyard.crowd.moving = debug.movement;
     // Every frame, not on the toggle, so a walker the editor rebuilds follows it too.
-    for (const w of courtyard.crowd.walkers) {
-        const skinning = debug.skinning ? w.avatar.skinning : null;
-        if (w.avatar.mesh.skinning === skinning) continue;
-        w.avatar.mesh.skinning = skinning;
-        w.avatar.mesh.updateGenerator();
-    }
+    for (const w of courtyard.crowd.walkers) setAvatarSkinned(w.avatar, debug.skinning);
     updateAvatarEditor(courtyard.editor);
     if (!debug.frozen) {
         updateGrab(courtyard.grab, dt);
@@ -169,7 +189,7 @@ export function updateCourtyard(courtyard: Courtyard, dt: number): void {
 }
 
 export function courtyardSplats(courtyard: Courtyard): number {
-    return courtyard.crowd.walkers.reduce((n, w) => n + w.avatar.mesh.numSplats, 0);
+    return courtyard.crowd.walkers.reduce((n, w) => n + w.avatar.count, 0);
 }
 
 /** The box the crowd may wander inside, turned like the walk area. */
@@ -177,7 +197,7 @@ function addBoundsBox(scene: THREE.Scene): THREE.LineSegments {
     const height = 1.8;
     const box = new THREE.LineSegments(
         new THREE.EdgesGeometry(new THREE.BoxGeometry(WALK_HALF_ACROSS * 2, height, WALK_HALF_DEEP * 2)),
-        new THREE.LineBasicMaterial({ color: 0x44ff88 }),
+        new THREE.LineBasicMaterial({ color: displayColor(0x44ff88) }),
     );
     box.position.set(WALK_CENTER[0], GROUND_Y + height / 2, WALK_CENTER[2]);
     box.rotation.y = Math.atan2(-WALK_ACROSS[1], WALK_ACROSS[0]);

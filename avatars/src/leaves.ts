@@ -7,7 +7,7 @@
  * tumbling as it goes — then lands flat, lies a moment, and fades.
  */
 
-import { dyno as d, SplatGenerator } from '@sparkjsdev/spark';
+import { type AnySplatObject, GpuSplatMath, GpuSplats, SplatCollection, TSL, type TslNode } from 'spark-radix';
 import * as THREE from 'three';
 import { GROUND_Y, TREES } from './scene';
 import { WIND_DIRECTION } from './tree-sway';
@@ -34,115 +34,117 @@ const COLORS = [
     new THREE.Color('#b59a45'),
 ];
 
-/** A number as a GLSL float literal. */
-const f = (n: number) => n.toFixed(4);
+const {
+    Fn,
+    abs,
+    cos,
+    dot,
+    float,
+    floor,
+    fract,
+    min,
+    mix,
+    mod,
+    normalize,
+    select,
+    sin,
+    smoothstep,
+    sqrt,
+    step,
+    uint,
+    uniform,
+    vec2,
+    vec3,
+    vec4,
+} = TSL;
+
 const windAngle = THREE.MathUtils.degToRad(WIND_DIRECTION);
 
-const LEAVES_GLSL = /* glsl */ `
-const vec4 LEAF_TREES[${TREES.length}] = vec4[](${TREES.map((t) => `vec4(${[...t.center, t.radius].map(f).join(', ')})`).join(', ')});
-const vec3 LEAF_COLORS[${COLORS.length}] = vec3[](${COLORS.map((c) => `vec3(${f(c.r)}, ${f(c.g)}, ${f(c.b)})`).join(', ')});
-const vec2 LEAF_WIND = vec2(${f(Math.cos(windAngle))}, ${f(Math.sin(windAngle))});
-
-vec4 leafHash(int i) {
-    vec3 p = fract(vec3(float(i)) * vec3(0.1031, 0.1030, 0.0973));
-    p += dot(p, p.yzx + 33.33);
-    vec3 a = fract((p.xxy + p.yzz) * p.zyx);
-    float w = fract(sin(float(i) * 91.345) * 47453.5453);
+/** Four hashes in [0, 1) of a whole-number seed (as a float). */
+const leafHash = Fn(([i]: TslNode[]) => {
+    const p = fract(vec3(i).mul(vec3(0.1031, 0.103, 0.0973))).toVar();
+    p.addAssign(dot(p, p.yzx.add(33.33)));
+    const a = fract(p.xxy.add(p.yzz).mul(p.zyx));
+    const w = fract(sin(i.mul(91.345)).mul(47453.5453));
     return vec4(a, w);
-}
-vec4 quatMul(vec4 a, vec4 b) {
-    return vec4(a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz), a.w * b.w - dot(a.xyz, b.xyz));
-}
-vec4 quatAxisAngle(vec3 axis, float angle) {
-    return vec4(normalize(axis) * sin(angle * 0.5), cos(angle * 0.5));
-}
-`;
+}).setLayout({ name: 'leafHash', type: 'vec4', inputs: [{ name: 'i', type: 'float' }] });
 
-export type Leaves = { object: SplatGenerator };
+const quatAxisAngle = (axis: TslNode, angle: TslNode) => vec4(normalize(axis).mul(sin(angle.mul(0.5))), cos(angle.mul(0.5)));
+
+/** One of a list of constants by index, as a select chain. */
+function pick(values: TslNode[], index: TslNode): TslNode {
+    let out = values[values.length - 1];
+    for (let k = values.length - 2; k >= 0; k--) out = select(index.equal(float(k)), values[k], out);
+    return out;
+}
+
+export type Leaves = { object: AnySplatObject; time: TslNode };
 
 export function initLeaves(): Leaves {
-    const uTime = d.dynoFloat(0);
+    const time = uniform(0);
+    const trees = TREES.map((t) => vec4(t.center[0], t.center[1], t.center[2], t.radius));
+    const colors = COLORS.map((c) => vec3(c.r, c.g, c.b));
+    const wind = vec2(Math.cos(windAngle), Math.sin(windAngle));
 
-    const object = new SplatGenerator({
-        numSplats: COUNT,
-        generator: d.dynoBlock(
-            { index: 'int' },
-            { gsplat: d.Gsplat },
-            ({ index }) => {
-                if (!index) throw new Error('leaves: no index input');
-                const node = d.dyno({
-                    inTypes: { index: 'int', time: 'float' },
-                    outTypes: { gsplat: d.Gsplat },
-                    inputs: { index, time: uTime },
-                    globals: () => [d.defineGsplat, LEAVES_GLSL],
-                    statements: ({ inputs, outputs }) => {
-                        const g = outputs.gsplat;
-                        const i = inputs;
-                        return d.unindentLines(`
-                            vec4 r = leafHash(${i.index});
-                            vec4 r2 = leafHash(${i.index} + 7919);
-                            float life = mix(${f(LIFE[0])}, ${f(LIFE[1])}, r2.x);
-                            float age = fract(r.w + ${i.time} / life);
-                            // Which life this is, so a leaf leaves from somewhere new each time.
-                            float cycle = floor(r.w + ${i.time} / life);
-                            vec4 s = leafHash(${i.index} * 31 + int(mod(cycle, 997.0)) * 131);
+    const object = SplatCollection.object({
+        count: COUNT,
+        generator: {
+            generateSplat: (index: TslNode) => {
+                const i = float(uint(index)).toVar();
+                const r = leafHash(i).toVar();
+                const r2 = leafHash(i.add(7919)).toVar();
+                const life = mix(LIFE[0], LIFE[1], r2.x);
+                const age = fract(r.w.add(time.div(life))).toVar();
+                // Which life this is, so a leaf leaves from somewhere new each time.
+                const cycle = floor(r.w.add(time.div(life)));
+                const s = leafHash(i.mul(31).add(mod(cycle, 997).mul(131))).toVar();
 
-                            vec4 crown = LEAF_TREES[int(mod(float(${i.index}), ${TREES.length}.0))];
+                const crown = pick(trees, mod(i, TREES.length)).toVar();
 
-                            // Somewhere in the lower two thirds of the crown.
-                            float ang = s.x * 6.28318;
-                            float rad = sqrt(s.y) * crown.w * 0.75;
-                            vec3 start = crown.xyz + vec3(cos(ang) * rad, (s.z - 0.6) * crown.w * 0.7, sin(ang) * rad);
-                            float ground = ${f(GROUND_Y)} + 0.01;
+                // Somewhere in the lower two thirds of the crown.
+                const ang = s.x.mul(Math.PI * 2);
+                const rad = sqrt(s.y).mul(crown.w).mul(0.75);
+                const start = crown.xyz
+                    .add(vec3(cos(ang).mul(rad), s.z.sub(0.6).mul(crown.w).mul(0.7), sin(ang).mul(rad)))
+                    .toVar();
+                const ground = GROUND_Y + 0.01;
 
-                            // Fall, then lie still. Drift and rocking stop on landing.
-                            float fall = min(age / ${f(FALL)}, 1.0);
-                            vec2 wind = LEAF_WIND;
-                            vec2 across = vec2(-wind.y, wind.x);
-                            float t = ${i.time};
-                            float swing = sin(t * (1.8 + r2.y) + r.w * 40.0);
-                            vec3 pos = start;
-                            pos.y = mix(start.y, ground, fall);
-                            pos.xz += wind * ${f(DRIFT)} * fall * (0.6 + 0.8 * r2.z);
-                            float airborne = 1.0 - step(1.0, fall);
-                            // A little lift at each end of the swing.
-                            pos.xz += across * swing * ${f(ROCK)} * airborne * (0.5 + r2.w);
-                            pos.y += abs(swing) * 0.08 * airborne;
+                // Fall, then lie still. Drift and rocking stop on landing.
+                const fall = min(age.div(FALL), 1).toVar();
+                const across = vec2(wind.y.negate(), wind.x);
+                const swing = sin(time.mul(r2.y.add(1.8)).add(r.w.mul(40))).toVar();
+                const airborne = step(fall, 0.9999).toVar();
+                const pos = vec3(start.x, mix(start.y, ground, fall), start.z).toVar();
+                pos.xz.addAssign(wind.mul(fall.mul(r2.z.mul(0.8).add(0.6)).mul(DRIFT)));
+                // A little lift at each end of the swing.
+                pos.xz.addAssign(across.mul(swing.mul(airborne).mul(r2.w.add(0.5)).mul(ROCK)));
+                pos.y.addAssign(abs(swing).mul(0.08).mul(airborne));
 
-                            // Tumbling on the way down; lying flat once landed.
-                            vec3 axis = normalize(r2.yzw - 0.5 + vec3(0.0, 0.0, 0.01));
-                            vec4 tumble = quatAxisAngle(axis, t * (2.0 + 2.0 * r.x) + r.y * 20.0);
-                            vec4 flat_ = quatMul(quatAxisAngle(vec3(0.0, 1.0, 0.0), r.y * 6.28318),
-                                                 quatAxisAngle(vec3(1.0, 0.0, 0.0), -1.5708));
-                            vec4 quat = airborne > 0.5 ? tumble : flat_;
+                // Tumbling on the way down; lying flat once landed.
+                const axis = normalize(r2.yzw.sub(0.5).add(vec3(0, 0, 0.01)));
+                const tumble = quatAxisAngle(axis, time.mul(r.x.mul(2).add(2)).add(r.y.mul(20)));
+                const flat = GpuSplatMath.quatMul(
+                    quatAxisAngle(vec3(0, 1, 0), r.y.mul(Math.PI * 2)),
+                    quatAxisAngle(vec3(1, 0, 0), float(-1.5708)),
+                );
+                const quat = select(airborne.greaterThan(0.5), tumble, flat);
 
-                            vec3 col = LEAF_COLORS[int(floor(s.w * ${COLORS.length}.0))];
+                const col = pick(colors, floor(s.w.mul(COLORS.length)));
 
-                            // In at the branch, out on the grass.
-                            float alpha = 0.85 * smoothstep(0.0, 0.04, age) * (1.0 - smoothstep(0.9, 1.0, age));
-                            float size = 0.8 + 0.4 * r.z;
+                // In at the branch, out on the grass.
+                const alpha = smoothstep(0, 0.04, age)
+                    .mul(smoothstep(0.9, 1, age).oneMinus())
+                    .mul(0.85);
+                const size = r.z.mul(0.4).add(0.8);
 
-                            ${g}.center = pos;
-                            ${g}.flags = GSPLAT_FLAG_ACTIVE;
-                            ${g}.index = ${i.index};
-                            ${g}.scales = vec3(${SIZE.map(f).join(', ')}) * size;
-                            ${g}.quaternion = quat;
-                            ${g}.rgba = vec4(col, alpha);
-                        `);
-                    },
-                });
-                return { gsplat: node.outputs.gsplat };
+                return GpuSplats.Splat(pos, vec3(...SIZE).mul(size), quat, col, alpha, uint(index));
             },
-            { globals: () => [d.defineGsplat] },
-        ),
-        update: ({ time }) => {
-            uTime.value = time;
-            // Without a version bump, Spark doesn't regenerate.
-            object.updateVersion();
         },
     });
-    // Leaves shouldn't catch the pointer's picking rays.
-    object.raycast = () => {};
 
-    return { object };
+    return { object, time };
+}
+
+export function tickLeaves(leaves: Leaves, seconds: number): void {
+    leaves.time.value = seconds;
 }

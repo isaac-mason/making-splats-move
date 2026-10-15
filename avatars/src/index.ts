@@ -1,19 +1,25 @@
 /**
- * Procedural characters built from splats and skinned on the GPU with Spark's
- * SplatSkinning — no scan, no mesh, no asset. The README tells the story.
+ * Procedural characters built from splats and skinned on the GPU — no scan, no
+ * mesh, no asset. The README tells the story.
  *
  * Two scenes share the avatar: `courtyard.ts`, the default, and `workbench.ts`, one
  * avatar on a plain stage (`?view`, `?face`, `?editor`, `?crowd=N`).
+ *
+ * Drawn by spark-radix: every splat in the scene is one collection (the stage in
+ * splats.ts), and skinning is a generator over each avatar's table.
  */
 
-import { SparkRenderer } from '@sparkjsdev/spark';
+import { createRenderer } from 'spark-radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import type { WebGPURenderer } from 'three/webgpu';
+import { bindAvatarStage } from './avatar';
 import { type Courtyard, courtyardSplats, initCourtyard, updateCourtyard } from './courtyard';
 import { createDebugOverlay, updateDebugOverlay } from './debug';
 import { type Options, readOptions } from './options';
 import { CAMERA_POSITION, CAMERA_TARGET } from './scene';
-import { applyTreeSway, createSwayUniforms, type SwayUniforms, setTreeSwayEnabled, tickTreeSway } from './tree-sway';
+import { createStage, displayColor, type Stage, stageSplats, syncStage } from './splats';
+import { createTreeSway, setTreeSwayEnabled, type TreeSway, tickTreeSway } from './tree-sway';
 import { initWorkbench, updateWorkbench, type Workbench, workbenchSplats } from './workbench';
 import './style.css';
 
@@ -21,33 +27,35 @@ type State = {
     options: Options;
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
-    renderer: THREE.WebGLRenderer;
-    spark: SparkRenderer;
-    sway: SwayUniforms;
+    renderer: WebGPURenderer;
+    stage: Stage;
+    sway: TreeSway;
     controls: OrbitControls;
     debug: ReturnType<typeof createDebugOverlay>;
     courtyard: Courtyard | null;
     bench: Workbench | null;
 };
 
-function init(): State {
+async function init(): Promise<State> {
     const options = readOptions();
     const scene = new THREE.Scene();
     // Sky blue in the courtyard, so a hole in the capture's sky reads as sky.
-    scene.background = new THREE.Color(options.background ?? (options.courtyard ? 0x8ec8ea : 0x10131a));
+    scene.background = displayColor(options.background ?? (options.courtyard ? 0x8ec8ea : 0x10131a));
 
     const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    // WebGPU, or the WebGL2 backend where it's missing. MSAA doesn't help splats.
+    const renderer = await createRenderer({ antialias: false });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     (document.querySelector<HTMLDivElement>('#app') ?? document.body).appendChild(renderer.domElement);
 
-    // The trees' wind is drawn in Spark's splat shader, so its uniforms go in at
-    // construction. Harmless in the workbench, which has no trees.
-    const sway = createSwayUniforms();
-    const spark = new SparkRenderer({ renderer, extraUniforms: sway });
-    applyTreeSway(spark);
-    scene.add(spark);
+    const stage = createStage(renderer, scene);
+    bindAvatarStage(stage);
+    // The trees' wind is the renderer's modifier, in world space. Harmless in the
+    // workbench, which has no trees.
+    const sway = createTreeSway();
+    stage.splats.modifier = sway.modifier;
+    stage.splats.modifierSpace = 'world';
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -58,7 +66,7 @@ function init(): State {
     const bench = options.workbench ? initWorkbench(scene, camera, options) : null;
     const courtyard = options.workbench
         ? null
-        : initCourtyard({ scene, camera, domElement: renderer.domElement, controls, debug, options });
+        : await initCourtyard({ scene, camera, domElement: renderer.domElement, controls, debug, options, stage });
 
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -66,7 +74,7 @@ function init(): State {
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    return { options, scene, camera, renderer, spark, sway, controls, debug, courtyard, bench };
+    return { options, scene, camera, renderer, stage, sway, controls, debug, courtyard, bench };
 }
 
 /**
@@ -93,18 +101,26 @@ function frameCamera(camera: THREE.PerspectiveCamera, controls: OrbitControls, o
 }
 
 function update(state: State, time: number, dt: number): void {
-    if (state.courtyard) updateCourtyard(state.courtyard, dt);
+    if (state.courtyard) updateCourtyard(state.courtyard, dt, time);
     if (state.bench) updateWorkbench(state.bench, state.options, state.options.frozenTime ?? time);
 
     state.controls.update();
     setTreeSwayEnabled(state.sway, state.debug.sway);
-    state.sway.treeHighlight.value = state.debug.swayTint ? 1 : 0;
-    tickTreeSway(state.spark, state.sway, time);
-    updateDebugOverlay(state.debug, state.camera, state.controls.target, state.spark, state.courtyard?.crowd ?? null);
+    state.sway.highlight.value = state.debug.swayTint ? 1 : 0;
+    tickTreeSway(state.sway, time);
+    // Bones, leaves and the wind move splats every frame, which the CPU sort can't see.
+    syncStage(state.stage, true);
+    updateDebugOverlay(
+        state.debug,
+        state.camera,
+        state.controls.target,
+        stageSplats(state.stage),
+        state.courtyard?.crowd ?? null,
+    );
     state.renderer.render(state.scene, state.camera);
 }
 
-const state = init();
+const state = await init();
 console.log(
     `avatars: ${((state.courtyard ? courtyardSplats(state.courtyard) : 0) + (state.bench ? workbenchSplats(state.bench) : 0)).toLocaleString()} splats`,
 );
@@ -113,7 +129,7 @@ let frames = 0;
 let statsStart = performance.now();
 let lastTime = performance.now() / 1000;
 
-function loop() {
+state.renderer.setAnimationLoop(() => {
     frames++;
     const sinceStats = performance.now() - statsStart;
     if (state.options.stats && sinceStats > 3000) {
@@ -126,7 +142,4 @@ function loop() {
     const dt = Math.min(now - lastTime, 0.1);
     lastTime = now;
     update(state, now, dt);
-    requestAnimationFrame(loop);
-}
-
-requestAnimationFrame(loop);
+});

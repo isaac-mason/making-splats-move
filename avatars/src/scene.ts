@@ -6,9 +6,11 @@
 /** A world-space point. */
 export type Vec3 = [number, number, number];
 
-const BASE = import.meta.env.BASE_URL;
-// LOD-paged build of assets/school-courtyard.spz (`pnpm build:lod`).
-export const SPLAT_URL = `${BASE}school-courtyard-lod.rad`;
+import courtyardUrl from '../assets/school-courtyard.spz?url';
+
+// The flat capture. Radix selects no LoD subsets and pages nothing in, so the LoD
+// build (public/school-courtyard-lod.rad) has nothing to add here.
+export const SPLAT_URL = courtyardUrl;
 
 // This capture arrives at about the avatars' scale. Another may not: check.
 export const SPLAT_SCALE = 1;

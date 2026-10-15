@@ -3,7 +3,6 @@
  * copy it. Tools for authoring the scene, not features of it.
  */
 
-import type { SparkRenderer } from '@sparkjsdev/spark';
 import type * as THREE from 'three';
 import type { Crowd } from './crowd';
 
@@ -144,7 +143,7 @@ export function updateDebugOverlay(
     overlay: DebugOverlay,
     camera: THREE.PerspectiveCamera,
     target: THREE.Vector3,
-    spark: SparkRenderer,
+    drawn: number,
     crowd: Crowd | null,
 ): void {
     if (!overlay.enabled) return;
@@ -154,7 +153,7 @@ export function updateDebugOverlay(
     f.look.textContent = `${target.x.toFixed(2)}, ${target.y.toFixed(2)}, ${target.z.toFixed(2)}`;
     // The avatars' share: they drive the sort time that ragdolls are sensitive to.
     let avatars = 0;
-    for (const w of crowd?.walkers ?? []) avatars += w.avatar.mesh.numSplats;
-    f.splats.textContent = `${spark.activeSplats.toLocaleString()} active${avatars ? ` · ${avatars.toLocaleString()} avatars` : ''}`;
+    for (const w of crowd?.walkers ?? []) avatars += w.avatar.count;
+    f.splats.textContent = `${drawn.toLocaleString()} drawn${avatars ? ` · ${avatars.toLocaleString()} avatars` : ''}`;
     f.picked.textContent = overlay.selected >= 0 && crowd ? `walker ${overlay.selected} of ${crowd.walkers.length}` : '-';
 }

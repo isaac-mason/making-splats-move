@@ -51,7 +51,7 @@ export type Puppet = {
     limp: boolean;
     /**
      * The mesh transform the bodies are read against: live while driven, frozen the
-     * moment they go limp. Not just world space: a SplatMesh whose splats wander far
+     * moment they go limp. Not just world space: an avatar whose splats wander far
      * from its own transform falls outside its bounds and gets frustum-culled.
      */
     origin: THREE.Vector3;

@@ -4,13 +4,14 @@
  * every splat knows which bone it belongs to.
  *
  * Reading order: building one (a builder per body part), posing it, handing the
- * pose to Spark, and last the shell — the splat-surface primitives the builders use.
+ * pose to the GPU, and last the shell — the splat-surface primitives the builders use.
  */
 
-import { dyno as d, SplatMesh, SplatSkinning, SplatSkinningMode } from '@sparkjsdev/spark';
+import { type AnySplatObject, GpuArrays } from 'spark-radix';
 import * as THREE from 'three';
 import { type AvatarParams, DEFAULT_AVATAR } from './avatar-params';
 import { type BoneDef, initSkeleton, poseSkeleton, pushSkeleton, type Skeleton, setBoneWorld, weightsForPoint } from './bones';
+import { type AvatarData, addParts, avatarObject, Skinning, SplatBuilder, type Stage, stageAdd, stageRemove } from './splats';
 
 /* constants */
 
@@ -33,10 +34,9 @@ const BONE_COUNT = GAZE + 1;
 /* faces */
 /**
  * A face is made of PARTS (eyes, brows, mouth), and every variant of every part is
- * built into the mesh; an expression switches the unused ones off by opacity, so
- * changing face is a uniform write. Opacity rather than moving them out of sight:
- * Spark sorts asynchronously, so a part that jumps into place draws behind the skin
- * until the next sort lands.
+ * built into the splats; an expression switches the unused ones off by opacity, so
+ * changing face is a uniform write. Opacity rather than moving them out of sight: a
+ * part that jumps into place draws behind the skin until the next sort lands.
  */
 export const EXPRESSIONS = ['happy', 'blink', 'scared', 'dizzy'] as const;
 export type Expression = (typeof EXPRESSIONS)[number];
@@ -62,31 +62,41 @@ const EXPRESSION_PARTS: Record<Expression, readonly FacePart[]> = {
     dizzy: ['eyesCrossed', 'browsDizzy', 'mouthWobble'],
 };
 
-/** Width of the per-splat face-part lookup texture. */
-const PART_TEX_WIDTH = 4096;
-
 /* types */
 
 export type Avatar = {
     params: AvatarParams;
     /** Height of the lowest splat. Measured, because the soles' depth depends on limbRadius. */
     feetY: number;
-    mesh: SplatMesh;
-    skinning: SplatSkinning;
+    /** Where it stands: the splats are placed by this group's matrixWorld. Add it to the scene. */
+    mesh: THREE.Group;
+    count: number;
+    skinning: Skinning;
+    /** Its splats on the GPU, with the bones and the face mask bound to them. */
+    data: AvatarData;
+    arrays: GpuArrays;
+    /** Its entry on the stage, skinned or at rest. */
+    object: AnySplatObject;
+    skinned: boolean;
     skeleton: Skeleton;
     /** Which face is showing. Set it freely; `pushAvatar` applies it. */
     expression: Expression;
-    /** Bitmask of the FACE_PARTS showing, read by the mesh's modifier. */
-    faceShowing: ReturnType<typeof d.dynoInt>;
     /** Where the eyes look, -1..1 each way: +x the avatar's own left (it faces +Z), +y up. */
     gaze: THREE.Vector2;
     /** How far the pupils can slide before leaving the whites, in metres. */
     gazeRange: THREE.Vector2;
     /** Extra head turn toward what they're looking at: yaw, pitch in radians. */
     look: THREE.Vector2;
-    /** Not just `mesh.dispose()`: SplatSkinning's two GPU textures need releasing too. */
+    /** Off the stage, and its GPU tables freed. */
     dispose(): void;
 };
+
+let stage: Stage | null = null;
+
+/** Where avatars are drawn. Once, before the first initAvatar. */
+export function bindAvatarStage(s: Stage): void {
+    stage = s;
+}
 
 type Body = ReturnType<typeof measure>;
 type Palette = ReturnType<typeof palette>;
@@ -136,25 +146,42 @@ export function initAvatar(params: AvatarParams = DEFAULT_AVATAR, seed = 1): Ava
     const gazeRange = buildFace(b);
     buildLimbs(b);
 
-    const { mesh, skinning, partTexture, faceShowing } = toMesh(b);
-    return {
+    if (!stage) throw new Error('avatar: bindAvatarStage first');
+    const { count, skinning, data, arrays } = toSplats(b, stage);
+    const mesh = new THREE.Group();
+    const object = avatarObject(data, count, mesh, true);
+    stageAdd(stage, object);
+    const avatar: Avatar = {
         params: p,
         feetY: lowestPoint(b),
         mesh,
+        count,
         skinning,
+        data,
+        arrays,
+        object,
+        skinned: true,
         skeleton: initSkeleton(body.bones),
         expression: 'happy',
-        faceShowing,
         gaze: new THREE.Vector2(),
         gazeRange,
         look: new THREE.Vector2(),
         dispose() {
-            partTexture.dispose();
-            skinning.skinTexture.dispose();
-            skinning.boneTexture.dispose();
-            mesh.dispose();
+            if (stage) stageRemove(stage, avatar.object);
+            arrays.dispose();
+            skinning.dispose();
         },
     };
+    return avatar;
+}
+
+/** Posed by its bones, or (off) the raw splats in their rest pose: the debug panel's toggle. */
+export function setAvatarSkinned(avatar: Avatar, skinned: boolean): void {
+    if (avatar.skinned === skinned || !stage) return;
+    stageRemove(stage, avatar.object);
+    avatar.object = avatarObject(avatar.data, avatar.count, avatar.mesh, skinned);
+    avatar.skinned = skinned;
+    stageAdd(stage, avatar.object);
 }
 
 /** Every splat added inside `add` follows `bone` rigidly. The innermost pin wins. */
@@ -637,7 +664,7 @@ function buildLimbs(b: Build): void {
     }
 }
 
-/* into a SplatMesh */
+/* into splats */
 /** A splat is a disc, not a point, so its visible edge reaches past its centre. */
 function lowestPoint(b: Build): number {
     let lowest = Number.POSITIVE_INFINITY;
@@ -655,46 +682,36 @@ function perSplat(spans: Span[], count: number): Int16Array {
     return out;
 }
 
-// The shell's flat numbers pass through these on their way into Spark.
+// The shell's flat numbers pass through these on their way into the builder.
 const splatCenter = new THREE.Vector3();
 const splatScales = new THREE.Vector3();
 const splatQuat = new THREE.Quaternion();
 const splatTint = new THREE.Color();
 
-/** Splats into a mesh, skinned to the skeleton, with the face-part mask attached. */
-function toMesh(b: Build) {
+/** Splats into a table on the GPU, skinned to the skeleton, with the face-part mask attached. */
+function toSplats(b: Build, stage: Stage) {
     const { p, shell, body } = b;
     const count = splatCount(shell);
     // Pins are recorded as they close, so inner pins come first and win.
     const pinOf = perSplat(b.pins, count);
     const partOf = perSplat(b.parts, count);
 
-    // Spark workaround: not `constructSplats`, which initialises the mesh ASYNC, and the
-    // skinning below needs numSplats now.
-    // Spark workaround: opacity past 1 (hardness) needs `lodOpacity`, which stores it
-    // halved — and pushSplat doesn't apply the encoding itself, so halve it here.
-    const mesh = new SplatMesh({});
-    if (mesh.packedSplats) mesh.packedSplats.splatEncoding = { ...mesh.packedSplats.splatEncoding, lodOpacity: true };
+    // Opacity past 1 (hardness) is stored as is: the object's params keep it a hard
+    // edge rather than the LoD reading, which would grow the splat.
+    const builder = new SplatBuilder();
     for (let i = 0; i < count; i++) {
         // Face decals stay soft: hard discs that small look scratchy.
         const hardness = partOf[i] >= 0 ? 1 : p.hardness;
-        mesh.pushSplat(
+        builder.pushSplat(
             splatCenter.fromArray(shell.centers, i * 3),
             splatScales.fromArray(shell.scales, i * 3),
             splatQuat.fromArray(shell.quats, i * 4),
-            hardness / 2,
+            hardness,
             splatTint.fromArray(shell.colors, i * 3),
         );
     }
-    mesh.numSplats = mesh.packedSplats?.numSplats ?? 0;
-    if (mesh.packedSplats) mesh.packedSplats.needsUpdate = true;
 
-    const skinning = new SplatSkinning({
-        mesh,
-        numSplats: mesh.numSplats,
-        numBones: BONE_COUNT,
-        mode: SplatSkinningMode.DUAL_QUATERNION,
-    });
+    const skinning = new Skinning(stage.renderer, count, BONE_COUNT);
     const restQuat = new THREE.Quaternion();
     for (let i = 0; i < body.bones.length; i++) skinning.setRestQuatPos(i, restQuat, body.bones[i].head);
     // The gaze bone rests where the head does.
@@ -711,20 +728,14 @@ function toMesh(b: Build) {
         }
         skinning.setSplatBones(i, indices, weights);
     }
-    skinning.skinTexture.needsUpdate = true;
-    mesh.skinning = skinning;
 
-    // Each splat's face part + 1 (0 for the body), for the modifier to look up.
-    const rows = Math.max(1, Math.ceil(count / PART_TEX_WIDTH));
-    const partData = new Float32Array(PART_TEX_WIDTH * rows);
-    for (let i = 0; i < count; i++) partData[i] = partOf[i] + 1;
-    const partTexture = new THREE.DataTexture(partData, PART_TEX_WIDTH, rows, THREE.RedFormat, THREE.FloatType);
-    partTexture.needsUpdate = true;
-    const faceShowing = d.dynoInt(partMask('happy'));
-    mesh.objectModifier = faceModifier(d.dynoSampler2D(partTexture), faceShowing);
-    mesh.updateGenerator();
-
-    return { mesh, skinning, partTexture, faceShowing };
+    // The splats, their bones and face parts, as one table; the bones alongside.
+    const table = builder.build();
+    skinning.addTo(table);
+    addParts(table, partOf);
+    const arrays = GpuArrays.fromData(stage.renderer, table);
+    const data: AvatarData = { splats: arrays, bones: skinning.updateBones(), face: { mask: partMask('happy') } };
+    return { count, skinning, data, arrays };
 }
 
 /* posing */
@@ -791,19 +802,15 @@ export function updateAvatar(avatar: Avatar, phase: number): void {
     pushAvatar(avatar);
 }
 
-/* to Spark */
+/* to the GPU */
 
 const gazeQuat = new THREE.Quaternion();
 const gazePos = new THREE.Vector3();
 const restIdentity = new THREE.Quaternion();
 
-/** Hand the pose to Spark, along with which face is showing and where it's looking. */
+/** Hand the pose to the GPU, along with which face is showing and where it's looking. */
 export function pushAvatar(avatar: Avatar): void {
-    const mask = partMask(avatar.expression);
-    if (avatar.faceShowing.value !== mask) {
-        avatar.faceShowing.value = mask;
-        avatar.mesh.updateVersion();
-    }
+    avatar.data.face.mask = partMask(avatar.expression);
     // The gaze bone is the head, slid across the face. Before pushSkeleton, which uploads.
     const { skeleton } = avatar;
     gazeQuat.copy(skeleton.worldQuat[HEAD]);
@@ -821,29 +828,6 @@ function partMask(expression: Expression): number {
     return mask;
 }
 
-/** Zeroes the opacity of every face part not in `showing`. Body splats pass through. */
-function faceModifier(parts: ReturnType<typeof d.dynoSampler2D>, showing: ReturnType<typeof d.dynoInt>) {
-    return d.dynoBlock({ gsplat: d.Gsplat }, { gsplat: d.Gsplat }, ({ gsplat }) => {
-        if (!gsplat) throw new Error('face modifier: no gsplat input');
-        const node = d.dyno({
-            inTypes: { gsplat: d.Gsplat, parts: 'sampler2D', showing: 'int' },
-            outTypes: { gsplat: d.Gsplat },
-            inputs: { gsplat, parts, showing },
-            globals: () => [d.defineGsplat],
-            statements: ({ inputs, outputs }) =>
-                d.unindentLines(`
-                    ${outputs.gsplat} = ${inputs.gsplat};
-                    int i = ${inputs.gsplat}.index;
-                    int part = int(texelFetch(${inputs.parts}, ivec2(i % ${PART_TEX_WIDTH}, i / ${PART_TEX_WIDTH}), 0).r);
-                    if (part > 0 && ((${inputs.showing} >> (part - 1)) & 1) == 0) {
-                        ${outputs.gsplat}.rgba.a = 0.0;
-                    }
-                `),
-        });
-        return { gsplat: node.outputs.gsplat };
-    });
-}
-
 /* shell: splat surface primitives */
 
 /**
@@ -853,8 +837,8 @@ function faceModifier(parts: ReturnType<typeof d.dynoSampler2D>, showing: Return
  */
 
 /**
- * Colour for a splat. Spark wants sRGB, but `new THREE.Color('#c1875a')` is linear;
- * pass that straight in and it's linearised twice, and skin tones go to mud.
+ * Colour for a splat. Splats draw sRGB-encoded, but `new THREE.Color('#c1875a')` is
+ * linear; pass that straight in and it's linearised twice, and skin tones go to mud.
  */
 function splatColor(style: string | number): THREE.Color {
     return new THREE.Color(style).convertLinearToSRGB();
