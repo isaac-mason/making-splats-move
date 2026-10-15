@@ -4,13 +4,16 @@
  * fire lights the clearing and shimmers the air above it, and a tap stokes it.
  *
  * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
- * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`).
+ * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`). On WebGPU the flame, smoke
+ * and embers ride a fluid simulation (sim.ts); elsewhere, or with `?sim=0`, they're
+ * the stateless closed-form particles.
  */
 
 import {
     type AnySplatObject,
     createRenderer,
     GpuArrays,
+    getGpuCaps,
     loadSplats,
     SplatCollection,
     SplatGenerator,
@@ -18,12 +21,12 @@ import {
 } from 'spark-radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { initAir, updateAir } from './air';
+import { type Air, initAir, updateAir } from './air';
 import { createCameraDrift } from './camera-drift';
 import { initCoals, updateCoals } from './coals';
 import { attachDebugRaycast, createDebugOverlay, updateDebugOverlay } from './debug';
 import { initEmbers } from './embers';
-import { initFire, stokeFire, updateFire } from './fire';
+import { type Fire, initFire, stokeFire, updateFire } from './fire';
 import { initFireflies } from './fireflies';
 import { initFlame, updateFlame } from './flame';
 import { initHeat, updateHeat } from './heat';
@@ -33,6 +36,7 @@ import { applyPerformance, initPerformance } from './performance';
 import { BLOOM_STRENGTH, initPost } from './post';
 import { createSplatPicker, type SplatPicker } from './raycast';
 import { CAMERA_POSITION, CAMERA_TARGET, SPLAT_URL } from './scene';
+import { initFireSim } from './sim';
 import { initSmoke, updateSmoke } from './smoke';
 import { time } from './tsl';
 import './style.css';
@@ -111,10 +115,9 @@ async function init() {
     scene.add(lighting.coreHelper, lighting.ambientHelper, lighting.pointLight);
 
     const air = initAir(fire);
-    const flame = initFlame(air);
+    const simulate = getGpuCaps(renderer).compute && new URLSearchParams(location.search).get('sim') !== '0';
+    const effects = simulate ? initFireSim(renderer) : initStateless(air);
     const coals = initCoals();
-    const smoke = initSmoke(air);
-    const embers = initEmbers(air);
     const fireflies = initFireflies();
 
     // While the debug panel is open, clicks raycast instead.
@@ -145,16 +148,30 @@ async function init() {
         lighting,
         heat,
         air,
-        flame,
+        effects,
         coals,
-        smoke,
-        embers,
         fireflies,
         fire,
     };
 }
 
 type State = Awaited<ReturnType<typeof init>>;
+
+/** The closed-form particles, in the simulation's shape: for WebGL2, or `?sim=0`. */
+function initStateless(air: Air) {
+    const flame = initFlame(air);
+    const smoke = initSmoke(air);
+    const embers = initEmbers(air);
+    return {
+        flame: flame.object,
+        smoke: smoke.object,
+        embers: embers.object,
+        step(_dt: number, _time: number, fire: Fire) {
+            updateFlame(flame, fire);
+            updateSmoke(smoke, fire);
+        },
+    };
+}
 
 /**
  * The renderer draws an immutable collection, so hiding a layer means a new one.
@@ -165,9 +182,9 @@ function syncCollection(state: State) {
     const layers: [boolean, AnySplatObject][] = [
         [true, state.capture],
         [debug.fireEnabled, state.coals.object],
-        [debug.fireEnabled, state.flame.object],
-        [debug.smokeEnabled, state.smoke.object],
-        [debug.embersEnabled, state.embers.object],
+        [debug.fireEnabled, state.effects.flame],
+        [debug.smokeEnabled, state.effects.smoke],
+        [debug.embersEnabled, state.effects.embers],
         [debug.firefliesEnabled, state.fireflies.object],
     ];
     const shown = layers.map(([on]) => (on ? 1 : 0)).join('');
@@ -186,9 +203,8 @@ function update(state: State, elapsed: number, dt: number) {
     updateAir(state.air, fire, elapsed, dt);
 
     syncCollection(state);
-    updateFlame(state.flame, fire);
+    state.effects.step(dt, elapsed, fire, state.air.wind);
     updateCoals(state.coals, fire);
-    updateSmoke(state.smoke, fire);
     // In place of controls.update(). The lean stands down while free-look is on.
     state.drift.apply(dt, !debug.orbit);
     updateLighting(

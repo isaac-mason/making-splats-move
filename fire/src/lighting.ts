@@ -63,7 +63,9 @@ const FIRELIGHT_FLICKER = 0.35;
 const LIGHT_HEIGHT = 0.45;
 const LIGHT_LEAN = 0.15;
 
-const POINT_COLOR = new THREE.Color(1, 0.78, 0.58);
+/** The firelight's colour at rest and fed: an orange fire, then a whiter one. */
+const LIGHT_RESTING = new THREE.Color(1, 0.62, 0.36);
+const LIGHT_FED = new THREE.Color(1, 0.82, 0.62);
 const POINT_INTENSITY: [number, number] = [2, 8]; // resting, fed
 const POINT_FLICKER = 0.3;
 const POINT_PULSE = 5;
@@ -136,7 +138,7 @@ export function initLighting(): Lighting {
         return out;
     };
 
-    const pointLight = new THREE.PointLight(POINT_COLOR, POINT_INTENSITY[0], POINT_RANGE, 2);
+    const pointLight = new THREE.PointLight(LIGHT_RESTING, POINT_INTENSITY[0], POINT_RANGE, 2);
 
     return {
         modifier,
@@ -180,7 +182,8 @@ export function updateLighting(
     lighting.pointLight.position.copy(light);
 
     const strength = (lerp(...FIRELIGHT, fed) + fire.pulse) * (1 + chaotic * FIRELIGHT_FLICKER);
-    (lighting.firelight.value as THREE.Color).copy(POINT_COLOR).multiplyScalar(Math.max(strength, 0));
+    const colour = lighting.pointLight.color.copy(LIGHT_RESTING).lerp(LIGHT_FED, fed);
+    (lighting.firelight.value as THREE.Color).copy(colour).multiplyScalar(Math.max(strength, 0));
     lighting.pointLight.visible = enabled;
     lighting.pointLight.intensity = (lerp(...POINT_INTENSITY, fed) + fire.pulse * POINT_PULSE) * (1 + calm * POINT_FLICKER);
 

@@ -10,7 +10,7 @@
  * half-float target radix writes them decoded to linear. So the pipeline's output
  * transform encodes back to sRGB (no tone mapping), and the frame comes out as it
  * would drawn straight to the canvas, plus the glow. The bloom threshold is
- * therefore in linear terms: 0.35 is about 0.63 encoded.
+ * therefore in linear terms: 0.6 is about 0.8 encoded.
  */
 
 import { TSL } from 'spark-radix';
@@ -21,9 +21,9 @@ import { RenderPipeline, type WebGPURenderer } from 'three/webgpu';
 const { pass, screenUV, smoothstep, vec4 } = TSL;
 
 /** Glow strength, and the brightness (sRGB-encoded, 0..1) where glowing starts. */
-export const BLOOM_STRENGTH = 0.55;
-const BLOOM_RADIUS = 0.5;
-const BLOOM_THRESHOLD = 0.35;
+export const BLOOM_STRENGTH = 0.14;
+const BLOOM_RADIUS = 0.4;
+const BLOOM_THRESHOLD = 0.6;
 /** How much the corners darken. */
 const VIGNETTE = 0.3;
 

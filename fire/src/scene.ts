@@ -16,13 +16,14 @@ export const SPLAT_URL = campfireUrl;
 export const CAMERA_POSITION: Vec3 = [-0.83, 0.67, -1.09];
 export const CAMERA_TARGET: Vec3 = [-0.06, 0.45, -7.64];
 
-// Measured with the debug raycast (backtick, click, read `hit`).
+// Measured with the debug raycast (backtick, click, read `hit`), then nudged 0.12 m
+// toward the camera so the flame sits on the front of the log pile.
 /** The firepit: drives the lighting and heat shimmer. */
-export const FIRE_ORIGIN: Vec3 = [-0.06, 0.3, -7.64];
+export const FIRE_ORIGIN: Vec3 = [-0.075, 0.3, -7.52];
 /** The log pile the flame and smoke rise from. */
-export const FLAME_ORIGIN: Vec3 = [-0.06, 0.3, -7.64];
+export const FLAME_ORIGIN: Vec3 = [-0.075, 0.3, -7.52];
 /** Where embers leave the fire. */
-export const SPARK_ORIGIN: Vec3 = [-0.06, 0.4, -7.64];
+export const SPARK_ORIGIN: Vec3 = [-0.075, 0.4, -7.52];
 
 /**
  * The fireflies' wedge: front-centre, then width, height and depth back into the
