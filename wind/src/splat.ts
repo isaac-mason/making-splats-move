@@ -1,49 +1,36 @@
-import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
+import { GpuArrays, loadSplats, SplatCollection, SplatGenerator, type SplatModifier, SplatRenderer } from 'spark-radix';
 import type * as THREE from 'three';
+import type { WebGPURenderer } from 'three/webgpu';
 
-import { getSparkQualityOptions } from './performance';
 import { SPLAT_URL } from './scene';
 
 export type Splat = {
-    /** Drives splat sorting + LOD streaming; also carries the runtime perf knobs. */
-    spark: SparkRenderer;
-    /** The scene's Gaussian-splat mesh. */
-    mesh: SplatMesh;
+    /** Draws the capture, sorted, with the wind on it. */
+    splats: SplatRenderer;
+    /** Splats in the capture. */
+    count: number;
 };
 
 /**
- * Build the SparkRenderer and load the scene's SplatMesh, adding both to the scene.
- * Everything splat-specific (LOD cone, quality budget, wind modifier) lives here so
- * index.ts stays about wiring systems together.
+ * Load the scene's capture and put it in a SplatRenderer, with the wind as a
+ * modifier on its generator (object space; the capture sits at the origin, so
+ * that's world space). Everything splat-specific lives here so index.ts stays
+ * about wiring systems together.
  */
-export function createSplat(
-    scene: THREE.Scene,
-    renderer: THREE.WebGLRenderer,
-    options: { extraUniforms?: Record<string, { value: unknown }> } = {},
-): Splat {
-    // SparkRenderer drives splat sorting and LOD streaming/updates for the .rad file.
-    // Widen the LOD foveation cone so splats near the screen corners stay full-res
-    // (defaults: coneFov0 90, coneFov 120, coneFoveate 0.4).
-    const spark = new SparkRenderer({
-        renderer,
-        coneFov0: 120,
-        coneFov: 160,
-        coneFoveate: 0.5,
-        // Per-platform LOD paging + spread budget (iOS < other mobile < desktop).
-        ...getSparkQualityOptions(),
-        // Carries the wind's uniforms, for the draw-time path's shader patch.
-        extraUniforms: options.extraUniforms,
+export async function createSplat(scene: THREE.Scene, renderer: WebGPURenderer, modifier: SplatModifier): Promise<Splat> {
+    // Decoded on a worker.
+    const data = await loadSplats(SPLAT_URL);
+    const arrays = GpuArrays.fromData(renderer, data);
+
+    const capture = SplatCollection.object({
+        generator: SplatGenerator.fromSplats({ modifiers: [modifier] }),
+        data: { splats: arrays },
+        count: arrays.count,
     });
-    scene.add(spark);
 
-    // `paged: true` makes this an LOD-streaming (paged) mesh, which is what
-    // activates the SparkRenderer's paging budget (pagedExtSplats / maxPagedSplats,
-    // see src/performance.ts). Without it the whole .rad loads resident and that
-    // budget is inert. Paging streams pages from the .rad rootUrl via HTTP range
-    // requests, so the host must support them.
-    const mesh = new SplatMesh({ url: SPLAT_URL, paged: true });
+    const splats = new SplatRenderer({ renderer, collection: new SplatCollection([capture]) });
+    splats.raycast = () => {};
+    scene.add(splats);
 
-    scene.add(mesh);
-
-    return { spark, mesh };
+    return { splats, count: arrays.count };
 }

@@ -1,6 +1,6 @@
-import { SplatMesh } from '@sparkjsdev/spark';
 import { quat, type Vec2, type Vec3, vec3 } from 'math';
 import * as THREE from 'three';
+import type { SplatBuilder } from './splats';
 
 export type RGB = [number, number, number];
 
@@ -20,14 +20,7 @@ const SOFT_BELOW = SPACING / 2;
 /** A colour as Spark wants it: sRGB, 0..1. */
 export const rgb = (hex: number): RGB => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 
-/** A SplatMesh that takes opacity above 1. Spark stores it halved, so splats pass HARDNESS / 2. */
-export function createMesh() {
-    const mesh = new SplatMesh({});
-    if (mesh.packedSplats) mesh.packedSplats.splatEncoding = { ...mesh.packedSplats.splatEncoding, lodOpacity: true };
-    return mesh;
-}
-
-// Spark takes three.js types: each splat passes through these on its way in.
+// The builder takes three.js types: each splat passes through these on its way in.
 const _center = new THREE.Vector3();
 const _scales = new THREE.Vector3();
 const _rotation = new THREE.Quaternion();
@@ -39,7 +32,7 @@ const _facing = quat.create();
  * past fully opaque, for a crisper edge; tiny splats default to soft.
  */
 export function splat(
-    mesh: SplatMesh,
+    mesh: SplatBuilder,
     at: Vec3,
     normal: Vec3,
     color: RGB,
@@ -51,7 +44,7 @@ export function splat(
         _center.fromArray(at),
         _scales.set(size, size, size * FLATNESS),
         _rotation.fromArray(_facing),
-        hardness / 2,
+        hardness,
         _tint.setRGB(color[0], color[1], color[2]),
     );
 }
@@ -94,7 +87,7 @@ const _normal = vec3.create();
 
 /** A shell of splats over an ellipsoid. */
 export function sphere(
-    mesh: SplatMesh,
+    mesh: SplatBuilder,
     middle: Vec3,
     radii: Vec3,
     color: RGB,
@@ -122,7 +115,7 @@ const _onTube = vec3.create();
 const _capRadii = vec3.create();
 
 /** A tube from `a` to `b`, closed with half-spheres: arms and legs. */
-export function capsule(mesh: SplatMesh, a: Vec3, b: Vec3, radius: number, color: RGB) {
+export function capsule(mesh: SplatBuilder, a: Vec3, b: Vec3, radius: number, color: RGB) {
     const length = vec3.length(vec3.sub(_axis, b, a));
     vec3.normalize(_axis, _axis);
     vec3.normalize(_side, vec3.cross(_side, _axis, Math.abs(_axis[2]) < 0.9 ? Z : X));
@@ -146,7 +139,7 @@ const _up = vec3.create();
 const _onDisc = vec3.create();
 
 /** A flat, filled ellipse facing `normal`, spread as a sunflower so it has no rows. */
-export function disc(mesh: SplatMesh, middle: Vec3, normal: Vec3, size: Vec2, color: RGB, spacing = SPACING) {
+export function disc(mesh: SplatBuilder, middle: Vec3, normal: Vec3, size: Vec2, color: RGB, spacing = SPACING) {
     vec3.normalize(_right, vec3.cross(_right, Y, normal));
     vec3.cross(_up, normal, _right);
     const count = Math.max(1, Math.round((Math.PI * size[0] * size[1]) / spacing ** 2));
@@ -158,7 +151,7 @@ export function disc(mesh: SplatMesh, middle: Vec3, normal: Vec3, size: Vec2, co
     }
 }
 
-export function shapes(mesh: SplatMesh) {
+export function shapes(mesh: SplatBuilder) {
     splat(mesh, [-1.0, 1, 0], Z, rgb(0x3b3346), 0.06, 1);
     sphere(mesh, [-0.55, 1, 0], [0.22, 0.22, 0.22], rgb(0xffd3ae));
     sphere(mesh, [-0.05, 1, 0], [0.18, 0.22, 0.12], rgb(0xd31e15), { roundness: 3 });

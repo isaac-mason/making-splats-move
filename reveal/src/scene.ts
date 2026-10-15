@@ -1,11 +1,16 @@
 // Everything specific to THIS capture, so swapping in another world is a one-file
 // edit. The reveal's own feel constants live in reveal.ts.
 
+import cityUrl from '../../wind/assets/anime-city.spz?url';
+
 export type Vec3 = [number, number, number];
 
-const BASE = import.meta.env.BASE_URL;
-/** Shared with wind/ through vite.config.ts's publicDir — see the note there. */
-export const SPLAT_URL = `${BASE}anime-city-lod.rad`;
+/**
+ * The flat capture, shared with wind/ (a second 66MB copy would be 66MB of nothing).
+ * Radix reads the LoD build too but selects no LoD subsets and pages nothing in, so
+ * the flat file is the whole download the reveal waits on.
+ */
+export const SPLAT_URL = cityUrl;
 
 export const CAMERA_POSITION: Vec3 = [11.05, 3.6, -2.29];
 export const CAMERA_TARGET: Vec3 = [8.11, 3.66, -2.53];

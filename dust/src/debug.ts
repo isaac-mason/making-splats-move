@@ -1,5 +1,5 @@
-import type { SparkRenderer } from '@sparkjsdev/spark';
 import type * as THREE from 'three';
+import type { Performance } from './performance';
 
 /**
  * The debug panel the other examples have: backtick to toggle, click-to-copy
@@ -19,6 +19,8 @@ export type DebugOverlay = {
 };
 
 export type DebugOptions = {
+    /** The live quality settings the render scale slider edits. */
+    perf: Performance;
     /** Called when the splat dust checkbox flips. */
     onDustEnabled?: (enabled: boolean) => void;
     /** Called when the THREE.Points comparison checkbox flips. */
@@ -46,6 +48,31 @@ function createReadoutRow(label: string): { row: HTMLDivElement; value: HTMLSpan
     return { row, value };
 }
 
+function createRange(
+    label: string,
+    { min, max, step, value }: { min: number; max: number; step: number; value: number },
+    onChange: (value: number) => void,
+): HTMLLabelElement {
+    const wrapper = document.createElement('label');
+    wrapper.style.cssText = 'display:flex;gap:6px;align-items:center;cursor:pointer;user-select:none';
+    const input = document.createElement('input');
+    // In order: a range's value has to come after its min and max, or it's clamped to 0..100.
+    input.type = 'range';
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.value = String(value);
+    input.style.width = '80px';
+    const readout = document.createElement('span');
+    readout.textContent = value.toFixed(2);
+    input.addEventListener('input', () => {
+        readout.textContent = Number(input.value).toFixed(2);
+        onChange(Number(input.value));
+    });
+    wrapper.append(label, input, readout);
+    return wrapper;
+}
+
 /** Copy a readout to the clipboard on click, and flash to confirm. */
 function makeCopyable(value: HTMLSpanElement): void {
     value.style.cursor = 'pointer';
@@ -65,7 +92,7 @@ function makeCopyable(value: HTMLSpanElement): void {
     });
 }
 
-export function createDebugOverlay({ onDustEnabled, onPointsEnabled }: DebugOptions = {}): DebugOverlay {
+export function createDebugOverlay({ perf, onDustEnabled, onPointsEnabled }: DebugOptions): DebugOverlay {
     const element = document.createElement('div');
     element.style.cssText = [
         'position:fixed',
@@ -95,7 +122,11 @@ export function createDebugOverlay({ onDustEnabled, onPointsEnabled }: DebugOpti
 
     const pointsCheckbox = createCheckbox('THREE.Points dust (no depth)', false, (checked) => onPointsEnabled?.(checked));
 
-    element.append(dustCheckbox, pointsCheckbox, text);
+    const renderScale = createRange('render scale', { min: 0.25, max: 1, step: 0.05, value: perf.renderScale }, (value) => {
+        perf.renderScale = value;
+    });
+
+    element.append(dustCheckbox, pointsCheckbox, renderScale, text);
     document.body.append(element);
 
     const overlay: DebugOverlay = {
@@ -123,7 +154,7 @@ export function updateDebugOverlay(
     overlay: DebugOverlay,
     camera: THREE.PerspectiveCamera,
     target: THREE.Vector3,
-    spark: SparkRenderer,
+    splatCount: number,
     dt: number,
 ): void {
     if (!overlay.enabled) return;
@@ -131,6 +162,6 @@ export function updateDebugOverlay(
     const f = overlay.fields;
     f.cam.textContent = `${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}`;
     f.look.textContent = `${target.x.toFixed(2)}, ${target.y.toFixed(2)}, ${target.z.toFixed(2)}`;
-    f.splats.textContent = `${spark.activeSplats.toLocaleString()} active`;
+    f.splats.textContent = `${splatCount.toLocaleString()} drawn`;
     f.fps.textContent = `${(dt * 1000).toFixed(1)} ms`;
 }

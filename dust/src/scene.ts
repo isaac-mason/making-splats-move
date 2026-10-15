@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import greenhouseUrl from '../assets/greenhouse.spz?url';
 
 // Everything specific to THIS scene lives here, so swapping in a new world is a
 // one-file edit. The dust's own "feel" constants live in src/dust.ts.
@@ -6,13 +7,11 @@ import * as THREE from 'three';
 /** A world-space point. Kept local so the app has no math-library dependency. */
 export type Vec3 = [number, number, number];
 
-// --- Assets (served from public/) ---
-const BASE = import.meta.env.BASE_URL;
-// LOD-encoded Spark asset (built by `pnpm build:lod` from assets/greenhouse.spz).
-// The .rad format is what makes the paging budget in src/performance.ts mean
-// anything — a flat .spz has no cheaper version of anything to fall back to, so
-// every splat is resident and drawn every frame however the budget is set.
-export const SPLAT_URL = `${BASE}greenhouse-lod.rad`;
+// --- Assets ---
+// The flat capture. Radix reads .rad files but doesn't select LoD subsets or page
+// them in yet, so the LoD build (public/greenhouse-lod.rad) has nothing to gain
+// here: every splat draws every frame either way.
+export const SPLAT_URL = greenhouseUrl;
 
 // This splat is authored small; scaling it up gives the dust room to work at
 // sensible world-unit sizes instead of thousandths.

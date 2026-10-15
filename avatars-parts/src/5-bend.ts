@@ -1,7 +1,8 @@
-import type { SplatMesh } from '@sparkjsdev/spark';
 import { clamp, type Vec3, type Vec4, vec4 } from 'math';
+import type * as THREE from 'three';
 import { capsule, rgb, sphere } from './1-shapes';
 import { animate, type Bone } from './4-skinning';
+import type { SplatBuilder } from './splats';
 
 const STEM = rgb(0x5a9e3a);
 const PETAL = rgb(0xff9ec7);
@@ -23,7 +24,7 @@ const BONES: Bone[] = Array.from({ length: LINKS }, (_, k) => ({
 BONES[0].build = flower;
 BONES[0].weights = alongStem;
 
-function flower(mesh: SplatMesh) {
+function flower(mesh: SplatBuilder) {
     capsule(mesh, [0, BASE, 0], [0, TOP - 0.06, 0], 0.022, STEM);
     sphere(mesh, [-0.07, 0.42, 0], [0.07, 0.022, 0.02], STEM);
     sphere(mesh, [0.07, 0.62, 0], [0.07, 0.022, 0.02], STEM);
@@ -42,4 +43,4 @@ function alongStem([, y]: Vec3, bones: Vec4, amounts: Vec4) {
     vec4.set(amounts, 1 - (along - k), along - k, 0, 0);
 }
 
-export const bend = (mesh: SplatMesh) => animate(mesh, BONES);
+export const bend = (mesh: SplatBuilder, holder: THREE.Object3D) => animate(mesh, holder, BONES);

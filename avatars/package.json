@@ -13,10 +13,10 @@
         "build:lod": "scripts/build-lod.sh"
     },
     "dependencies": {
-        "@sparkjsdev/spark": "^2.1.0",
         "crashcat": "^0.0.5",
         "math": "^0.1.0",
-        "three": "^0.186.0"
+        "three": "^0.186.0",
+        "spark-radix": "link:../spark"
     },
     "devDependencies": {
         "@types/three": "^0.186.0",

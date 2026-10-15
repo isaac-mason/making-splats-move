@@ -1,11 +1,11 @@
-import type { SparkRenderer } from '@sparkjsdev/spark';
 import type * as THREE from 'three';
+import type { Performance } from './performance';
 import type { Reveal } from './reveal';
 
 /**
  * The debug panel the other examples have: backtick to toggle, click-to-copy
- * coordinates, and — since the whole thing is over in two seconds — a button to
- * watch it again without reloading 96MB.
+ * coordinates, the render scale, and — since the whole thing is over in two
+ * seconds — a button to watch it again without reloading 66MB.
  */
 
 export type DebugOverlay = {
@@ -49,7 +49,33 @@ function makeCopyable(value: HTMLSpanElement): void {
     });
 }
 
-export function createDebugOverlay(onReplay: () => void): DebugOverlay {
+/** A labelled slider, with its value alongside. */
+function createRange(
+    label: string,
+    { min, max, step, value }: { min: number; max: number; step: number; value: number },
+    onChange: (value: number) => void,
+): HTMLLabelElement {
+    const row = document.createElement('label');
+    row.style.cssText = 'display:flex;gap:6px;align-items:center;cursor:pointer;user-select:none';
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    // In order: the value has to come after min and max, or it's clamped to 0..100.
+    slider.min = String(min);
+    slider.max = String(max);
+    slider.step = String(step);
+    slider.value = String(value);
+    slider.style.width = '80px';
+    const readout = document.createElement('span');
+    readout.textContent = value.toFixed(2);
+    slider.addEventListener('input', () => {
+        readout.textContent = Number(slider.value).toFixed(2);
+        onChange(Number(slider.value));
+    });
+    row.append(label, slider, readout);
+    return row;
+}
+
+export function createDebugOverlay(perf: Performance, onReplay: () => void): DebugOverlay {
     const element = document.createElement('div');
     element.style.cssText = [
         'position:fixed',
@@ -82,7 +108,11 @@ export function createDebugOverlay(onReplay: () => void): DebugOverlay {
     replay.style.cssText = 'font:inherit;color:#0f0;background:#022;border:1px solid #0a0;cursor:pointer;padding:3px';
     replay.addEventListener('click', onReplay);
 
-    element.append(text, replay);
+    const scale = createRange('render scale', { min: 0.25, max: 1, step: 0.05, value: perf.renderScale }, (value) => {
+        perf.renderScale = value;
+    });
+
+    element.append(text, scale, replay);
     document.body.append(element);
 
     const overlay: DebugOverlay = {
@@ -111,7 +141,7 @@ export function updateDebugOverlay(
     overlay: DebugOverlay,
     camera: THREE.PerspectiveCamera,
     target: THREE.Vector3,
-    spark: SparkRenderer,
+    splatCount: number,
     reveal: Reveal,
     dt: number,
 ): void {
@@ -120,7 +150,7 @@ export function updateDebugOverlay(
     const f = overlay.fields;
     f.cam.textContent = `${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}`;
     f.look.textContent = `${target.x.toFixed(2)}, ${target.y.toFixed(2)}, ${target.z.toFixed(2)}`;
-    f.splats.textContent = `${spark.activeSplats.toLocaleString()} active`;
+    f.splats.textContent = `${splatCount.toLocaleString()} drawn`;
     f.radius.textContent = `${reveal.radius.toFixed(1)} m`;
     f.fps.textContent = `${(dt * 1000).toFixed(1)} ms`;
 }

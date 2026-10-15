@@ -6,6 +6,8 @@
  * only job.
  */
 
+import type { ProgressStage } from 'spark-radix';
+
 export type Loading = {
     element: HTMLElement;
     bar: HTMLElement;
@@ -21,19 +23,10 @@ export function initLoading(): Loading {
     };
 }
 
-export function setLoadingProgress(loading: Loading, event: ProgressEvent): void {
-    // `lengthComputable` is false when the server sends no Content-Length, which is
-    // common enough that an indeterminate state has to be a real state rather than a
-    // bar stuck at zero.
-    if (!event.lengthComputable || event.total === 0) {
-        loading.label.textContent = `${(event.loaded / 1e6).toFixed(0)} MB`;
-        loading.bar.style.width = '100%';
-        loading.bar.style.opacity = '0.35';
-        return;
-    }
-    const fraction = event.loaded / event.total;
+/** radix reports one fraction across the download and the decode, with the stage it's in. */
+export function setLoadingProgress(loading: Loading, fraction: number, stage: ProgressStage): void {
     loading.bar.style.width = `${(fraction * 100).toFixed(1)}%`;
-    loading.label.textContent = `${Math.round(fraction * 100)}%`;
+    loading.label.textContent = stage === 'downloading' ? `${Math.round(fraction * 100)}%` : stage;
 }
 
 /**

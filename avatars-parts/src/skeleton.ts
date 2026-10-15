@@ -3,21 +3,21 @@
  * same transforms the splats are. A way of seeing the skinning, not part of it.
  */
 
-import type { SplatMesh } from '@sparkjsdev/spark';
 import { type Mat4, vec3 } from 'math';
 import * as THREE from 'three';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import type { Bone } from './4-skinning';
+import { displayColor } from './splats';
 
 export const SKELETON = 'skeleton';
 
 const _end = vec3.create();
 const _at = new THREE.Matrix4();
 
-export function skeleton(mesh: SplatMesh, bones: Bone[]) {
-    const ink = { color: 0x00a6ff, depthTest: false, transparent: true };
+export function skeleton(holder: THREE.Object3D, bones: Bone[]) {
+    const ink = { color: displayColor(0x00a6ff), depthTest: false, transparent: true };
     const lines = new LineSegments2(new LineSegmentsGeometry(), new LineMaterial({ ...ink, linewidth: 4 }));
     const joints = new THREE.InstancedMesh(new THREE.SphereGeometry(0.018), new THREE.MeshBasicMaterial(ink), bones.length);
     for (const part of [lines, joints]) {
@@ -26,7 +26,7 @@ export function skeleton(mesh: SplatMesh, bones: Bone[]) {
     }
     const group = new THREE.Group().add(lines, joints);
     group.name = SKELETON;
-    mesh.add(group);
+    holder.add(group);
 
     // The line geometry reads `ends` directly: write into it, then flag it.
     const ends = new Float32Array(bones.length * 6);

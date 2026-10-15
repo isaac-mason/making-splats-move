@@ -2,17 +2,15 @@
 // in a new world is a one-file edit. Retune these to your space; per-system "feel"
 // constants (sway amplitude, speed, …) stay in their own files.
 
+import cityUrl from '../assets/anime-city.spz?url';
+
 /** A world-space point. Kept local so the app has no math-library dependency. */
 export type Vec3 = [number, number, number];
 
-// --- Assets (served from public/; see the README's asset pipeline) ---
-// BASE_URL is '/' in dev and '/<base>/' when BASE_PATH is set for a subpath deploy
-// (vite.config.ts), so this resolves either way.
-const BASE = import.meta.env.BASE_URL;
-// LOD-encoded Spark asset (built by `pnpm build:lod` from a source .spz). The .rad
-// format is what makes Spark's LOD/paging budget (src/performance.ts) actually take
-// effect — a flat .spz renders all splats every frame.
-export const SPLAT_URL = `${BASE}anime-city-lod.rad`;
+// The flat capture. Radix reads .rad files but doesn't select LoD subsets or page
+// them in yet, so the LoD build (public/anime-city-lod.rad) has nothing to gain
+// here: every splat draws every frame either way.
+export const SPLAT_URL = cityUrl;
 
 // --- Camera framing (world-space) — the orbit camera's start pose ---
 export const CAMERA_POSITION: Vec3 = [0.52, 2.28, 1.07];

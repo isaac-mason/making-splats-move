@@ -1,6 +1,6 @@
-import type { SplatMesh } from '@sparkjsdev/spark';
 import { type Vec2, type Vec3, vec2, vec3 } from 'math';
 import { disc, type RGB, rgb, sphere, splat } from './1-shapes';
+import type { SplatBuilder } from './splats';
 
 export const SKIN = rgb(0xffd3ae);
 const INK = rgb(0x2a2024);
@@ -14,7 +14,7 @@ const _at = vec3.create();
 const _size: Vec2 = [0, 0];
 
 /** A face on the head at `head`: flat discs, each stacked a little further out than the last. */
-export function face(mesh: SplatMesh, head: Vec3, r: number) {
+export function face(mesh: SplatBuilder, head: Vec3, r: number) {
     // A spot on the face, `x` across and `y` up, floated `layer` steps off the skin.
     const on = (x: number, y: number, layer: number) => {
         vec3.normalize(_normal, vec3.set(_normal, x, y, 1));
@@ -44,7 +44,7 @@ export function face(mesh: SplatMesh, head: Vec3, r: number) {
     }
 }
 
-export function faceDemo(mesh: SplatMesh) {
+export function faceDemo(mesh: SplatBuilder) {
     const head: Vec3 = [0, 1, 0];
     sphere(mesh, head, [0.35, 0.34, 0.33], SKIN);
     face(mesh, head, 0.34);

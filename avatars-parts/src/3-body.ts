@@ -1,7 +1,7 @@
-import type { SplatMesh } from '@sparkjsdev/spark';
 import type { Vec3 } from 'math';
 import { capsule, rgb, sphere } from './1-shapes';
 import { face, SKIN } from './2-face';
+import type { SplatBuilder } from './splats';
 
 const HAIR = rgb(0x1a1414);
 const SHIRT = rgb(0xd31e15);
@@ -25,39 +25,39 @@ function underHair(u: Vec3) {
     return u[1] > -0.5 + front * (1.08 - 0.15 * tooth);
 }
 
-export function head(mesh: SplatMesh) {
+export function head(mesh: SplatBuilder) {
     sphere(mesh, HEAD, [R * 1.03, R * 0.98, R * 0.96], SKIN);
     face(mesh, HEAD, R);
     sphere(mesh, HEAD, [R * 1.12, R * 1.07, R * 1.05], HAIR, { keep: underHair });
 }
 
-export function torso(mesh: SplatMesh) {
+export function torso(mesh: SplatBuilder) {
     sphere(mesh, [0, 0.64, 0], [0.152, 0.232, 0.102], TROUSERS, { keep: (u) => u[1] < -0.2, roundness: 3 });
     sphere(mesh, [0, 0.64, 0], [0.16, 0.24, 0.11], SHIRT, { keep: (u) => u[1] > -0.38, roundness: 3 });
     sphere(mesh, [0, 0.87, 0], [0.13, 0.08, 0.09], SHIRT);
 }
 
-export function upperArm(mesh: SplatMesh, side: number) {
+export function upperArm(mesh: SplatBuilder, side: number) {
     capsule(mesh, mirror(SHOULDER, side), mirror(ELBOW, side), 0.06, SKIN);
     capsule(mesh, mirror(SHOULDER, side), mirror([0.235, 0.758, 0], side), 0.08, SHIRT);
 }
 
-export function forearm(mesh: SplatMesh, side: number) {
+export function forearm(mesh: SplatBuilder, side: number) {
     capsule(mesh, mirror(ELBOW, side), mirror(HAND, side), 0.056, SKIN);
     sphere(mesh, mirror(HAND, side), [0.085, 0.085, 0.085], SKIN);
 }
 
-export function arm(mesh: SplatMesh, side: number) {
+export function arm(mesh: SplatBuilder, side: number) {
     upperArm(mesh, side);
     forearm(mesh, side);
 }
 
-export function leg(mesh: SplatMesh, side: number) {
+export function leg(mesh: SplatBuilder, side: number) {
     capsule(mesh, mirror(HIP, side), mirror(ANKLE, side), 0.072, TROUSERS);
     sphere(mesh, mirror([HIP[0], 0.045, 0.035], side), [0.075, 0.05, 0.125], SHOES);
 }
 
-export function body(mesh: SplatMesh) {
+export function body(mesh: SplatBuilder) {
     head(mesh);
     torso(mesh);
     for (const side of [-1, 1]) {

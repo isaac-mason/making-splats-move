@@ -1,4 +1,3 @@
-import type { SparkRenderer } from '@sparkjsdev/spark';
 import type * as THREE from 'three';
 
 import type { Performance } from './performance';
@@ -113,9 +112,9 @@ function makeCopyable(value: HTMLSpanElement): void {
     });
 }
 
-// Minimal debug overlay (plain DOM): a readout of the camera pose and splat counts
-// (toggle with the backtick `), the wind edit-mode switch, and the LOD budget
-// sliders. The coordinate rows are click-to-copy, so orbiting to a framing you like
+// Minimal debug overlay (plain DOM): a readout of the camera pose and splat count
+// (toggle with the backtick `), the wind edit-mode switch, and the render scale
+// slider. The coordinate rows are click-to-copy, so orbiting to a framing you like
 // and pasting the values back into scene.ts is the authoring loop.
 export type DebugOptions = {
     /**
@@ -186,24 +185,11 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
     const highlightCheckbox = createCheckbox('highlight leaves', (checked) => overlay.onHighlightLeaves?.(checked));
     highlightCheckbox.set(true);
 
-    const lodSlider = createRange('lod scale', { min: 0.2, max: 2, step: 0.05, value: perf.lodScale }, (value) => {
-        perf.lodScale = value;
+    const renderScaleSlider = createRange('render scale', { min: 0.25, max: 1, step: 0.05, value: perf.renderScale }, (value) => {
+        perf.renderScale = value;
     });
 
-    // Min on-screen splat size (px). Higher = fewer tiny splats = lower active count.
-    const renderScaleSlider = createRange('lod px', { min: 1, max: 5, step: 0.25, value: perf.lodRenderScale }, (value) => {
-        perf.lodRenderScale = value;
-    });
-
-    element.append(
-        orbitCheckbox.el,
-        windCheckbox.el,
-        windEditCheckbox.el,
-        highlightCheckbox.el,
-        lodSlider,
-        renderScaleSlider,
-        overlay.text,
-    );
+    element.append(orbitCheckbox.el, windCheckbox.el, windEditCheckbox.el, highlightCheckbox.el, renderScaleSlider, overlay.text);
     document.body.appendChild(element);
 
     window.addEventListener('keydown', (event) => {
@@ -220,15 +206,14 @@ export function updateDebugOverlay(
     overlay: DebugOverlay,
     camera: THREE.PerspectiveCamera,
     target: THREE.Vector3,
-    spark: SparkRenderer,
+    splatCount: number,
+    perf: Performance,
 ): void {
     if (!overlay.enabled) return;
 
     const p = camera.position;
-    const active = spark.activeSplats.toLocaleString();
-    const max = spark.maxSplats.toLocaleString();
     const f = overlay.fields;
     f.cam.textContent = `${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}`;
     f.look.textContent = `${target.x.toFixed(2)}, ${target.y.toFixed(2)}, ${target.z.toFixed(2)}`;
-    f.splats.textContent = `${active} / ${max}  (lod x${spark.lodSplatScale.toFixed(2)})`;
+    f.splats.textContent = `${splatCount.toLocaleString()}  (render x${perf.renderScale.toFixed(2)})`;
 }
