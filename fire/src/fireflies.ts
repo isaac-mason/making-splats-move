@@ -7,71 +7,70 @@
  * and flash on their own slow periods; steadily lit ones would read as fairy lights.
  */
 
-import * as THREE from 'three';
-import { literals, particles } from './glsl';
+import { type SplatObject, TSL } from 'spark-radix';
 import { FIREFLY_BACK_WIDTH, FIREFLY_EXTENT, FIREFLY_NEAR } from './scene';
+import { flameHash, particles, seed, time, v3 } from './tsl';
 
-const COUNT = 320;
+const { fract, max, mix, select, sin, smoothstep, sqrt, uint, vec3 } = TSL;
 
-const f = literals({
-    near: new THREE.Vector3(...FIREFLY_NEAR),
-    extent: new THREE.Vector3(...FIREFLY_EXTENT),
-    backWidth: FIREFLY_BACK_WIDTH,
-    wander: new THREE.Vector2(0.6, 0.25),
+const COUNT = 180;
+
+const F = {
+    wander: [0.6, 0.25],
     periodMin: 4,
     periodMax: 9,
     flashFraction: 0.5,
     idleGlow: 0.04,
     coreSize: 0.02,
     haloSize: 0.12,
-    coreOpacity: 1,
-    haloOpacity: 0.3,
-    color: new THREE.Color(0.65, 1.0, 0.25),
-});
+    coreOpacity: 0.7,
+    haloOpacity: 0.16,
+    color: [0.65, 1.0, 0.25],
+} as const;
 
-export function initFireflies(): { object: THREE.Object3D } {
-    const object = particles({
-        count: COUNT * 2,
-        uniforms: {},
-        body: ({ index, time }, g) => /* glsl */ `
-            int fly = ${index} / 2;
-            bool isHalo = ${index} % 2 == 1;
-            vec4 rand = flameHash(fly * 7 + 313);
-            vec4 rand2 = flameHash(fly * 11 + 719);
+export function initFireflies(): { object: SplatObject } {
+    const near = v3(FIREFLY_NEAR);
+    const [extentX, extentY, extentZ] = FIREFLY_EXTENT;
 
-            float depthEvenlySpread = sqrt(rand.z);
-            float wedgeWidth = mix(${f.extent}.x, ${f.backWidth}, depthEvenlySpread);
-            vec3 home = ${f.near} + vec3(
-                (rand.x - 0.5) * wedgeWidth,
-                (rand.y - 0.5) * ${f.extent}.y,
-                -depthEvenlySpread * ${f.extent}.z
-            );
+    // Even splats are cores, odd ones their halos.
+    const object = particles(COUNT * 2, (index) => {
+        const fly = index.div(uint(2));
+        const isHalo = index.mod(uint(2)).equal(uint(1));
+        const rand = flameHash(seed(fly, 7, 313)).toVar();
+        const rand2 = flameHash(seed(fly, 11, 719)).toVar();
 
-            vec3 phases = rand2.xyz * 6.2831853;
-            vec3 hover = vec3(
-                sin(${time} * 0.31 + phases.x) + 0.5 * sin(${time} * 0.83 + phases.y),
-                sin(${time} * 0.47 + phases.z) + 0.4 * sin(${time} * 1.21 + phases.x),
-                sin(${time} * 0.27 + phases.y) + 0.5 * sin(${time} * 0.71 + phases.z)
-            ) / 1.5;
-            vec3 pos = home + hover * ${f.wander}.xyx;
+        const depthEvenlySpread = sqrt(rand.z).toVar();
+        const wedgeWidth = mix(extentX, FIREFLY_BACK_WIDTH, depthEvenlySpread);
+        const home = near.add(
+            vec3(rand.x.sub(0.5).mul(wedgeWidth), rand.y.sub(0.5).mul(extentY), depthEvenlySpread.mul(-extentZ)),
+        );
 
-            float period = mix(${f.periodMin}, ${f.periodMax}, rand.w);
-            float flashPhase = fract(${time} / period + rand2.w);
-            float flashPeak = 0.35 * ${f.flashFraction};
-            float flash = smoothstep(0.0, flashPeak, flashPhase) * (1.0 - smoothstep(flashPeak, ${f.flashFraction}, flashPhase));
-            float glow = max(flash, ${f.idleGlow});
+        const phases = rand2.xyz.mul(Math.PI * 2).toVar();
+        const hover = vec3(
+            sin(time.mul(0.31).add(phases.x)).add(sin(time.mul(0.83).add(phases.y)).mul(0.5)),
+            sin(time.mul(0.47).add(phases.z)).add(sin(time.mul(1.21).add(phases.x)).mul(0.4)),
+            sin(time.mul(0.27).add(phases.y)).add(sin(time.mul(0.71).add(phases.z)).mul(0.5)),
+        ).div(1.5);
+        const [wanderXZ, wanderY] = F.wander;
+        const pos = home.add(hover.mul(vec3(wanderXZ, wanderY, wanderXZ)));
 
-            float size = isHalo ? ${f.haloSize} : ${f.coreSize};
-            float opacity = isHalo ? ${f.haloOpacity} : ${f.coreOpacity};
-            vec3 col = isHalo ? ${f.color} : mix(${f.color}, vec3(1.0), 0.35);
+        const period = mix(F.periodMin, F.periodMax, rand.w);
+        const flashPhase = fract(time.div(period).add(rand2.w)).toVar();
+        const flashPeak = 0.35 * F.flashFraction;
+        const flash = smoothstep(0, flashPeak, flashPhase).mul(smoothstep(flashPeak, F.flashFraction, flashPhase).oneMinus());
+        const glow = max(flash, F.idleGlow);
 
-            ${g}.center = pos;
-            ${g}.flags = GSPLAT_FLAG_ACTIVE;
-            ${g}.scales = vec3(size * (0.8 + rand2.x * 0.4));
-            ${g}.index = ${index};
-            ${g}.quaternion = vec4(0.0, 0.0, 0.0, 1.0);
-            ${g}.rgba = vec4(col, opacity * glow);
-        `,
+        const size = select(isHalo, F.haloSize, F.coreSize);
+        const opacity = select(isHalo, F.haloOpacity, F.coreOpacity);
+        const color = v3(F.color);
+
+        return {
+            center: pos,
+            scales: vec3(size.mul(rand2.x.mul(0.4).add(0.8))),
+            rgb: select(isHalo, color, mix(color, vec3(1), 0.35)),
+            opacity: opacity.mul(glow),
+        };
     });
+
     return { object };
 }

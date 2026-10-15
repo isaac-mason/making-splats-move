@@ -5,8 +5,8 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  three: ^0.185.1
-  '@types/three': ^0.185.0
+  three: ^0.186.0
+  '@types/three': ^0.186.0
 
 importers:
 
@@ -16,11 +16,11 @@ importers:
         specifier: 2.5.0
         version: 2.5.0
       '@types/three':
-        specifier: ^0.185.0
-        version: 0.185.4
+        specifier: ^0.186.0
+        version: 0.186.0
       three:
-        specifier: ^0.185.1
-        version: 0.185.1
+        specifier: ^0.186.0
+        version: 0.186.1
       typescript:
         specifier: ~6.0.2
         version: 6.0.3
@@ -29,20 +29,20 @@ importers:
     dependencies:
       '@sparkjsdev/spark':
         specifier: ^2.1.0
-        version: 2.1.0(three@0.185.1)
+        version: 2.1.0(three@0.186.1)
       crashcat:
         specifier: ^0.0.5
-        version: 0.0.5(three@0.185.1)
+        version: 0.0.5(three@0.186.1)
       math:
         specifier: ^0.1.0
         version: 0.1.0
       three:
-        specifier: ^0.185.1
-        version: 0.185.1
+        specifier: ^0.186.0
+        version: 0.186.1
     devDependencies:
       '@types/three':
-        specifier: ^0.185.0
-        version: 0.185.4
+        specifier: ^0.186.0
+        version: 0.186.0
       typescript:
         specifier: ~6.0.2
         version: 6.0.3
@@ -54,17 +54,17 @@ importers:
     dependencies:
       '@sparkjsdev/spark':
         specifier: ^2.1.0
-        version: 2.1.0(three@0.185.1)
+        version: 2.1.0(three@0.186.1)
       math:
         specifier: ^0.1.0
         version: 0.1.0
       three:
-        specifier: ^0.185.1
-        version: 0.185.1
+        specifier: ^0.186.0
+        version: 0.186.1
     devDependencies:
       '@types/three':
-        specifier: ^0.185.0
-        version: 0.185.4
+        specifier: ^0.186.0
+        version: 0.186.0
       typescript:
         specifier: ~6.0.2
         version: 6.0.3
@@ -76,14 +76,14 @@ importers:
     dependencies:
       '@sparkjsdev/spark':
         specifier: ^2.1.0
-        version: 2.1.0(three@0.185.1)
+        version: 2.1.0(three@0.186.1)
       three:
-        specifier: ^0.185.1
-        version: 0.185.1
+        specifier: ^0.186.0
+        version: 0.186.1
     devDependencies:
       '@types/three':
-        specifier: ^0.185.0
-        version: 0.185.4
+        specifier: ^0.186.0
+        version: 0.186.0
       typescript:
         specifier: ~6.0.2
         version: 6.0.3
@@ -93,16 +93,16 @@ importers:
 
   fire:
     dependencies:
-      '@sparkjsdev/spark':
-        specifier: ^2.1.0
-        version: 2.1.0(three@0.185.1)
+      spark-radix:
+        specifier: link:../spark
+        version: link:../spark
       three:
-        specifier: ^0.185.1
-        version: 0.185.1
+        specifier: ^0.186.0
+        version: 0.186.1
     devDependencies:
       '@types/three':
-        specifier: ^0.185.0
-        version: 0.185.4
+        specifier: ^0.186.0
+        version: 0.186.0
       typescript:
         specifier: ~6.0.2
         version: 6.0.3
@@ -114,14 +114,14 @@ importers:
     dependencies:
       '@sparkjsdev/spark':
         specifier: ^2.1.0
-        version: 2.1.0(three@0.185.1)
+        version: 2.1.0(three@0.186.1)
       three:
-        specifier: ^0.185.1
-        version: 0.185.1
+        specifier: ^0.186.0
+        version: 0.186.1
     devDependencies:
       '@types/three':
-        specifier: ^0.185.0
-        version: 0.185.4
+        specifier: ^0.186.0
+        version: 0.186.0
       typescript:
         specifier: ~6.0.2
         version: 6.0.3
@@ -133,14 +133,14 @@ importers:
     dependencies:
       '@sparkjsdev/spark':
         specifier: ^2.1.0
-        version: 2.1.0(three@0.185.1)
+        version: 2.1.0(three@0.186.1)
       three:
-        specifier: ^0.185.1
-        version: 0.185.1
+        specifier: ^0.186.0
+        version: 0.186.1
     devDependencies:
       '@types/three':
-        specifier: ^0.185.0
-        version: 0.185.4
+        specifier: ^0.186.0
+        version: 0.186.0
       typescript:
         specifier: ~6.0.2
         version: 6.0.3
@@ -315,7 +315,7 @@ packages:
   '@sparkjsdev/spark@2.1.0':
     resolution: {integrity: sha512-BRw+MuMzx0B3K8fDLQygt2OHEhYUV+41RX7btq9pZ3rCVrq42o57jW34VAIvC7JO/84DJh/1AutACV9ym6BfVg==}
     peerDependencies:
-      three: ^0.185.1
+      three: ^0.186.0
 
   '@tweenjs/tween.js@23.1.3':
     resolution: {integrity: sha512-vJmvvwFxYuGnF2axRtPYocag6Clbb5YS7kLL+SO/TeVFzHqDIWrNKYtcsPMibjDx9O+bu+psAy9NKfWklassUA==}
@@ -323,8 +323,8 @@ packages:
   '@types/stats.js@0.17.4':
     resolution: {integrity: sha512-jIBvWWShCvlBqBNIZt0KAshWpvSjhkwkEu4ZUcASoAvhmrgAUI2t1dXrjSL4xXVLB4FznPrIsX3nKXFl/Dt4vA==}
 
-  '@types/three@0.185.4':
-    resolution: {integrity: sha512-gAsBIC07NIFrxjbf7tH2t71c38uulFfk/RFoC7FNBSjMRAQ8J1x/RBvusX0N5PJouaYFJawXQqfCQ0RKUx/1nA==}
+  '@types/three@0.186.0':
+    resolution: {integrity: sha512-mxYSBpDC+D0pLfSP6sW4WZTcT+nrtmZcimMqnVmy36Hte3XpeYSrvgg4TRdaM1GemGog1AWzI5qL2VoIfMXbJQ==}
 
   '@types/webxr@0.5.24':
     resolution: {integrity: sha512-h8fgEd/DpoS9CBrjEQXR+dIDraopAEfu4wYVNY2tEPwk60stPWhvZMf4Foo5FakuQ7HFZoa8WceaWFervK2Ovg==}
@@ -332,7 +332,7 @@ packages:
   crashcat@0.0.5:
     resolution: {integrity: sha512-8BcoWz5sfUxUTCzFlBImHNsWei4Wso18MOHkjeZjgEGCq+SPlbYr65USCCeVsEOTq1GM6Aai/HHvmgfpKw61dQ==}
     peerDependencies:
-      three: ^0.185.1
+      three: ^0.186.0
     peerDependenciesMeta:
       three:
         optional: true
@@ -466,8 +466,8 @@ packages:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
 
-  three@0.185.1:
-    resolution: {integrity: sha512-5aojFCXKwnjBRZvUnt3WFfEcvUJgkN5LlijRFN95hMy8WVkG4I0QNcJE+OuWvuJ0bOdStrbfXn0pkd6/QyiAlg==}
+  three@0.186.1:
+    resolution: {integrity: sha512-blFeqb49wRCSGUGj7gtpfnSGHy2lwDk94RhUmS1c/hTby70kvChbWpkJ4Pm1390LqzzvTmzgXKHPEafJwCb8jA==}
 
   tinyglobby@0.2.17:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
@@ -609,16 +609,16 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
-  '@sparkjsdev/spark@2.1.0(three@0.185.1)':
+  '@sparkjsdev/spark@2.1.0(three@0.186.1)':
     dependencies:
       fflate: 0.8.3
-      three: 0.185.1
+      three: 0.186.1
 
   '@tweenjs/tween.js@23.1.3': {}
 
   '@types/stats.js@0.17.4': {}
 
-  '@types/three@0.185.4':
+  '@types/three@0.186.0':
     dependencies:
       '@dimforge/rapier3d-compat': 0.12.0
       '@tweenjs/tween.js': 23.1.3
@@ -629,11 +629,11 @@ snapshots:
 
   '@types/webxr@0.5.24': {}
 
-  crashcat@0.0.5(three@0.185.1):
+  crashcat@0.0.5(three@0.186.1):
     dependencies:
       mathcat: 0.0.13
     optionalDependencies:
-      three: 0.185.1
+      three: 0.186.1
 
   detect-libc@2.1.2: {}
 
@@ -736,7 +736,7 @@ snapshots:
 
   source-map-js@1.2.1: {}
 
-  three@0.185.1: {}
+  three@0.186.1: {}
 
   tinyglobby@0.2.17:
     dependencies:

@@ -6,20 +6,51 @@
  * and the time, with `age = fract(seed + time * rate)`. Colour and brightness follow
  * a TEMPERATURE carried along each particle's path, not its age — keyed to age, a
  * lick flung into cold air would glow as bright as one up the core.
+ *
+ * Two things make it move like a fire rather than a fountain:
+ *
+ *   puffing — a pool fire breathes at about 1.5 Hz: a gentle necking wave
+ *             spirals up the column, pinching gas in and lifting it, so tongues
+ *             swell, pinch off and rise away.
+ *   wind    — each step of a particle's path is pushed by the wind blowing at that
+ *             moment (air.ts), anchored at the bed, so a gust bends it from the top.
  */
 
-import { dyno as d } from '@sparkjsdev/spark';
-import * as THREE from 'three';
+import { type SplatObject, TSL, type TslNode } from 'spark-radix';
+import { type Air, windAt } from './air';
 import { type Fire, fireHeat } from './fire';
-import { float, literals, particles } from './glsl';
 import { FLAME_ORIGIN } from './scene';
+import { flameAlignY, flameCurl, flameHash, particles, seed, time, v3 } from './tsl';
+
+const {
+    Loop,
+    cos,
+    dot,
+    exp,
+    float,
+    fract,
+    length,
+    max,
+    min,
+    mix,
+    normalize,
+    pow,
+    select,
+    sin,
+    smoothstep,
+    sqrt,
+    uint,
+    uniform,
+    vec2,
+    vec3,
+    vec4,
+} = TSL;
 
 const COUNT = 62000;
 const GLOW_COUNT = 6000;
 const STEPS = 6;
 
-const f = literals({
-    origin: new THREE.Vector3(...FLAME_ORIGIN),
+const F = {
     baseRadius: 0.5,
     rate: 1.4,
     riseSpeed: 1.65,
@@ -39,85 +70,134 @@ const f = literals({
     glowSize: 0.1,
     glowOpacity: 0.022,
     glowSharpness: 4.0,
-    hot: new THREE.Vector3(1.0, 0.98, 0.86),
-    mid: new THREE.Vector3(1.0, 0.42, 0.06),
-    cool: new THREE.Vector3(0.42, 0.03, 0.005),
-});
+    /**
+     * Breaths per second. Fixed: the phase is time × rate, so a rate that followed
+     * the fire's heat would jump the whole flame many cycles at every crackle.
+     */
+    puffRate: 1.5,
+    /** The puff wave's length up the column, metres. */
+    puffWavelength: 0.85,
+    puffNecking: 0.4,
+    puffLift: 0.15,
+    windResponse: 0.4,
+    hot: [1.0, 0.98, 0.86],
+    mid: [1.0, 0.64, 0.24],
+    cool: [0.6, 0.2, 0.06],
+} as const;
 
-export type Flame = { object: THREE.Object3D; heat: ReturnType<typeof d.dynoFloat> };
+export type Flame = { object: SplatObject; heat: TslNode };
 
-export function initFlame(): Flame {
-    const heat = d.dynoFloat(0);
-    const object = particles({
-        count: COUNT + GLOW_COUNT,
-        uniforms: { heat },
-        body: ({ index, time, heat }, g) => /* glsl */ `
-            vec4 rand = flameHash(${index});
-            float rate = ${f.rate} * (0.7 + rand.x * 0.6);
-            float age = fract(rand.w * 7.13 + ${time} * rate);
-            float elapsed = age / rate;
+export function initFlame(air: Air): Flame {
+    const heat = uniform(0);
+    const origin = v3(FLAME_ORIGIN);
 
-            float bedAngle = rand.y * 6.2831853;
-            float bedRadius = sqrt(rand.z) * ${f.baseRadius};
-            vec3 pos = ${f.origin} + vec3(cos(bedAngle), 0.0, sin(bedAngle)) * bedRadius;
+    const object = particles(COUNT + GLOW_COUNT, (index) => {
+        const rand = flameHash(seed(index)).toVar();
+        const rate = rand.x.mul(0.6).add(0.7).mul(F.rate).toVar();
+        const age = fract(rand.w.mul(7.13).add(time.mul(rate))).toVar();
+        const elapsed = age.div(rate).toVar();
 
-            float bedNoise = (sin(dot(pos.xz, vec2(19.0, 13.0)) + ${time} * 0.8)
-                            + 0.7 * sin(dot(pos.xz, vec2(-11.0, 27.0)) + ${time} * 0.55 + 2.1)
-                            + 0.5 * sin(dot(pos.xz, vec2(33.0, -21.0)) - ${time} * 1.1 + 4.3)) / 2.2;
-            float patchAlight = smoothstep(-0.5, 0.5, bedNoise + 1.3 * (${heat} - 0.45));
-            float footprint = 0.75 + 0.35 * sin(bedAngle * 3.0 + ${time} * 0.25) + 0.2 * sin(bedAngle * 5.0 - ${time} * 0.17 + 1.3);
-            float edgeFalloff = 1.0 - 0.4 * min(bedRadius / (${f.baseRadius} * footprint), 1.0);
-            float fuel = (1.0 - ${f.unevenness} * (1.0 - patchAlight)) * edgeFalloff;
-            float temp = fuel * 0.35;
+        const bedAngle = rand.y.mul(Math.PI * 2).toVar();
+        const bedRadius = sqrt(rand.z).mul(F.baseRadius).toVar();
+        const pos = origin.add(vec3(cos(bedAngle), 0, sin(bedAngle)).mul(bedRadius)).toVar();
 
-            vec3 vel = vec3(0.0);
-            float dt = elapsed / ${float(STEPS)};
-            for (int step = 0; step < ${STEPS}; step++) {
-                float lifeFraction = (float(step) + 0.5) / ${float(STEPS)} * age;
-                float stepTime = ${time} - elapsed + lifeFraction / rate;
-                vec2 fromAxis = pos.xz - ${f.origin}.xz;
-                float axisDist = length(fromAxis);
+        const bedNoise = sin(dot(pos.xz, vec2(19, 13)).add(time.mul(0.8)))
+            .add(sin(dot(pos.xz, vec2(-11, 27)).add(time.mul(0.55)).add(2.1)).mul(0.7))
+            .add(sin(dot(pos.xz, vec2(33, -21)).sub(time.mul(1.1)).add(4.3)).mul(0.5))
+            .div(2.2);
+        const patchAlight = smoothstep(-0.5, 0.5, bedNoise.add(heat.sub(0.45).mul(1.3)));
+        const footprint = sin(bedAngle.mul(3).add(time.mul(0.25)))
+            .mul(0.35)
+            .add(0.75)
+            .add(sin(bedAngle.mul(5).sub(time.mul(0.17)).add(1.3)).mul(0.2));
+        const edgeFalloff = min(bedRadius.div(footprint.mul(F.baseRadius)), 1)
+            .mul(0.4)
+            .oneMinus();
+        const fuel = patchAlight.oneMinus().mul(F.unevenness).oneMinus().mul(edgeFalloff).toVar();
+        const temp = fuel.mul(0.35).toVar();
 
-                vec3 fieldPos = pos * ${f.curlScale} - vec3(0.0, stepTime * ${f.curlScroll}, 0.0);
-                float coolGasWanders = 1.35 - 0.45 * temp;
-                vec3 curl = flameCurl(fieldPos, stepTime * ${f.curlEvolve})
-                          * ${f.turbulence} * (0.56 + 0.9 * lifeFraction) * coolGasWanders;
+        const vel = vec3(0).toVar();
+        const dt = elapsed.div(STEPS).toVar();
+        Loop(STEPS, ({ i }: { i: TslNode }) => {
+            const lifeFraction = float(i).add(0.5).div(STEPS).mul(age).toVar();
+            const stepTime = time.sub(elapsed).add(lifeFraction.div(rate)).toVar();
+            const fromAxis = pos.xz.sub(origin.xz).toVar();
+            const axisDist = length(fromAxis).toVar();
 
-                float stillBurning = 1.0 - smoothstep(0.0, ${f.burnTime}, lifeFraction);
-                temp += ${f.burnRate} * fuel * stillBurning * dt;
-                float edgeExposure = min(axisDist / ${f.baseRadius}, 1.6);
-                float shear = length(curl) / ${f.turbulence};
-                float airMixing = ${f.mixing} * (0.3 + 1.2 * edgeExposure + 0.8 * shear) * (0.3 + 1.6 * lifeFraction);
-                temp = min(temp * exp(-airMixing * dt), 1.0);
+            const fieldPos = pos.mul(F.curlScale).sub(vec3(0, stepTime.mul(F.curlScroll), 0));
+            const coolGasWanders = temp.mul(-0.45).add(1.35);
+            const curl = flameCurl(fieldPos, stepTime.mul(F.curlEvolve))
+                .mul(lifeFraction.mul(0.9).add(0.56).mul(coolGasWanders).mul(F.turbulence))
+                .toVar();
 
-                vec2 draft = -fromAxis / max(axisDist, 1e-4)
-                           * ${f.inflow} * (1.0 - 0.7 * lifeFraction) * min(axisDist / ${f.baseRadius}, 1.5);
-                float buoyancy = ${f.riseSpeed} * temp;
-                vel = vec3(draft.x, buoyancy, draft.y) + curl;
-                pos += vel * dt;
-            }
+            // The puff: a wave travelling up, a turn out of phase around the bed, so
+            // tongues spiral up rather than the whole flame pulsing as one.
+            const height = pos.y.sub(origin.y);
+            const neck = sin(
+                stepTime
+                    .mul(F.puffRate)
+                    .sub(height.div(F.puffWavelength))
+                    .mul(Math.PI * 2)
+                    .add(bedAngle),
+            ).toVar();
 
-            vec3 col = temp > 0.5 ? mix(${f.mid}, ${f.hot}, temp * 2.0 - 1.0) : mix(${f.cool}, ${f.mid}, temp * 2.0);
-            float heatBoost = 0.55 + 0.6 * ${heat};
+            const stillBurning = smoothstep(0, F.burnTime, lifeFraction).oneMinus();
+            temp.addAssign(fuel.mul(stillBurning).mul(dt).mul(F.burnRate));
+            const edgeExposure = min(axisDist.div(F.baseRadius), 1.6);
+            const shear = length(curl).div(F.turbulence);
+            const airMixing = edgeExposure
+                .mul(1.2)
+                .add(0.3)
+                .add(shear.mul(0.8))
+                .mul(lifeFraction.mul(1.6).add(0.3))
+                .mul(F.mixing);
+            temp.assign(min(temp.mul(exp(airMixing.mul(dt).negate())), 1));
 
-            ${g}.center = pos;
-            ${g}.flags = GSPLAT_FLAG_ACTIVE;
-            ${g}.index = ${index};
-            if (${index} >= ${COUNT}) {
-                float fade = smoothstep(0.0, 0.1, age) * (1.0 - smoothstep(0.55, 1.0, age));
-                ${g}.scales = vec3(${f.glowSize} * (0.7 + rand.x * 0.6));
-                ${g}.quaternion = vec4(0.0, 0.0, 0.0, 1.0);
-                ${g}.rgba = vec4(col, pow(max(temp, 0.0), ${f.glowSharpness}) * ${f.glowOpacity} * heatBoost * fade);
-            } else {
-                float fade = smoothstep(0.0, 0.06, age) * (1.0 - smoothstep(0.7, 1.0, age));
-                float swell = pow(sin(age * 3.14159), 0.55 + rand.y * 1.1);
-                float scale = ${f.size} * swell * (0.6 + rand.x * 0.7) * (0.7 + 0.5 * ${heat});
-                ${g}.scales = vec3(scale, scale * ${f.stretch}, scale);
-                ${g}.quaternion = flameAlignY(normalize(vel + vec3(0.0, 1e-4, 0.0)));
-                ${g}.rgba = vec4(col, pow(max(temp, 0.0), ${f.glowFalloff}) * ${f.opacity} * heatBoost * fade);
-            }
-        `,
+            const draft = fromAxis
+                .negate()
+                .div(max(axisDist, 1e-4))
+                .mul(
+                    lifeFraction
+                        .mul(0.7)
+                        .oneMinus()
+                        .mul(min(axisDist.div(F.baseRadius), 1.5))
+                        .mul(F.inflow),
+                )
+                .mul(neck.mul(F.puffNecking).add(1));
+            const buoyancy = temp.mul(F.riseSpeed).mul(neck.mul(F.puffLift).add(1));
+            const wind = windAt(air, elapsed.sub(lifeFraction.div(rate))).mul(lifeFraction.mul(1.1).add(0.1).mul(F.windResponse));
+            vel.assign(vec3(draft.x, buoyancy, draft.y).add(curl).add(wind));
+            pos.addAssign(vel.mul(dt));
+        });
+
+        const rgb = select(
+            temp.greaterThan(0.5),
+            mix(v3(F.mid), v3(F.hot), temp.mul(2).sub(1)),
+            mix(v3(F.cool), v3(F.mid), temp.mul(2)),
+        );
+        const heatBoost = heat.mul(0.6).add(0.55);
+        const hotness = max(temp, 0);
+
+        // The last GLOW_COUNT are a few wide, faint splats that haze the flame's body.
+        const isGlow = index.greaterThanEqual(uint(COUNT));
+        const glowFade = smoothstep(0, 0.1, age).mul(smoothstep(0.55, 1, age).oneMinus());
+        const glowScale = rand.x.mul(0.6).add(0.7).mul(F.glowSize);
+        const glowOpacity = pow(hotness, F.glowSharpness).mul(heatBoost).mul(glowFade).mul(F.glowOpacity);
+
+        const fade = smoothstep(0, 0.06, age).mul(smoothstep(0.7, 1, age).oneMinus());
+        const swell = pow(sin(age.mul(Math.PI)), rand.y.mul(1.1).add(0.55));
+        const scale = swell.mul(rand.x.mul(0.7).add(0.6)).mul(heat.mul(0.5).add(0.7)).mul(F.size).toVar();
+        const tongueOpacity = pow(hotness, F.glowFalloff).mul(heatBoost).mul(fade).mul(F.opacity);
+
+        return {
+            center: pos,
+            scales: select(isGlow, vec3(glowScale), vec3(scale, scale.mul(F.stretch), scale)),
+            quaternion: select(isGlow, vec4(0, 0, 0, 1), flameAlignY(normalize(vel.add(vec3(0, 1e-4, 0))))),
+            rgb,
+            opacity: select(isGlow, glowOpacity, tongueOpacity),
+        };
     });
+
     return { object, heat };
 }
 

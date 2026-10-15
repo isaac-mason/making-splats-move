@@ -2,62 +2,74 @@
  * A campfire in a captured clearing: a procedural flame, smoke, embers and
  * fireflies, all splats generated on the GPU, sorted in with the scene's own. The
  * fire lights the clearing and shimmers the air above it, and a tap stokes it.
+ *
+ * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
+ * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`).
  */
 
-import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
+import {
+    type AnySplatObject,
+    createRenderer,
+    GpuArrays,
+    loadSplats,
+    SplatCollection,
+    SplatGenerator,
+    SplatRenderer,
+} from 'spark-radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { initAir, updateAir } from './air';
 import { createCameraDrift } from './camera-drift';
+import { initCoals, updateCoals } from './coals';
 import { attachDebugRaycast, createDebugOverlay, updateDebugOverlay } from './debug';
-import { initEmbers, updateEmbers } from './embers';
+import { initEmbers } from './embers';
 import { initFire, stokeFire, updateFire } from './fire';
 import { initFireflies } from './fireflies';
 import { initFlame, updateFlame } from './flame';
 import { initHeat, updateHeat } from './heat';
 import { attachInteraction } from './interaction';
-import { initLighting, updateLighting } from './lighting';
+import { initLighting, NIGHT_BRIGHTNESS, updateLighting } from './lighting';
 import { applyPerformance, initPerformance } from './performance';
+import { BLOOM_STRENGTH, initPost } from './post';
+import { createSplatPicker, type SplatPicker } from './raycast';
 import { CAMERA_POSITION, CAMERA_TARGET, SPLAT_URL } from './scene';
 import { initSmoke, updateSmoke } from './smoke';
+import { time } from './tsl';
 import './style.css';
 
-/** Lift the loader once this share of the splats is on screen, or after this long regardless. */
-const SPLAT_READY_FRACTION = 0.8;
-const SPLAT_WAIT_TIMEOUT_MS = 10000;
 /** So a stall or a tab switch can't jump the animation forward. */
 const MAX_DT = 0.1;
 
-function init() {
+async function init() {
     const scene = new THREE.Scene();
 
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(...CAMERA_POSITION);
 
-    // MSAA doesn't help splats, and costs.
-    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    // WebGPU, or the WebGL2 backend where it's missing. MSAA doesn't help splats.
+    const renderer = await createRenderer({ antialias: false });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
     (document.querySelector<HTMLDivElement>('#app') ?? document.body).appendChild(renderer.domElement);
 
-    const spark = new SparkRenderer({
-        renderer,
-        coneFov0: 120,
-        coneFov: 160,
-        coneFoveate: 0.5,
-        minAlpha: 0.15 / 255,
-    });
-    // SparkRenderer is itself a quad mesh at the origin, so a debug raycast would
-    // report hits on a plane at z=0 instead of on the scene.
-    spark.raycast = () => {};
-    scene.add(spark);
+    // Decoded on a worker.
+    const data = await loadSplats(SPLAT_URL);
+    const arrays = GpuArrays.fromData(renderer, data);
 
-    // `.rad` gives LOD either way; `paged` STREAMS it, for an instant start and the
-    // paging budget. Pages come by HTTP range request, so the host must support them.
-    const splat = new SplatMesh({ url: SPLAT_URL, paged: true });
-    scene.add(splat);
-
+    // The lighting and the heat shimmer are modifiers on the capture's own
+    // generator, not the renderer's, so the fire's particles are left alone. The
+    // capture sits at the origin, so its object space is world space.
     const heat = initHeat();
-    splat.worldModifier = heat.modifier;
+    const lighting = initLighting();
+    const capture = SplatCollection.object({
+        generator: SplatGenerator.fromSplats({ modifiers: [lighting.modifier, heat.modifier] }),
+        data: { splats: arrays },
+        count: arrays.count,
+    });
+
+    const splats = new SplatRenderer({ renderer, params: { minAlpha: 0.15 / 255 } });
+    // A mesh to three, but there's nothing to hit: debug clicks go through the picker.
+    splats.raycast = () => {};
+    scene.add(splats);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     // The shot is the fixed framing plus the parallax lean; free-look is a measuring
@@ -70,30 +82,40 @@ function init() {
     const drift = createCameraDrift(camera, controls, renderer.domElement);
     const perf = initPerformance();
 
-    const debug = createDebugOverlay(perf, {
-        onOrbitChange: (orbit) => {
-            controls.enabled = orbit;
-            if (orbit) return;
-            // Back to the presentation shot. Clear the lean first, or the offset it
-            // holds stays baked into the position set out from under it.
-            drift.clear();
-            camera.position.set(...CAMERA_POSITION);
-            controls.target.set(...CAMERA_TARGET);
+    const debug = createDebugOverlay(
+        perf,
+        { night: NIGHT_BRIGHTNESS, bloom: BLOOM_STRENGTH },
+        {
+            onOrbitChange: (orbit) => {
+                controls.enabled = orbit;
+                if (orbit) return;
+                // Back to the presentation shot. Clear the lean first, or the offset it
+                // holds stays baked into the position set out from under it.
+                drift.clear();
+                camera.position.set(...CAMERA_POSITION);
+                controls.target.set(...CAMERA_TARGET);
+            },
         },
-    });
+    );
     scene.add(debug.raycastMarker);
-    attachDebugRaycast(debug, camera, scene, renderer.domElement);
+
+    // Built on the first measuring click: it keeps a copy of every centre.
+    let picker: SplatPicker | null = null;
+    const pick = (ray: THREE.Ray) => {
+        picker ??= createSplatPicker(data);
+        return picker.intersect(ray);
+    };
+    attachDebugRaycast(debug, camera, pick, renderer.domElement);
 
     const fire = initFire();
+    scene.add(lighting.coreHelper, lighting.ambientHelper, lighting.pointLight);
 
-    const lighting = initLighting();
-    scene.add(lighting.coreLayer, lighting.coreHelper, lighting.ambientLayer, lighting.ambientHelper, lighting.pointLight);
-
-    const flame = initFlame();
-    const smoke = initSmoke(fire);
-    const embers = initEmbers();
+    const air = initAir(fire);
+    const flame = initFlame(air);
+    const coals = initCoals();
+    const smoke = initSmoke(air);
+    const embers = initEmbers(air);
     const fireflies = initFireflies();
-    scene.add(flame.object, smoke.object, embers.object, fireflies.object);
 
     // While the debug panel is open, clicks raycast instead.
     attachInteraction(renderer.domElement, {
@@ -111,15 +133,20 @@ function init() {
         scene,
         camera,
         renderer,
-        spark,
-        splat,
+        post: initPost(renderer, scene, camera),
+        splats,
+        capture,
+        /** Which layers the collection was last built from. */
+        shown: '',
         controls,
         drift,
         debug,
         perf,
         lighting,
         heat,
+        air,
         flame,
+        coals,
         smoke,
         embers,
         fireflies,
@@ -127,34 +154,64 @@ function init() {
     };
 }
 
-type State = ReturnType<typeof init>;
+type State = Awaited<ReturnType<typeof init>>;
 
-function update(state: State, time: number, dt: number) {
+/**
+ * The renderer draws an immutable collection, so hiding a layer means a new one.
+ * Only when the toggles change: making one compiles nothing, but it's no per-frame job.
+ */
+function syncCollection(state: State) {
+    const { debug } = state;
+    const layers: [boolean, AnySplatObject][] = [
+        [true, state.capture],
+        [debug.fireEnabled, state.coals.object],
+        [debug.fireEnabled, state.flame.object],
+        [debug.smokeEnabled, state.smoke.object],
+        [debug.embersEnabled, state.embers.object],
+        [debug.firefliesEnabled, state.fireflies.object],
+    ];
+    const shown = layers.map(([on]) => (on ? 1 : 0)).join('');
+    if (shown === state.shown) return;
+    state.shown = shown;
+    state.splats.collection = new SplatCollection(layers.filter(([on]) => on).map(([, object]) => object));
+}
+
+function update(state: State, elapsed: number, dt: number) {
     const { debug, fire, lighting } = state;
 
     // First, so every system reads this frame's heat.
     fire.override = debug.heatOverride;
     updateFire(fire, dt);
+    time.value = elapsed;
+    updateAir(state.air, fire, elapsed, dt);
 
-    // Spark only gathers visible generators and edits, so hiding one takes it out entirely.
-    state.flame.object.visible = debug.fireEnabled;
-    state.embers.object.visible = debug.embersEnabled;
-    state.smoke.object.visible = debug.smokeEnabled;
-    state.fireflies.object.visible = debug.firefliesEnabled;
-    lighting.coreLayer.visible = debug.lightingEnabled;
-    lighting.ambientLayer.visible = debug.lightingEnabled;
-    lighting.pointLight.visible = debug.lightingEnabled;
-
+    syncCollection(state);
     updateFlame(state.flame, fire);
-    updateSmoke(state.smoke, fire, dt);
-    updateEmbers(state.embers, fire);
+    updateCoals(state.coals, fire);
+    updateSmoke(state.smoke, fire);
     // In place of controls.update(). The lean stands down while free-look is on.
     state.drift.apply(dt, !debug.orbit);
-    updateLighting(lighting, fire, time, debug.showLights);
+    updateLighting(
+        lighting,
+        fire,
+        elapsed,
+        {
+            enabled: debug.lightingEnabled,
+            showHelpers: debug.showLights,
+            night: debug.night,
+        },
+        state.air.wind,
+        state.camera,
+    );
     updateHeat(state.heat, fire);
-    applyPerformance(state.perf, state.spark);
-    updateDebugOverlay(debug, state.camera, state.controls, fire, state.spark);
-    state.renderer.render(state.scene, state.camera);
+    applyPerformance(state.perf, state.renderer);
+    updateDebugOverlay(debug, state.camera, state.controls, fire, state.splats.collection.count, state.perf);
+
+    // The GPU sort sees the particles move every frame. The WebGL2 backend's CPU
+    // sort doesn't, so ask it each frame: everything here moves all the time.
+    if (state.splats.sortMode === 'cpu') state.splats.requestSort();
+    state.post.strength.value = debug.bloom;
+    state.post.pipeline.render();
 }
 
 function hideLoading() {
@@ -165,37 +222,22 @@ function hideLoading() {
 }
 
 async function start() {
-    const state = init();
-    await state.splat.initialized;
+    const state = await init();
 
     let lastTime = performance.now();
     let elapsed = 0;
-    let loaderUp = true;
-    const startedAt = performance.now();
+    let frames = 0;
 
-    function loop() {
+    state.renderer.setAnimationLoop(() => {
         const now = performance.now();
         const dt = Math.min((now - lastTime) / 1000, MAX_DT);
         lastTime = now;
         elapsed += dt;
         update(state, elapsed, dt);
 
-        // Decoded isn't on screen: splats appear as Spark sorts them and streams LOD
-        // pages in, which the render loop drives. So the loader stays up, with the
-        // loop running, until enough of them are active.
-        if (loaderUp) {
-            const active = state.spark.activeSplats;
-            const total = state.splat.numSplats;
-            const ready = total > 0 && active >= total * SPLAT_READY_FRACTION;
-            if (ready || now - startedAt >= SPLAT_WAIT_TIMEOUT_MS) {
-                loaderUp = false;
-                console.log(`splats ready: ${active}/${total} active${ready ? '' : ' (timed out)'}`);
-                hideLoading();
-            }
-        }
-        requestAnimationFrame(loop);
-    }
-    requestAnimationFrame(loop);
+        // A few frames in, past the first frame's shader compiles.
+        if (++frames === 3) hideLoading();
+    });
 }
 
 start();

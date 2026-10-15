@@ -1,19 +1,20 @@
 /**
  * Runtime quality settings, tweaked live from the debug panel and pushed onto the
- * renderer each frame. New perf knobs (pixel ratio, foveation, …) belong here.
+ * renderer each frame. New perf knobs belong here.
  */
 
-import type { SparkRenderer } from '@sparkjsdev/spark';
+import type { WebGPURenderer } from 'three/webgpu';
 
 export type Performance = {
-    /** Multiplier on Spark's LOD splat budget (1 = its platform default). */
-    lodScale: number;
+    /** Multiplier on the device pixel ratio: below 1 renders fewer pixels and upscales. */
+    renderScale: number;
 };
 
 export function initPerformance(): Performance {
-    return { lodScale: 0.8 };
+    return { renderScale: 1 };
 }
 
-export function applyPerformance(perf: Performance, spark: SparkRenderer): void {
-    spark.lodSplatScale = perf.lodScale;
+export function applyPerformance(perf: Performance, renderer: WebGPURenderer): void {
+    const ratio = window.devicePixelRatio * perf.renderScale;
+    if (renderer.getPixelRatio() !== ratio) renderer.setPixelRatio(ratio);
 }

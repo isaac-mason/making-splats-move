@@ -1,10 +1,9 @@
 /**
  * The debug panel (backtick): camera readouts, layer toggles, a heat override and
- * the LOD budget. While it's open, a click raycasts the scene instead of stoking
+ * the render scale. While it's open, a click raycasts the scene instead of stoking
  * the fire — that's how the landmarks in scene.ts were measured.
  */
 
-import type { SparkRenderer } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Fire } from './fire';
@@ -23,6 +22,10 @@ export type DebugOverlay = {
     lightingEnabled: boolean;
     /** Free-look, for measuring. The shipped camera is the fixed shot plus the lean. */
     orbit: boolean;
+    /** How bright the world beyond the firelight stays, 0..1. */
+    night: number;
+    /** Bloom strength. */
+    bloom: number;
     /** Pins the fire's heat, 0..1; null = live. */
     heatOverride: number | null;
     raycaster: THREE.Raycaster;
@@ -46,7 +49,11 @@ export type DebugOptions = {
     onOrbitChange?: (orbit: boolean) => void;
 };
 
-export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOptions = {}): DebugOverlay {
+export function createDebugOverlay(
+    perf: Performance,
+    { night, bloom }: { night: number; bloom: number },
+    { onOrbitChange }: DebugOptions = {},
+): DebugOverlay {
     const element = document.createElement('div');
     element.style.cssText = [
         'position:fixed',
@@ -83,6 +90,8 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
         firefliesEnabled: true,
         lightingEnabled: true,
         orbit: false,
+        night,
+        bloom,
         heatOverride: null,
         raycaster: new THREE.Raycaster(),
         raycastMarker,
@@ -99,7 +108,9 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
         checkbox('lights debug', false, (on) => (overlay.showLights = on)),
         ...LAYERS.map(([label, key]) => checkbox(label, true, (on) => (overlay[key] = on))),
         heatSlider((value) => (overlay.heatOverride = value)),
-        range('lod scale', { min: 0.2, max: 2, step: 0.05, value: perf.lodScale }, (value) => (perf.lodScale = value)),
+        range('night', { min: 0, max: 1, step: 0.05, value: night }, (value) => (overlay.night = value)),
+        range('bloom', { min: 0, max: 2, step: 0.05, value: bloom }, (value) => (overlay.bloom = value)),
+        range('render scale', { min: 0.25, max: 1, step: 0.05, value: perf.renderScale }, (value) => (perf.renderScale = value)),
         overlay.text,
     );
     document.body.appendChild(element);
@@ -114,11 +125,14 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
     return overlay;
 }
 
-/** While the panel is open, a click moves the marker to whatever it hits. */
+/**
+ * While the panel is open, a click moves the marker to whatever it hits. `pick`
+ * returns the distance along the ray to the nearest hit, or null.
+ */
 export function attachDebugRaycast(
     overlay: DebugOverlay,
     camera: THREE.Camera,
-    scene: THREE.Scene,
+    pick: (ray: THREE.Ray) => number | null,
     domElement: HTMLElement,
 ): void {
     const ndc = new THREE.Vector2();
@@ -131,11 +145,12 @@ export function attachDebugRaycast(
         ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
         overlay.raycaster.setFromCamera(ndc, camera);
-        const hit = overlay.raycaster.intersectObjects(scene.children, true)[0];
-        if (!hit) return;
+        const { ray } = overlay.raycaster;
+        const t = pick(ray);
+        if (t === null) return;
 
-        overlay.lastHit = hit.point.clone();
-        overlay.raycastMarker.position.copy(hit.point);
+        overlay.lastHit = ray.at(t, new THREE.Vector3());
+        overlay.raycastMarker.position.copy(overlay.lastHit);
         overlay.raycastMarker.visible = true;
     });
 }
@@ -145,7 +160,8 @@ export function updateDebugOverlay(
     camera: THREE.PerspectiveCamera,
     controls: OrbitControls,
     fire: Fire,
-    spark: SparkRenderer,
+    splatCount: number,
+    perf: Performance,
 ): void {
     if (!overlay.enabled) return;
 
@@ -157,7 +173,7 @@ export function updateDebugOverlay(
         `target  ${xyz(controls.target)}\n` +
         `hit     ${h ? xyz(h) : '-'}\n` +
         `fire    int ${fire.intensity.toFixed(2)}  pulse ${fire.pulse.toFixed(2)}\n` +
-        `splats  ${spark.activeSplats.toLocaleString()} / ${spark.maxSplats.toLocaleString()}  (lod x${spark.lodSplatScale.toFixed(2)})`;
+        `splats  ${splatCount.toLocaleString()}  (render x${perf.renderScale.toFixed(2)})`;
 }
 
 /* controls */

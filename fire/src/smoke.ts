@@ -3,28 +3,33 @@
  * puff lives ten seconds or more, rising, spreading and thinning to nothing.
  *
  * Heat is DELAYED: each puff reads the fire's heat as it was at its own birth, from
- * a short history, so a stoke travels up the column as a gout instead of the whole
+ * the air's history (air.ts), so a stoke travels up the column as a gout instead of the whole
  * column lurching at once.
  *
- * Colour is written straight, not premultiplied: Spark premultiplies in its own
- * shader, and doing it here too leaves the puffs a near-black filter.
+ * Two things give it shape:
+ *
+ *   break-up — it rises clean and narrow at first, then past a wavering height the
+ *              turbulence takes over and it shreds and spreads, as real smoke does.
+ *   density  — puffs from the middle of the bed make the column's dense core: they
+ *              are darker and shade the firelight for the smoke above them, while
+ *              thin edge puffs stay pale and catch the light.
+ *
+ * Colour is written straight, not premultiplied: the draw premultiplies, and doing
+ * it here too leaves the puffs a near-black filter.
  */
 
-import { dyno as d } from '@sparkjsdev/spark';
-import * as THREE from 'three';
+import { type SplatObject, TSL, type TslNode } from 'spark-radix';
+import { type Air, heatAt, windAt } from './air';
 import { type Fire, fireHeat } from './fire';
-import { float, literals, particles } from './glsl';
 import { FLAME_ORIGIN } from './scene';
+import { flameCurl, flameHash, particles, seed, time, v3 } from './tsl';
+
+const { Loop, clamp, cos, exp, float, fract, length, max, mix, pow, sin, smoothstep, sqrt, uniform, vec3 } = TSL;
 
 const COUNT = 4500;
 const STEPS = 24;
 
-const HISTORY_SECONDS = 20;
-const HISTORY_SAMPLES = 128;
-const HISTORY_STEP = HISTORY_SECONDS / HISTORY_SAMPLES;
-
-const s = literals({
-    origin: new THREE.Vector3(...FLAME_ORIGIN),
+const S = {
     baseRadius: 0.16,
     liftOff: 0.55,
     rate: 0.085,
@@ -33,96 +38,112 @@ const s = literals({
     terminalRise: 0.1,
     spread: 0.13,
     turbulence: 0.25,
+    /** Metres above the fire where the column breaks up, and how far that wavers. */
+    breakHeight: 1.3,
+    breakWaver: 0.3,
+    /** Turbulence below the break and after it, as multiples of `turbulence`. */
+    laminar: 0.12,
+    shredded: 2.2,
+    /** How hard the dense core shades the light from below. */
+    selfShadow: 2.5,
     curlScale: 0.7,
     curlScroll: 0.12,
-    wind: new THREE.Vector3(0.22, 0, -0.1),
+    wind: [0.22, 0, -0.1],
     gust: 0.55,
     startSize: 0.05,
     endSize: 0.5,
-    opacity: 0.02,
-    warm: new THREE.Color(0.16, 0.15, 0.17),
-    cool: new THREE.Color(0.1, 0.11, 0.15),
-});
+    opacity: 0.028,
+    /** Thin, pale edges and the dark, dense core; drifting cooler and bluer with age. */
+    edge: [0.2, 0.19, 0.21],
+    core: [0.07, 0.07, 0.08],
+    cool: [0.1, 0.11, 0.15],
+    /** The flame's light on the smoke's underside, and how quickly it fades with height. */
+    firelit: [1.0, 0.6, 0.3],
+    firelitHeight: 0.6,
+} as const;
 
-const SMOKE_GLSL = /* glsl */ `
-    float smokeHeatAt(sampler2D history, float secondsAgo) {
-        float u = (secondsAgo / ${HISTORY_STEP.toFixed(6)} + 0.5) / ${float(HISTORY_SAMPLES)};
-        return texture(history, vec2(clamp(u, 0.0, 1.0), 0.5)).r;
-    }
-`;
+export type Smoke = { object: SplatObject; heat: TslNode };
 
-export type Smoke = {
-    object: THREE.Object3D;
-    history: Uint8Array;
-    historyTex: THREE.DataTexture;
-    sinceSample: number;
-};
+export function initSmoke(air: Air): Smoke {
+    const origin = v3(FLAME_ORIGIN);
+    const heat = uniform(0);
 
-export function initSmoke(fire: Fire): Smoke {
-    const history = new Uint8Array(HISTORY_SAMPLES).fill(Math.round(fireHeat(fire) * 255));
-    const historyTex = new THREE.DataTexture(history, HISTORY_SAMPLES, 1, THREE.RedFormat, THREE.UnsignedByteType);
-    historyTex.minFilter = THREE.LinearFilter;
-    historyTex.magFilter = THREE.LinearFilter;
-    historyTex.needsUpdate = true;
+    const object = particles(COUNT, (index) => {
+        const rand = flameHash(seed(index, 3, 7)).toVar();
+        const rand2 = flameHash(seed(index, 3, 8)).toVar();
+        const rate = rand.x.mul(0.6).add(0.7).mul(S.rate).toVar();
+        const age = fract(rand.w.mul(5.37).add(time.mul(rate))).toVar();
+        const elapsed = age.div(rate).toVar();
+        const heatAtBirth = heatAt(air, elapsed).toVar();
 
-    const object = particles({
-        count: COUNT,
-        uniforms: { history: d.dynoSampler2D(historyTex) },
-        globals: [SMOKE_GLSL],
-        body: ({ index, time, history }, g) => /* glsl */ `
-            vec4 rand = flameHash(${index} * 3 + 7);
-            vec4 rand2 = flameHash(${index} * 3 + 8);
-            float rate = ${s.rate} * (0.7 + rand.x * 0.6);
-            float age = fract(rand.w * 5.37 + ${time} * rate);
-            float elapsed = age / rate;
-            float heatAtBirth = smokeHeatAt(${history}, elapsed);
+        const bedAngle = rand.y.mul(Math.PI * 2);
+        const bedRadius = sqrt(rand.z).mul(S.baseRadius);
+        const handoverHeight = rand2.x.mul(0.8).add(0.6).mul(S.liftOff);
+        const pos = origin.add(vec3(cos(bedAngle).mul(bedRadius), handoverHeight, sin(bedAngle).mul(bedRadius))).toVar();
 
-            float bedAngle = rand.y * 6.2831853;
-            float bedRadius = sqrt(rand.z) * ${s.baseRadius};
-            float handoverHeight = ${s.liftOff} * (0.6 + 0.8 * rand2.x);
-            vec3 pos = ${s.origin} + vec3(cos(bedAngle) * bedRadius, handoverHeight, sin(bedAngle) * bedRadius);
+        // Where the column breaks: one height for everyone, wavering slowly.
+        const breakHeight = sin(time.mul(0.23)).mul(S.breakWaver).add(S.breakHeight).toVar();
+        const shredAt = (height: TslNode) => smoothstep(breakHeight.mul(0.75), breakHeight.mul(1.5), height);
 
-            float dt = elapsed / ${float(STEPS)};
-            for (int step = 0; step < ${STEPS}; step++) {
-                float secondsOld = (float(step) + 0.5) * dt;
-                float heightAboveFire = clamp((pos.y - ${s.origin}.y) / 5.0, 0.0, 1.0);
+        const dt = elapsed.div(STEPS).toVar();
+        Loop(STEPS, ({ i }: { i: TslNode }) => {
+            const secondsOld = float(i).add(0.5).mul(dt);
+            const heightAboveFire = clamp(pos.y.sub(origin.y).div(5), 0, 1).toVar();
+            const shred = shredAt(pos.y.sub(origin.y)).toVar();
 
-                float rise = ${s.riseSpeed} * (0.5 + 0.9 * heatAtBirth) * exp(-secondsOld / ${s.coolTime}) + ${s.terminalRise};
+            const rise = heatAtBirth
+                .mul(0.9)
+                .add(0.5)
+                .mul(exp(secondsOld.negate().div(S.coolTime)))
+                .mul(S.riseSpeed)
+                .add(S.terminalRise)
+                .toVar();
 
-                vec2 fromAxis = pos.xz - ${s.origin}.xz;
-                vec2 outward = fromAxis / max(length(fromAxis), 1e-4);
-                vec2 spread = outward * ${s.spread} * (rise + 0.4);
+            const fromAxis = pos.xz.sub(origin.xz);
+            const outward = fromAxis.div(max(length(fromAxis), 1e-4));
+            const spread = outward.mul(rise.add(0.4).mul(shred.mul(1.5).add(0.5)).mul(S.spread));
 
-                vec3 fieldPos = pos * ${s.curlScale} - vec3(0.0, ${time} * ${s.curlScroll}, 0.0);
-                vec3 curl = flameCurl(fieldPos, ${time} * 0.12) * ${s.turbulence} * (0.2 + 1.4 * heightAboveFire);
+            const fieldPos = pos.mul(S.curlScale).sub(vec3(0, time.mul(S.curlScroll), 0));
+            const curl = flameCurl(fieldPos, time.mul(0.12)).mul(mix(S.laminar, S.shredded, shred).mul(S.turbulence));
 
-                float gustTravellingUp = 1.0 + ${s.gust} * (0.6 * sin(${time} * 0.21 + pos.y * 0.45) + 0.4 * sin(${time} * 0.37 + 1.7));
-                vec3 breeze = ${s.wind} * (0.1 + 1.2 * heightAboveFire) * gustTravellingUp;
+            const gustTravellingUp = sin(time.mul(0.21).add(pos.y.mul(0.45)))
+                .mul(0.6)
+                .add(sin(time.mul(0.37).add(1.7)).mul(0.4))
+                .mul(S.gust)
+                .add(1);
+            const breeze = v3(S.wind)
+                .mul(gustTravellingUp)
+                .add(windAt(air, elapsed.sub(secondsOld)))
+                .mul(heightAboveFire.mul(1.2).add(0.1));
 
-                pos += (vec3(spread.x, rise, spread.y) + curl + breeze) * dt;
-            }
+            pos.addAssign(vec3(spread.x, rise, spread.y).add(curl).add(breeze).mul(dt));
+        });
 
-            float fade = smoothstep(0.0, 0.1, age) * pow(max(1.0 - age, 0.0), 2.2);
+        const fade = smoothstep(0, 0.1, age).mul(pow(max(age.oneMinus(), 0), 2.2));
 
-            ${g}.center = pos;
-            ${g}.flags = GSPLAT_FLAG_ACTIVE;
-            ${g}.scales = vec3(mix(${s.startSize}, ${s.endSize}, pow(age, 0.7)));
-            ${g}.index = ${index};
-            ${g}.quaternion = vec4(0.0, 0.0, 0.0, 1.0);
-            ${g}.rgba = vec4(mix(${s.warm}, ${s.cool}, smoothstep(0.0, 0.4, age)),
-                             ${s.opacity} * fade * (0.25 + 1.1 * heatAtBirth));
-        `,
+        // Density: core puffs are thick, thinning as the column spreads and shreds.
+        const height = pos.y.sub(origin.y).toVar();
+        const thick = sqrt(rand.z).oneMinus().mul(age.mul(-0.6).add(1)).mul(shredAt(height).mul(-0.5).add(1)).toVar();
+        // The light from below, after the dense smoke it has come up through.
+        const transmitted = exp(thick.mul(smoothstep(0, 1.2, height)).mul(-S.selfShadow)).toVar();
+        const firelit = v3(S.firelit)
+            .mul(exp(max(height.sub(0.3), 0).div(-S.firelitHeight)))
+            .mul(heat.mul(0.8).add(0.35))
+            .mul(transmitted);
+        const base = mix(mix(v3(S.edge), v3(S.core), thick), v3(S.cool), smoothstep(0.2, 0.8, age).mul(0.5));
+
+        return {
+            center: pos,
+            scales: vec3(mix(float(S.startSize), float(S.endSize), pow(age, 0.7))),
+            // Lit from below by the flame as it is now: the column glows over the fire.
+            rgb: base.mul(transmitted.mul(0.4).add(0.6)).add(firelit),
+            opacity: fade.mul(heatAtBirth.mul(1.1).add(0.25)).mul(thick.mul(1.2).add(0.6)).mul(S.opacity),
+        };
     });
 
-    return { object, history, historyTex, sinceSample: 0 };
+    return { object, heat };
 }
 
-export function updateSmoke(smoke: Smoke, fire: Fire, dt: number): void {
-    smoke.sinceSample += dt;
-    while (smoke.sinceSample >= HISTORY_STEP) {
-        smoke.sinceSample -= HISTORY_STEP;
-        smoke.history.copyWithin(1, 0);
-        smoke.history[0] = Math.round(fireHeat(fire) * 255);
-        smoke.historyTex.needsUpdate = true;
-    }
+export function updateSmoke(smoke: Smoke, fire: Fire): void {
+    smoke.heat.value = fireHeat(fire);
 }

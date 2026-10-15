@@ -3,80 +3,108 @@
  * sort with the scene: as Points, an ember down among the logs would draw in front of
  * them. Walked through the same curl field as the flame, but light and slow to cool,
  * so they ride further on it and coast out over the clearing.
+ *
+ * A resting fire lets off a few. A stoke throws a SHOWER: each ember reads the heat
+ * at its own birth (air.ts), so the ones born in the flare are many, fast and flung
+ * outward, and the burst climbs away as one. They're light, so the wind carries them
+ * furthest of anything, and each is drawn as a streak along its velocity: a spark
+ * crossing the frame in an exposure.
  */
 
-import { dyno as d } from '@sparkjsdev/spark';
-import * as THREE from 'three';
-import { type Fire, fireHeat } from './fire';
-import { float, literals, particles } from './glsl';
+import { type SplatObject, TSL, type TslNode } from 'spark-radix';
+import { type Air, heatAt, windAt } from './air';
 import { SPARK_ORIGIN } from './scene';
+import { flameAlignY, flameCurl, flameHash, particles, seed, time, v3 } from './tsl';
 
-const COUNT = 1400;
+const { Loop, clamp, cos, exp, float, fract, length, mix, normalize, select, sin, smoothstep, sqrt, vec3 } = TSL;
+
+const COUNT = 4000;
 const STEPS = 6;
 
-const e = literals({
-    origin: new THREE.Vector3(...SPARK_ORIGIN),
+const E = {
     baseRadius: 0.22,
     rate: 0.28,
     riseSpeed: 1.5,
     coolTime: 1.6,
-    wind: new THREE.Vector3(0.3, 0, -0.14),
+    wind: [0.3, 0, -0.14],
+    windResponse: 1.4,
     turbulence: 0.7,
     curlScale: 2.2,
     size: 0.008,
     opacity: 0.85,
-    hot: new THREE.Color(1.0, 0.85, 0.5),
-    cool: new THREE.Color(0.9, 0.22, 0.04),
-});
+    /** The share of embers alight at rest, and how the rest join as the fire flares. */
+    restingShare: 0.22,
+    flaringShare: 0.7,
+    /** A burst: outward speed, m/s, and how quickly it's spent. */
+    burstSpeed: 1.0,
+    burstTime: 0.35,
+    /** Streak length per m/s of speed, in multiples of the ember's size. */
+    streak: 0.8,
+    hot: [1.0, 0.85, 0.5],
+    cool: [0.95, 0.38, 0.1],
+} as const;
 
-export type Embers = { object: THREE.Object3D; heat: ReturnType<typeof d.dynoFloat> };
+export function initEmbers(air: Air): { object: SplatObject } {
+    const origin = v3(SPARK_ORIGIN);
 
-export function initEmbers(): Embers {
-    const heat = d.dynoFloat(0);
-    const object = particles({
-        count: COUNT,
-        uniforms: { heat },
-        body: ({ index, time, heat }, g) => /* glsl */ `
-            vec4 rand = flameHash(${index} * 5 + 101);
-            float rate = ${e.rate} * (0.6 + rand.x * 0.9);
-            float age = fract(rand.w * 3.71 + ${time} * rate);
-            float elapsed = age / rate;
+    const object = particles(COUNT, (index) => {
+        const rand = flameHash(seed(index, 5, 101)).toVar();
+        const rand2 = flameHash(seed(index, 5, 102)).toVar();
+        const rate = rand.x.mul(0.9).add(0.6).mul(E.rate).toVar();
+        const age = fract(rand.w.mul(3.71).add(time.mul(rate))).toVar();
+        const elapsed = age.div(rate).toVar();
 
-            float bedAngle = rand.y * 6.2831853;
-            float bedRadius = sqrt(rand.z) * ${e.baseRadius};
-            vec3 pos = ${e.origin} + vec3(cos(bedAngle), 0.0, sin(bedAngle)) * bedRadius;
+        // How hard the fire was burning when this one left it: 0 resting, 1 flaring.
+        const flare = smoothstep(0.45, 0.95, heatAt(air, elapsed)).toVar();
+        const alight = rand2.x.lessThan(flare.mul(E.flaringShare - E.restingShare).add(E.restingShare));
 
-            float dt = elapsed / ${float(STEPS)};
-            for (int step = 0; step < ${STEPS}; step++) {
-                float lifeFraction = (float(step) + 0.5) / ${float(STEPS)} * age;
-                float secondsOld = lifeFraction / rate;
-                float stepTime = ${time} - elapsed + secondsOld;
+        const bedAngle = rand.y.mul(Math.PI * 2).toVar();
+        const bedRadius = sqrt(rand.z).mul(E.baseRadius);
+        const outward = vec3(cos(bedAngle), 0, sin(bedAngle)).toVar();
+        const pos = origin.add(outward.mul(bedRadius)).toVar();
+        const kick = rand2.y.mul(0.8).add(0.4).mul(flare).mul(E.burstSpeed).toVar();
 
-                float buoyancy = ${e.riseSpeed} * (0.5 + 0.8 * ${heat}) * exp(-secondsOld / ${e.coolTime});
-                vec3 fieldPos = pos * ${e.curlScale} - vec3(0.0, stepTime * 0.9, 0.0);
-                vec3 curl = flameCurl(fieldPos, stepTime * 1.2) * ${e.turbulence} * (0.3 + 1.2 * lifeFraction);
-                float heightAboveFire = clamp((pos.y - ${e.origin}.y) / 2.5, 0.0, 1.0);
-                vec3 breeze = ${e.wind} * (0.15 + 1.6 * heightAboveFire);
+        const vel = vec3(0).toVar();
+        const dt = elapsed.div(STEPS).toVar();
+        Loop(STEPS, ({ i }: { i: TslNode }) => {
+            const lifeFraction = float(i).add(0.5).div(STEPS).mul(age).toVar();
+            const secondsOld = lifeFraction.div(rate).toVar();
+            const stepTime = time.sub(elapsed).add(secondsOld).toVar();
 
-                pos += (vec3(0.0, buoyancy, 0.0) + curl + breeze) * dt;
-            }
+            const buoyancy = flare
+                .mul(rand2.z.mul(0.9))
+                .add(0.5)
+                .mul(exp(secondsOld.negate().div(E.coolTime)))
+                .mul(E.riseSpeed);
+            const burst = outward.mul(kick.mul(exp(secondsOld.negate().div(E.burstTime))));
+            const fieldPos = pos.mul(E.curlScale).sub(vec3(0, stepTime.mul(0.9), 0));
+            const curl = flameCurl(fieldPos, stepTime.mul(1.2)).mul(lifeFraction.mul(1.2).add(0.3).mul(E.turbulence));
+            const heightAboveFire = clamp(pos.y.sub(origin.y).div(2.5), 0, 1);
+            const breeze = v3(E.wind)
+                .add(windAt(air, elapsed.sub(secondsOld)).mul(E.windResponse))
+                .mul(heightAboveFire.mul(1.6).add(0.15));
 
-            float wink = 0.55 + 0.45 * sin(${time} * 9.0 + rand.w * 40.0);
-            float fade = smoothstep(0.0, 0.05, age) * (1.0 - smoothstep(0.35, 1.0, age));
-            float scale = ${e.size} * (0.6 + rand.x * 0.8) * (1.0 - 0.35 * age);
+            vel.assign(vec3(0, buoyancy, 0).add(burst).add(curl).add(breeze));
+            pos.addAssign(vel.mul(dt));
+        });
 
-            ${g}.center = pos;
-            ${g}.flags = GSPLAT_FLAG_ACTIVE;
-            ${g}.scales = vec3(scale);
-            ${g}.index = ${index};
-            ${g}.quaternion = vec4(0.0, 0.0, 0.0, 1.0);
-            ${g}.rgba = vec4(mix(${e.hot}, ${e.cool}, smoothstep(0.0, 0.7, age)),
-                             ${e.opacity} * wink * fade * (0.25 + 0.9 * ${heat}));
-        `,
+        const wink = sin(time.mul(9).add(rand.w.mul(40)))
+            .mul(0.45)
+            .add(0.55);
+        const fade = smoothstep(0, 0.05, age).mul(smoothstep(0.35, 1, age).oneMinus());
+        const scale = rand.x.mul(0.8).add(0.6).mul(age.mul(-0.35).add(1)).mul(E.size).toVar();
+        const streak = length(vel).mul(E.streak).add(1);
+        // Born in a flare, an ember burns hotter for longer.
+        const cooling = smoothstep(0, flare.mul(0.5).add(0.7), age);
+
+        return {
+            center: pos,
+            scales: vec3(scale, scale.mul(streak), scale),
+            quaternion: flameAlignY(normalize(vel.add(vec3(0, 1e-4, 0)))),
+            rgb: mix(v3(E.hot), v3(E.cool), cooling),
+            opacity: select(alight, wink.mul(fade).mul(flare.mul(0.5).add(0.6)).mul(E.opacity), float(0)),
+        };
     });
-    return { object, heat };
-}
 
-export function updateEmbers(embers: Embers, fire: Fire): void {
-    embers.heat.value = fireHeat(fire);
+    return { object };
 }

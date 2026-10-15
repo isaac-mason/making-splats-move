@@ -1,16 +1,20 @@
 /**
  * Heat shimmer: wobbles the captured scene's splats in a column of hot air over the
  * fire, hardest just above the coals.
+ *
+ * A modifier on the scene's generator, not the renderer, so the flame's own splats
+ * aren't shaken twice. The scene object sits at the origin, so its object space is
+ * world space.
  */
 
-import { dyno as d, type GsplatModifier, SplatMesh } from '@sparkjsdev/spark';
-import * as THREE from 'three';
+import { type SplatModifier, TSL, type TslNode } from 'spark-radix';
 import { type Fire, fireHeat } from './fire';
-import { literals } from './glsl';
 import { FIRE_ORIGIN } from './scene';
+import { time, v3 } from './tsl';
 
-const HEAT = literals({
-    origin: new THREE.Vector3(...FIRE_ORIGIN),
+const { Fn, If, abs, clamp, dot, exp, floor, fract, length, mix, mod, smoothstep, uniform, vec2, vec3 } = TSL;
+
+const H = {
     baseRadius: 0.55,
     plumeHeight: 1.9,
     maxOffset: 0.009,
@@ -18,67 +22,60 @@ const HEAT = literals({
     // Whole: the noise tiles at this period, which is what lets the scroll loop seamlessly.
     noisePeriod: 8,
     loopSeconds: 6,
-});
+};
 
-const NOISE_GLSL = /* glsl */ `
-    float heatHash(vec2 p) {
-        p = fract(p * vec2(0.3183099, 0.3678794) + 0.1);
-        p += dot(p, p + 27.13);
-        return fract(p.x * p.y);
-    }
-    float heatNoise(vec2 x) {
-        const float PERIOD = ${HEAT.noisePeriod};
-        vec2 i = floor(x);
-        vec2 f = fract(x);
-        vec2 u = f * f * (3.0 - 2.0 * f);
-        float a = heatHash(mod(i, PERIOD));
-        float b = heatHash(mod(i + vec2(1.0, 0.0), PERIOD));
-        float c = heatHash(mod(i + vec2(0.0, 1.0), PERIOD));
-        float d = heatHash(mod(i + vec2(1.0, 1.0), PERIOD));
-        return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-    }
-`;
+const heatHash = Fn(([p]: TslNode[]) => {
+    const q = fract(p.mul(vec2(0.3183099, 0.3678794)).add(0.1)).toVar();
+    q.addAssign(dot(q, q.add(27.13)));
+    return fract(q.x.mul(q.y));
+}).setLayout({ name: 'heatHash', type: 'float', inputs: [{ name: 'p', type: 'vec2' }] });
 
-export type Heat = { modifier: GsplatModifier; fed: ReturnType<typeof d.dynoFloat> };
+const heatNoise = Fn(([x]: TslNode[]) => {
+    const i = floor(x).toVar();
+    const f = fract(x).toVar();
+    const u = f.mul(f).mul(f.mul(-2).add(3)).toVar();
+    const corner = (dx: number, dy: number) => heatHash(mod(i.add(vec2(dx, dy)), H.noisePeriod));
+    return mix(mix(corner(0, 0), corner(1, 0), u.x), mix(corner(0, 1), corner(1, 1), u.x), u.y);
+}).setLayout({ name: 'heatNoise', type: 'float', inputs: [{ name: 'x', type: 'vec2' }] });
+
+export type Heat = { modifier: SplatModifier; fed: TslNode };
 
 export function initHeat(): Heat {
-    const h = HEAT;
-    const fed = d.dynoFloat(0);
+    const fed = uniform(0);
+    const origin = v3(FIRE_ORIGIN);
 
-    const modifier = d.dynoBlock({ gsplat: d.Gsplat }, { gsplat: d.Gsplat }, ({ gsplat }) => {
-        const node = d.dyno({
-            inTypes: { gsplat: d.Gsplat, time: 'float', fed: 'float' },
-            outTypes: { gsplat: d.Gsplat },
-            inputs: { gsplat, time: SplatMesh.dynoTime, fed },
-            globals: () => [d.defineGsplat, NOISE_GLSL],
-            statements: ({ inputs: i, outputs: o }) =>
-                d.unindentLines(`
-                    ${o.gsplat} = ${i.gsplat};
-                    vec3 rel = ${i.gsplat}.center - ${h.origin};
-                    float up = rel.y;
+    const modifier: SplatModifier = (splat) => {
+        const out = splat.toVar();
+        const center = splat.get('center').toVar();
+        const rel = center.sub(origin).toVar();
+        const up = rel.y;
 
-                    float width = ${h.baseRadius} * (0.5 + 0.6 * clamp(up / ${h.plumeHeight}, 0.0, 1.0));
-                    float inColumn = (1.0 - smoothstep(width * 0.35, width, length(rel.xz)))
-                                   * smoothstep(-0.32, -0.06, up)
-                                   * (1.0 - smoothstep(${h.plumeHeight} * 0.45, ${h.plumeHeight}, up));
-                    float overCoals = 0.5 + 1.4 * exp(-up * up * 18.0);
-                    float mask = inColumn * inColumn * overCoals;
+        const width = clamp(up.div(H.plumeHeight), 0, 1).mul(0.6).add(0.5).mul(H.baseRadius).toVar();
+        const inColumn = smoothstep(width.mul(0.35), width, length(rel.xz))
+            .oneMinus()
+            .mul(smoothstep(-0.32, -0.06, up))
+            .mul(smoothstep(H.plumeHeight * 0.45, H.plumeHeight, up).oneMinus())
+            .toVar();
+        const overCoals = exp(up.mul(up).mul(-18)).mul(1.4).add(0.5);
+        const mask = inColumn.mul(inColumn).mul(overCoals).toVar();
 
-                    if (mask > 0.0) {
-                        float scroll = ${h.noisePeriod} * fract(${i.time} / ${h.loopSeconds});
-                        vec3 p = ${i.gsplat}.center * ${h.rippleFrequency};
-                        vec3 offset = vec3(
-                            heatNoise(p.yz + vec2(0.0, -2.0 * scroll)),
-                            heatNoise(p.xz * 1.1 + vec2(-scroll, scroll)),
-                            heatNoise(p.xy * 1.3 + vec2(scroll, -2.0 * scroll))
-                        ) * 2.0 - 1.0;
-                        offset.y = abs(offset.y) * 1.5;
-                        ${o.gsplat}.center += offset * ${h.maxOffset} * mask * (1.0 + ${i.fed} * 1.5);
-                    }
-                `),
+        If(mask.greaterThan(0), () => {
+            const scroll = fract(time.div(H.loopSeconds)).mul(H.noisePeriod).toVar();
+            const p = center.mul(H.rippleFrequency).toVar();
+            const noise = vec3(
+                heatNoise(p.yz.add(vec2(0, scroll.mul(-2)))),
+                heatNoise(p.xz.mul(1.1).add(vec2(scroll.negate(), scroll))),
+                heatNoise(p.xy.mul(1.3).add(vec2(scroll, scroll.mul(-2)))),
+            )
+                .mul(2)
+                .sub(1)
+                .toVar();
+            const offset = vec3(noise.x, abs(noise.y).mul(1.5), noise.z);
+            out.get('center').addAssign(offset.mul(mask.mul(fed.mul(1.5).add(1)).mul(H.maxOffset)));
         });
-        return { gsplat: node.outputs.gsplat };
-    });
+
+        return out;
+    };
 
     return { modifier, fed };
 }

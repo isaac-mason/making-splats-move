@@ -6,14 +6,14 @@
 /** A world-space point. Kept local so the app has no math-library dependency. */
 export type Vec3 = [number, number, number];
 
-// BASE_URL is '/<base>/' when BASE_PATH is set for a subpath deploy (vite.config.ts).
-const BASE = import.meta.env.BASE_URL;
-// The LOD build of assets/campfire.spz (`pnpm build:lod`). The .rad is what makes
-// Spark's LOD budget (performance.ts) do anything: a flat .spz draws every splat
-// every frame whatever the budget says.
-export const SPLAT_URL = `${BASE}campfire-lod.rad`;
+import campfireUrl from '../assets/campfire.spz?url';
 
-export const CAMERA_POSITION: Vec3 = [0, 0.5, 1];
+// The flat capture. Radix reads .rad files but doesn't select LoD subsets or page
+// them in yet, so the LoD build (public/campfire-lod.rad) has nothing to gain here:
+// every splat draws every frame either way.
+export const SPLAT_URL = campfireUrl;
+
+export const CAMERA_POSITION: Vec3 = [-0.83, 0.67, -1.09];
 export const CAMERA_TARGET: Vec3 = [-0.06, 0.45, -7.64];
 
 // Measured with the debug raycast (backtick, click, read `hit`).
