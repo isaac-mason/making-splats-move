@@ -34,6 +34,28 @@ and a stretch in the air. The hat bounces a beat late, the basket swings, the he
 nods, and standing still, the kid breathes. Lit like a cartoon: banded sun, sky
 fill and a rim.
 
+## The dress and the hair, simulated
+
+The skirt is cloth: 28 points round the waist and eight rows of them to the hem,
+pinned at the waist and simulated in compute kernels every frame. A Verlet step
+carries each point on under gravity, the meadow's wind and your own motion, so the
+skirt lags and swings as you skip. Then eight rounds of distance constraints
+between neighbours keep it fabric, a gentle pull towards a flared rest shape keeps
+it a skirt rather than a heap, and it's pushed out of the legs and hips so it
+drapes over them. It's drawn as two splats a cloth cell, each facing the way the
+cloth does there, so folds catch the light; pleats and a white hem trim finish it.
+
+The hair is the same idea in chains: 56 strands of seven points, a curtain at the
+back under the hat brim and two pigtails from red ties, held at the root, swung by
+gravity, wind and you, loosely holding their shape, and kept off the head and
+shoulders. Each segment is a tapering splat.
+
+All of it lives in world space, so inertia comes free: the pinned ends move with
+you and the rest have to catch up. The kid's pose is a function rather than
+values, so the kid's splats and both simulations each build their own copy of it
+into their own shader. Without compute (WebGL2) the kid keeps a solid skirt and
+pigtails.
+
 ## Trampling, on the GPU
 
 The grass parts round you and stays flattened behind you, springing back over a
