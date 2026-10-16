@@ -22,10 +22,6 @@ spread scheme shows its pattern as a lattice across a field. The randomness is
 three's PCG integer hash, since a cheap float hash of neighbouring indices
 correlates in just the same way.
 
-Blades are drawn with opacity past 1 on an object with radix's LoD inflation
-turned off, which radix renders as a harder edge rather than a bigger splat, so
-the blades are crisper than Gaussians usually allow.
-
 Far blades draw wider with distance, the ground between them turns grass-coloured,
 and blade-to-blade colour variety calms down, so the far field reads as turf
 rather than a grain of separate threads.
