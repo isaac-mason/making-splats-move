@@ -130,7 +130,22 @@ towards the edge, scattered rather than cut off, and flowers keep off it. Its
 surface is laid along the path itself rather than scattered and mostly thrown
 away: rows of small, crisp splats of trodden earth, a step apart, in a window
 round you on a world grid so they hold still as you walk, with a pebble here and
-there. Elsewhere, clearings: soft patches where the grass grows short and sparse.
+there, keyed to its place on the path so it holds still as you walk. Here and
+there, rare clearings: soft patches where the grass grows a little shorter and sparser.
+
+## Trees
+
+Painted, the Ghibli way: a tapering trunk under a canopy of eighteen leaf clumps
+spread over a dome, each a shell of small leafy flecks. Each clump is shaded on its
+own roundness in two tones with a crisp edge between (sunlit yellow-green,
+shadowed teal), with a pale highlight on the sunniest tops, deeper shade under and
+inside the canopy, and darker creases where a clump turns in towards the rest,
+which is what separates the clumps into shapes. The tree sways in the wind, more
+towards the top, each clump stirring a little on its own. And they cast dappled
+shadows, the way the clouds do: everything looks up towards the sun to canopy
+height and asks that cell's tree. Scattered on a world grid like the boulders,
+never on the path or in a boulder, and mirrored on the CPU so you walk round the
+trunks.
 
 ## Trampling, on the GPU
 

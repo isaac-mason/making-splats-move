@@ -236,6 +236,38 @@ export const BOULDERS = {
     moss: [0.26, 0.35, 0.13],
 };
 
+/**
+ * Trees, Ghibli-fluffy: a trunk under a canopy of puffs, each puff a shell of small
+ * leafy flecks. Scattered on a world grid like the boulders (never on the path, nor
+ * in a boulder), mirrored on the CPU so you walk round the trunks; and they cast
+ * dappled shadows, the way the clouds do.
+ */
+export const TREES = {
+    /** The grid's cell, metres, and the chance a cell has a tree. */
+    cell: 26,
+    chance: 0.5,
+    /** The trunk: height to the canopy and radius, metres. */
+    trunk: [2.2, 3.2],
+    girth: 0.17,
+    /** The canopy's radius, metres, and its leaf clumps, spread over a dome. */
+    canopy: [2.1, 3.1],
+    puffs: 18,
+    /** Splats in the trunk and in the canopy. */
+    bark: 500,
+    leaves: 9000,
+    /** Cells drawn round you, each way; where they fade in, metres. */
+    around: 2,
+    fade: [40, 50],
+    /** How hard the wind sways them, and how dark their shadow is. */
+    sway: 0.09,
+    shade: 0.6,
+    trunkColour: [0.36, 0.27, 0.19],
+    /** Painted greens: shadowed teal, sunlit yellow-green, and the highlight on the sunniest tops. */
+    deep: [0.07, 0.2, 0.15],
+    light: [0.4, 0.6, 0.19],
+    tip: [0.16, 0.15, 0.05],
+};
+
 /* uniforms, set once a frame */
 
 /** Seconds since the start. */
@@ -318,12 +350,12 @@ const PATHS = {
     ],
     /** A path's half-width, metres, and the fringe either side where the grass peters out. */
     width: 0.6,
-    fringe: 2.2,
+    fringe: 0.9,
     /** Trodden earth, dusty and pale. */
     dust: [0.5, 0.41, 0.29],
     /** Clearings: their size (one over metres), and how much they shorten and thin the grass. */
     clearings: 0.02,
-    short: 0.6,
+    short: 0.3,
     /**
      * The path's surface, laid along each path: rows of small splats across its
      * width, a step apart along it, in a window round you; a share become pebbles.
@@ -368,12 +400,33 @@ function meander(f: (typeof PATHS.families)[number], run: TslNode): TslNode {
     return swing;
 }
 
+/** Distance from `xz` to the path, metres, without the ragged edge: for placing trees off it (mirrored on the CPU). */
+function pathDistance(xz: TslNode): TslNode {
+    let near: TslNode = float(1e4);
+    for (const f of PATHS.families) {
+        const k = Math.PI / f.spacing;
+        const along = vec2(Math.cos(f.angle), Math.sin(f.angle));
+        const across = vec2(-Math.sin(f.angle), Math.cos(f.angle));
+        near = min(
+            near,
+            sin(
+                dot(xz, across)
+                    .add(meander(f, dot(xz, along)))
+                    .mul(k),
+            )
+                .abs()
+                .div(k),
+        );
+    }
+    return near;
+}
+
 /** How much of a path's trodden earth is at `xz`: 1 on one, 0 in the grass. */
 const onPath = (xz: TslNode): TslNode => paths(xz).core;
 
 /** How much of a clearing is at `xz`, 0..1. */
 const inClearing = (xz: TslNode): TslNode =>
-    smoothstep(0.35, 0.6, mx_noise_float(xz.mul(PATHS.clearings).add(61)).mul(0.5).add(0.5));
+    smoothstep(0.66, 0.8, mx_noise_float(xz.mul(PATHS.clearings).add(61)).mul(0.5).add(0.5));
 
 /* clouds */
 
@@ -403,9 +456,29 @@ const sun = vec3(SUN_DIRECTION.x, SUN_DIRECTION.y, SUN_DIRECTION.z);
 /** The sunlight reaching a point, 1 in the clear: looks up towards the sun to the cloud layer. */
 function sunlight(p: TslNode): TslNode {
     const up = float(CLOUDS.height).sub(p.y).div(sun.y);
-    return cloudCover(p.xz.add(sun.xz.mul(up)))
+    const clouds = cloudCover(p.xz.add(sun.xz.mul(up)))
         .mul(CLOUDS.shade)
         .oneMinus();
+    // A tree's canopy between here and the sun: look up towards the sun to canopy
+    // height and ask that cell's tree. Dappled, not solid: light through the leaves.
+    const above = p.y.sub(terrain(p.xz).height);
+    const reach = float(TREES.trunk[1] + TREES.canopy[0] * 0.6)
+        .sub(above)
+        .max(0)
+        .div(sun.y);
+    const q = p.xz.add(sun.xz.mul(reach));
+    const cell = q.div(TREES.cell).floor();
+    const tree = treeOf(cell.x, cell.y);
+    const under = smoothstep(tree.radius.mul(1.05), tree.radius.mul(0.55), length(q.sub(tree.xz))).mul(tree.there);
+    const dapple = smoothstep(
+        0.1,
+        0.6,
+        mx_noise_float(vec3(q.mul(1.6), time.mul(0.4)))
+            .mul(0.5)
+            .add(0.5),
+    );
+    const trees = under.mul(TREES.shade).mul(dapple.mul(-0.45).add(1)).oneMinus();
+    return clouds.mul(trees);
 }
 
 /* helpers */
@@ -439,6 +512,35 @@ function boulderOf(cx: TslNode, cz: TslNode): { center: TslNode; radius: TslNode
     const room = float(BOULDERS.cell).sub(radius.mul(2)).max(0);
     const center = vec2(cx, cz).mul(BOULDERS.cell).add(radius).add(vec2(h.z, h.w).mul(room));
     return { center, radius, there: h.x.lessThan(BOULDERS.chance).select(float(1), float(0)), seed: id };
+}
+
+/**
+ * The tree of world cell (cx, cz), if any: its xz, trunk height, canopy radius,
+ * whether there is one (1 or 0) and a seed. Kept inside its cell; never on the
+ * path or in a boulder. Mirrored on the CPU by `treeAt`.
+ */
+function treeOf(cx: TslNode, cz: TslNode) {
+    const id = uint(int(cx))
+        .mul(uint(83492791))
+        .bitXor(uint(int(cz)).mul(uint(2971215073)));
+    const h = hash4(id, 44);
+    const h2 = hash4(id, 45);
+    const margin = float(TREES.canopy[1]);
+    const xz = vec2(cx, cz)
+        .mul(TREES.cell)
+        .add(margin)
+        .add(vec2(h.z, h.w).mul(TREES.cell - TREES.canopy[1] * 2))
+        .toVar();
+    const height = mix(TREES.trunk[0], TREES.trunk[1], h2.x);
+    const radius = mix(TREES.canopy[0], TREES.canopy[1], h2.y);
+    const cell = xz.div(BOULDERS.cell).floor();
+    const rock = boulderOf(cell.x, cell.y);
+    const inRock = rock.there.mul(length(xz.sub(rock.center)).lessThan(rock.radius.add(1)).select(float(1), float(0)));
+    const offPath = pathDistance(xz)
+        .greaterThan(PATHS.width + PATHS.fringe + 0.5)
+        .select(float(1), float(0));
+    const there = h.x.lessThan(TREES.chance).select(float(1), float(0)).mul(offPath).mul(inRock.oneMinus());
+    return { xz, height, radius, there, seed: id };
 }
 
 /** How much of the ground at `xz` is clear of boulders: 0 under one, 1 in the open. */
@@ -727,7 +829,7 @@ function blades(count: number, reach: number, girth: number, stream: number, edg
         const height = mix(BLADE.height[0], BLADE.height[1], pow(b.x, 0.7))
             .mul(mix(0.65, 1.3, lush))
             .mul(clearing.mul(-PATHS.short).add(1))
-            .mul(fringe.mul(-0.55).add(1))
+            .mul(fringe.mul(-0.35).add(1))
             .toVar();
         const dryPatch = mx_noise_float(xz.mul(0.05).add(7.3));
         const dry = smoothstep(0.25, 0.7, dryPatch.add(c.z.sub(0.5).mul(0.3))).mul(0.7);
@@ -776,7 +878,7 @@ function blades(count: number, reach: number, girth: number, stream: number, edg
         const finish = distance(center, out, rgb, edge);
         // Not through boulders, none on the paths, sparse in the clearings.
         // Thinning: sparse in clearings, and petering out towards a path, scattered rather than cut off.
-        const thin = max(clearing.mul(0.55), pow(fringe, 1.5).mul(0.95)).greaterThan(c.y).select(float(0), float(1));
+        const thin = max(clearing.mul(0.3), pow(fringe, 2).mul(0.8)).greaterThan(c.y).select(float(0), float(1));
         finish.opacity = finish.opacity.mul(clear(xz)).mul(path.oneMinus()).mul(thin);
         return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity, uint(index));
     });
@@ -2411,8 +2513,8 @@ function pathSurface(): SplatObject {
             const slot = float(index.div(uint(perPath)).mod(uint(3))).sub(1);
             const r = float(index.mod(uint(perPath)).div(uint(lanes)));
             const lane = float(index.mod(uint(lanes)));
-            const h = hash4(index, 52).toVar();
 
+            const h = vec4(0).toVar();
             let center: TslNode = vec3(0);
             let shows: TslNode = float(0);
             PATHS.families.forEach((f, n) => {
@@ -2423,12 +2525,15 @@ function pathSurface(): SplatObject {
                 const nearest = dot(you.xz, across).add(meander(f, yourRun)).div(f.spacing).round();
                 const which = nearest.add(slot);
                 // A step along it, on a world grid; a lane across it.
-                const run = yourRun
+                // Its own random numbers, keyed to where it is on the path (which path, which
+                // step along it, which lane), not to its slot, which slides as you walk.
+                const worldStep = yourRun
                     .div(step)
                     .floor()
-                    .add(r.sub(runs / 2))
-                    .add(h.x.sub(0.5).mul(0.8))
-                    .mul(step);
+                    .add(r.sub(runs / 2));
+                const id = uint(int(worldStep).mul(int(lanes)).add(int(lane))).bitXor(uint(int(which)).mul(uint(2654435761)));
+                h.assign(hash4(id, 52 + n));
+                const run = worldStep.add(h.x.sub(0.5).mul(0.8)).mul(step);
                 const side = lane
                     .add(h.y)
                     .div(lanes)
@@ -2475,6 +2580,148 @@ function pathSurface(): SplatObject {
     );
 }
 
+/* trees */
+
+function trees(): SplatObject {
+    const span = TREES.around * 2 + 1;
+    const perTree = TREES.bark + TREES.leaves;
+    return generated(span * span * perTree, (index) => {
+        const slot = index.div(uint(perTree));
+        const k = float(index.mod(uint(perTree)));
+        const yours = you.xz.div(TREES.cell).floor();
+        const cx = yours.x.add(float(slot.mod(uint(span)))).sub(TREES.around);
+        const cz = yours.y.add(float(slot.div(uint(span)))).sub(TREES.around);
+        const tree = treeOf(cx, cz);
+        const h = hash4(index, 46).toVar();
+        const seed = hash4(tree.seed, 47).toVar();
+        const ground = terrain(tree.xz).height;
+        const base = vec3(tree.xz.x, ground, tree.xz.y);
+        const isBark = k.lessThan(TREES.bark);
+
+        // The wind sways it, more towards the top, each tree in its own time.
+        const gust = sin(time.mul(0.7).add(seed.x.mul(6.283)))
+            .mul(0.6)
+            .add(sin(time.mul(1.9).add(seed.y.mul(6.283))).mul(0.25));
+        const swayAt = (height: TslNode) =>
+            vec3(windDir.x, 0, windDir.y).mul(gust.mul(TREES.sway).mul(height.div(tree.height.add(tree.radius)).pow(1.5)));
+
+        // The trunk: a tapering cylinder of bark, up into the canopy.
+        const up = h.x.mul(tree.height.add(tree.radius.mul(0.4)));
+        const around = h.y.mul(Math.PI * 2);
+        const taper = up.div(tree.height).mul(-0.35).add(1).max(0.5);
+        const radial = vec3(cos(around), 0, sin(around));
+        const barkAt = base
+            .add(radial.mul(taper.mul(TREES.girth)))
+            .add(vec3(0, up, 0))
+            .add(swayAt(up));
+
+        // The canopy: many leaf clumps spread over a dome, more of them up top; this
+        // fleck on the shell of one of them.
+        const clump = k.sub(TREES.bark).mod(TREES.puffs);
+        const cr = hash4(uint(clump.add(seed.w.mul(1000))), 48).toVar();
+        const rise = mix(-0.35, 1, clump.add(0.5).div(TREES.puffs));
+        const flat = rise.mul(rise).oneMinus().max(0).sqrt();
+        const turnAround = clump.mul(2.399963).add(seed.z.mul(6.283));
+        const clumpCentre = vec3(cos(turnAround).mul(flat), rise.mul(0.72), sin(turnAround).mul(flat)).mul(tree.radius.mul(0.72));
+        const clumpRadius = tree.radius.mul(mix(0.32, 0.46, cr.x)).mul(smoothstep(-0.35, 1, rise).mul(0.25).add(0.85));
+        const z = h.z.mul(2).sub(1);
+        const ring = z.mul(z).oneMinus().max(0).sqrt();
+        const dir = vec3(cos(h.w.mul(6.283)).mul(ring), z.mul(0.85), sin(h.w.mul(6.283)).mul(ring)).toVar();
+        const local = clumpCentre.add(dir.mul(clumpRadius));
+        const centreHeight = tree.height.add(tree.radius.mul(0.45));
+        const canopyCentre = base.add(vec3(0, centreHeight, 0));
+        // Each clump stirs a little on its own, besides the tree's sway.
+        const wobble = vec3(sin(time.mul(1.6).add(clump.mul(1.7))), 0, cos(time.mul(1.3).add(clump.mul(2.3)))).mul(0.025);
+        const leafAt = canopyCentre
+            .add(local)
+            .add(swayAt(centreHeight.add(local.y)))
+            .add(wobble);
+
+        const center = isBark.select(barkAt, leafAt).toVar();
+        // Painted, the Ghibli way: each clump shaded on its own roundness in two tones
+        // with a crisp edge between (sunlit yellow-green, shadowed teal-green), a pale
+        // highlight on the sunniest tops, and deeper shade under and inside the canopy.
+        const canopyNormal = normalize(local.add(vec3(0, tree.radius.mul(0.25), 0)));
+        const normal = isBark.select(radial, normalize(dir.mul(0.75).add(canopyNormal.mul(0.25)))).toVar();
+        const lit = sunlight(center);
+        const facing = dot(normal, sun);
+        const band = smoothstep(-0.02, 0.1, facing).mul(lit);
+        const tip = smoothstep(0.62, 0.72, facing).mul(lit);
+        // Deeper under and inside the canopy, and in the creases where a clump turns in
+        // towards the rest: that's what separates the clumps into shapes.
+        const outward = normalize(clumpCentre.add(vec3(0, tree.radius.mul(0.25), 0)));
+        const crease = smoothstep(-0.35, 0.45, dot(dir, outward)).mul(0.5).add(0.5);
+        const inside = smoothstep(-0.5, 0.5, canopyNormal.y).mul(0.35).add(0.65).mul(crease);
+        // Leafy speckle within each clump.
+        const speckle = mx_noise_float(local.mul(7).add(seed.xyz.mul(30)))
+            .mul(0.12)
+            .add(1);
+        const leaf = mix(v3(TREES.deep), v3(TREES.light), band)
+            .add(v3(TREES.tip).mul(tip))
+            .mul(inside)
+            .mul(cr.y.mul(0.14).add(0.93))
+            .mul(speckle);
+        const bark = v3(TREES.trunkColour)
+            .mul(h.z.mul(0.25).add(0.8))
+            .mul(
+                v3(SUN)
+                    .mul(max(dot(normal, sun), 0).mul(0.7))
+                    .mul(lit)
+                    .add(v3(SKYLIGHT).mul(0.5)),
+            );
+        const rgb = isBark.select(bark, leaf);
+
+        const fleck = mix(0.09, 0.13, h.y);
+        const scales = isBark.select(vec3(0.07, 0.14, 0.02), vec3(fleck, fleck.mul(0.35), fleck.mul(0.75)));
+        const turn = GpuSplatMath.quatMul(alignY(normal), yaw(h.w.mul(Math.PI)));
+        const finish = distance(center, float(0), rgb);
+        const fade = smoothstep(TREES.fade[1], TREES.fade[0], length(tree.xz.sub(you.xz)));
+        return GpuSplats.Splat(center, scales, turn, finish.rgb.min(0.95), finish.opacity.mul(tree.there).mul(fade), uint(index));
+    });
+}
+
+/**
+ * The tree at world point (x, z), on the CPU: the same hash as the GPU's `treeOf`
+ * (and the same path and boulder tests), so the kid walks round the trunks. Its
+ * xz and trunk radius, or null.
+ */
+export function treeAt(x: number, z: number): { x: number; z: number; radius: number } | null {
+    const pcg = (seed: number) => {
+        const state = (Math.imul(seed >>> 0, 747796405) + 2891336453) >>> 0;
+        const word = Math.imul(((state >>> ((state >>> 28) + 4)) ^ state) >>> 0, 277803737) >>> 0;
+        return ((word >>> 22) ^ word) >>> 0;
+    };
+    const hash4 = (id: number, salt: number) => {
+        const base = (Math.imul(id, 16) + salt * 4) >>> 0;
+        return [0, 1, 2, 3].map((k) => pcg((base + k) >>> 0) / 4294967296);
+    };
+    const cx = Math.floor(x / TREES.cell);
+    const cz = Math.floor(z / TREES.cell);
+    const id = (Math.imul(cx, 83492791) ^ Math.imul(cz, 2971215073 | 0)) >>> 0;
+    const h = hash4(id, 44);
+    if (h[0] >= TREES.chance) return null;
+    const margin = TREES.canopy[1];
+    const tx = cx * TREES.cell + margin + h[2] * (TREES.cell - margin * 2);
+    const tz = cz * TREES.cell + margin + h[3] * (TREES.cell - margin * 2);
+    // Never on the path.
+    let near = 1e4;
+    for (const f of PATHS.families) {
+        const k = Math.PI / f.spacing;
+        const run = tx * Math.cos(f.angle) + tz * Math.sin(f.angle);
+        let swing = 0;
+        f.bends.forEach(([wavelength, size], n) => {
+            swing += Math.sin(run * ((Math.PI * 2) / wavelength) + n * 1.7) * size;
+        });
+        const across = -tx * Math.sin(f.angle) + tz * Math.cos(f.angle);
+        near = Math.min(near, Math.abs(Math.sin((across + swing) * k)) / k);
+    }
+    if (near <= PATHS.width + PATHS.fringe + 0.5) return null;
+    // Nor in a boulder.
+    const rock = boulderAt(tx, tz);
+    if (rock && Math.hypot(tx - rock.x, tz - rock.z) < rock.radius + 1) return null;
+    return { x: tx, z: tz, radius: TREES.girth + 0.15 };
+}
+
 /* the field */
 
 export type Field = { objects: SplatObject[] };
@@ -2494,7 +2741,7 @@ export function initField(renderer: WebGPURenderer, clouds: THREE.Texture, kidOn
     return {
         objects: kidOnly
             ? [ground(), ...grass().slice(0, 2), ...you]
-            : [ground(), boulders(), ...grass(), pathSurface(), flowers(), butterflies(), ...you],
+            : [ground(), boulders(), ...grass(), pathSurface(), flowers(), trees(), butterflies(), ...you],
     };
 }
 
