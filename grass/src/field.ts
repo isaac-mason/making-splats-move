@@ -308,20 +308,11 @@ const PATHS = {
     families: [
         {
             angle: 0.4,
-            spacing: 80,
+            spacing: 300,
             bends: [
                 [70, 6],
                 [29, 2.6],
                 [12, 0.8],
-            ],
-        },
-        {
-            angle: 2.1,
-            spacing: 96,
-            bends: [
-                [85, 7],
-                [33, 3],
-                [14, 0.9],
             ],
         },
     ],
