@@ -8,6 +8,7 @@ packages:
     - 'reveal'
     - 'grass'
     - 'clouds'
+    - 'hair'
 
 # The renderer: spark-radix, pinned to a commit of its GitHub repo and built from
 # source on install (its `prepare` script). To move to a newer commit, change the
