@@ -134,14 +134,13 @@ tip leans by the blade's own rest lean plus the wind, so it bends from the root 
 curls most at the tip. Each blade is turned about its own length at random, so the
 field catches the light at every angle.
 
-The blades are scattered at random. Right round you there's a second, denser
-layer, about 110 blades a square metre on its own 20 metre tile, fading out at its
-edge into the meadow, so looking down into the grass from above you see grass, not
-the ground between blades; and the ground under it is mostly turf-coloured, so
-any gap still reads as grass. Random on purpose: it clumps a little, as grass does, where any evenly
-spread scheme shows its pattern as a lattice across a field. The randomness is
-three's PCG integer hash, since a cheap float hash of neighbouring indices
-correlates in just the same way.
+The blades are scattered at random, in nested layers round you, the grass's level
+of detail: four tiles, each wider and sparser than the last, its blades thicker,
+each fading out at its edge, so they stack into about 220 blades a square metre at
+your feet, 95 at ten metres and 40 at twenty, thinning to thick, sparse blades out
+in the haze. Every blade still holds still in the world: each layer wraps round you
+like the rest of the meadow. One even scatter can't do it: thin enough to afford
+over the whole meadow, it shows the earth between blades from above.
 
 Far blades draw wider with distance, the ground between them turns grass-coloured,
 and blade-to-blade colour variety calms down, so the far field reads as turf

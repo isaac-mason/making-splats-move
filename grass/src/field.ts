@@ -84,14 +84,19 @@ const FIELD = {
      * ends: what you leave behind comes round again out in the haze ahead.
      */
     reach: 40,
-    blades: 260_000,
     /**
-     * A dense layer of grass right round you, on its own smaller tile (half-size
-     * `nearReach`), fading out at its edge into the meadow: looking down into the
-     * grass from above, the meadow's own density shows the ground through it.
+     * The grass's level of detail: nested tiles round you, each wider and sparser
+     * than the last, its blades thicker, each fading out at its edge (a clipmap).
+     * They stack, so density falls away smoothly with distance and every blade still
+     * holds still in the world. Each: half-size (metres), blades, thickness, and
+     * how far out it starts to fade (of its half-size).
      */
-    nearBlades: 45_000,
-    nearReach: 10,
+    layers: [
+        { reach: 7, blades: 25_000, girth: 1, edge: 0.65 },
+        { reach: 15, blades: 50_000, girth: 1.3, edge: 0.7 },
+        { reach: 30, blades: 90_000, girth: 1.8, edge: 0.75 },
+        { reach: 44, blades: 140_000, girth: 2.5, edge: 0.88 },
+    ],
     segments: 5,
     ground: 120_000,
     /** Where the fade into haze starts and is complete, metres from the camera. */
@@ -566,8 +571,8 @@ function stem(root: TslNode, height: TslNode, bend: TslNode, s: TslNode): { cent
 
 /* the blades */
 
-/** Grass: `count` blades on a tile of half-size `reach`, from random stream `stream`, fading out from `edge` of the way out. */
-function blades(count: number = FIELD.blades, reach: number = FIELD.reach, stream = 0, edge = 0.88): SplatObject {
+/** One layer of grass: `count` blades on a tile of half-size `reach`, `girth` times as thick, from random stream `stream`, fading out from `edge` of the way out. */
+function blades(count: number, reach: number, girth: number, stream: number, edge: number): SplatObject {
     const { segments } = FIELD;
 
     return generated(count * segments, (index) => {
@@ -603,7 +608,7 @@ function blades(count: number = FIELD.blades, reach: number = FIELD.reach, strea
         // Facing turns the blade about its own length; then it's stood along the stem.
         const quaternion = GpuSplatMath.quatMul(alignY(tangent), yaw(b.y.mul(Math.PI))).toVar();
 
-        const widen = farWidth(center);
+        const widen = farWidth(center).mul(girth);
         const taper = mix(1, 0.3, pow(s, 1.6));
         const scales = vec3(
             float(BLADE.width).mul(taper).mul(widen),
@@ -2182,6 +2187,11 @@ export function boulderAt(x: number, z: number): { x: number; z: number; radius:
     return { x: cx * BOULDERS.cell + radius + h[2] * room, z: cz * BOULDERS.cell + radius + h[3] * room, radius };
 }
 
+/** The grass, every layer of it, each on its own random stream. */
+function grass(): SplatObject[] {
+    return FIELD.layers.map((layer, n) => blades(layer.blades, layer.reach, layer.girth, n * 4, layer.edge));
+}
+
 /* the field */
 
 export type Field = { objects: SplatObject[] };
@@ -2200,16 +2210,8 @@ export function initField(renderer: WebGPURenderer, clouds: THREE.Texture, kidOn
     const you = [kid(simState !== null), ...dressAndHair];
     return {
         objects: kidOnly
-            ? [ground(), blades(FIELD.nearBlades, FIELD.nearReach, 30, 0.6), ...you]
-            : [
-                  ground(),
-                  boulders(),
-                  blades(),
-                  blades(FIELD.nearBlades, FIELD.nearReach, 30, 0.6),
-                  flowers(),
-                  butterflies(),
-                  ...you,
-              ],
+            ? [ground(), ...grass().slice(0, 2), ...you]
+            : [ground(), boulders(), ...grass(), flowers(), butterflies(), ...you],
     };
 }
 
