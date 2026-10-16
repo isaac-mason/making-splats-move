@@ -7,7 +7,7 @@
     },
     "files": {
         "ignoreUnknown": true,
-        "includes": ["**", "!**/wind.json", "!spark"]
+        "includes": ["**", "!**/wind.json"]
     },
     "formatter": {
         "enabled": true,

@@ -13,8 +13,9 @@
         "build:lod": "scripts/build-lod.sh"
     },
     "dependencies": {
-        "three": "^0.186.0",
-        "spark-radix": "link:../spark"
+        "mp4-muxer": "^5.2.2",
+        "spark-radix": "catalog:",
+        "three": "^0.186.0"
     },
     "devDependencies": {
         "@types/three": "^0.186.0",

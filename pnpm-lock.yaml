@@ -4,6 +4,12 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    spark-radix:
+      specifier: github:asundqui/radix-test#22cdb1702f66231b3cc6440f35154ec9a81242f3
+      version: 0.1.0
+
 overrides:
   three: ^0.186.0
   '@types/three': ^0.186.0
@@ -34,8 +40,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0
       spark-radix:
-        specifier: link:../spark
-        version: link:../spark
+        specifier: 'catalog:'
+        version: git+https://github.com/asundqui/radix-test.git#22cdb1702f66231b3cc6440f35154ec9a81242f3(three@0.186.1)
       three:
         specifier: ^0.186.0
         version: 0.186.1
@@ -56,8 +62,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0
       spark-radix:
-        specifier: link:../spark
-        version: link:../spark
+        specifier: 'catalog:'
+        version: git+https://github.com/asundqui/radix-test.git#22cdb1702f66231b3cc6440f35154ec9a81242f3(three@0.186.1)
       three:
         specifier: ^0.186.0
         version: 0.186.1
@@ -75,8 +81,8 @@ importers:
   dust:
     dependencies:
       spark-radix:
-        specifier: link:../spark
-        version: link:../spark
+        specifier: 'catalog:'
+        version: git+https://github.com/asundqui/radix-test.git#22cdb1702f66231b3cc6440f35154ec9a81242f3(three@0.186.1)
       three:
         specifier: ^0.186.0
         version: 0.186.1
@@ -93,9 +99,12 @@ importers:
 
   fire:
     dependencies:
+      mp4-muxer:
+        specifier: ^5.2.2
+        version: 5.2.2
       spark-radix:
-        specifier: link:../spark
-        version: link:../spark
+        specifier: 'catalog:'
+        version: git+https://github.com/asundqui/radix-test.git#22cdb1702f66231b3cc6440f35154ec9a81242f3(three@0.186.1)
       three:
         specifier: ^0.186.0
         version: 0.186.1
@@ -113,8 +122,8 @@ importers:
   reveal:
     dependencies:
       spark-radix:
-        specifier: link:../spark
-        version: link:../spark
+        specifier: 'catalog:'
+        version: git+https://github.com/asundqui/radix-test.git#22cdb1702f66231b3cc6440f35154ec9a81242f3(three@0.186.1)
       three:
         specifier: ^0.186.0
         version: 0.186.1
@@ -132,8 +141,8 @@ importers:
   wind:
     dependencies:
       spark-radix:
-        specifier: link:../spark
-        version: link:../spark
+        specifier: 'catalog:'
+        version: git+https://github.com/asundqui/radix-test.git#22cdb1702f66231b3cc6440f35154ec9a81242f3(three@0.186.1)
       three:
         specifier: ^0.186.0
         version: 0.186.1
@@ -315,6 +324,9 @@ packages:
   '@tweenjs/tween.js@23.1.3':
     resolution: {integrity: sha512-vJmvvwFxYuGnF2axRtPYocag6Clbb5YS7kLL+SO/TeVFzHqDIWrNKYtcsPMibjDx9O+bu+psAy9NKfWklassUA==}
 
+  '@types/dom-webcodecs@0.1.19':
+    resolution: {integrity: sha512-+yFUIDUaASFz0vQpWBErPxun/Lb+F0TdrlTsj50gm7K797YzEx2TmV6fEiwciHyFNghlZYPgQXH5qRcwMHcJFQ==}
+
   '@types/stats.js@0.17.4':
     resolution: {integrity: sha512-jIBvWWShCvlBqBNIZt0KAshWpvSjhkwkEu4ZUcASoAvhmrgAUI2t1dXrjSL4xXVLB4FznPrIsX3nKXFl/Dt4vA==}
 
@@ -323,6 +335,9 @@ packages:
 
   '@types/webxr@0.5.24':
     resolution: {integrity: sha512-h8fgEd/DpoS9CBrjEQXR+dIDraopAEfu4wYVNY2tEPwk60stPWhvZMf4Foo5FakuQ7HFZoa8WceaWFervK2Ovg==}
+
+  '@types/wicg-file-system-access@2020.9.8':
+    resolution: {integrity: sha512-ggMz8nOygG7d/stpH40WVaNvBwuyYLnrg5Mbyf6bmsj/8+gb6Ei4ZZ9/4PNpcPNTT8th9Q8sM8wYmWGjMWLX/A==}
 
   crashcat@0.0.5:
     resolution: {integrity: sha512-8BcoWz5sfUxUTCzFlBImHNsWei4Wso18MOHkjeZjgEGCq+SPlbYr65USCCeVsEOTq1GM6Aai/HHvmgfpKw61dQ==}
@@ -436,6 +451,10 @@ packages:
   meshoptimizer@1.1.1:
     resolution: {integrity: sha512-oRFNWJRDA/WTrVj7NWvqa5HqE1t9MYDj2VaWirQCzCCrAd2GHrqR/sQezCxiWATPNlKTcRaPRHPJwIRoPBAp5g==}
 
+  mp4-muxer@5.2.2:
+    resolution: {integrity: sha512-dhozjTywI0h2qFzeShagt8YYw811fh1XlwiDCE2f6Aeqf6xG2CyuShoSa5E0AZDO8pPF0JOZ3wOmWBNWIGdSpQ==}
+    deprecated: This library is superseded by Mediabunny. Please migrate to it.
+
   nanoid@3.3.19:
     resolution: {integrity: sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
@@ -460,6 +479,16 @@ packages:
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
+
+  spark-radix@git+https://github.com/asundqui/radix-test.git#22cdb1702f66231b3cc6440f35154ec9a81242f3:
+    resolution: {commit: 22cdb1702f66231b3cc6440f35154ec9a81242f3, repo: https://github.com/asundqui/radix-test.git, type: git}
+    version: 0.1.0
+    engines: {node: '>=22.13'}
+    peerDependencies:
+      three: ^0.186.0
+    peerDependenciesMeta:
+      three:
+        optional: true
 
   three@0.186.1:
     resolution: {integrity: sha512-blFeqb49wRCSGUGj7gtpfnSGHy2lwDk94RhUmS1c/hTby70kvChbWpkJ4Pm1390LqzzvTmzgXKHPEafJwCb8jA==}
@@ -606,6 +635,8 @@ snapshots:
 
   '@tweenjs/tween.js@23.1.3': {}
 
+  '@types/dom-webcodecs@0.1.19': {}
+
   '@types/stats.js@0.17.4': {}
 
   '@types/three@0.186.0':
@@ -618,6 +649,8 @@ snapshots:
       meshoptimizer: 1.1.1
 
   '@types/webxr@0.5.24': {}
+
+  '@types/wicg-file-system-access@2020.9.8': {}
 
   crashcat@0.0.5(three@0.186.1):
     dependencies:
@@ -691,6 +724,11 @@ snapshots:
 
   meshoptimizer@1.1.1: {}
 
+  mp4-muxer@5.2.2:
+    dependencies:
+      '@types/dom-webcodecs': 0.1.19
+      '@types/wicg-file-system-access': 2020.9.8
+
   nanoid@3.3.19: {}
 
   picocolors@1.1.1: {}
@@ -725,6 +763,10 @@ snapshots:
       '@rolldown/binding-win32-x64-msvc': 1.2.8
 
   source-map-js@1.2.1: {}
+
+  spark-radix@git+https://github.com/asundqui/radix-test.git#22cdb1702f66231b3cc6440f35154ec9a81242f3(three@0.186.1):
+    optionalDependencies:
+      three: 0.186.1
 
   three@0.186.1: {}
 

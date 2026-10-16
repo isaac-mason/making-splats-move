@@ -6,3 +6,13 @@ packages:
     - 'avatars'
     - 'avatars-parts'
     - 'reveal'
+
+# The renderer: spark-radix, pinned to a commit of its GitHub repo and built from
+# source on install (its `prepare` script). To move to a newer commit, change the
+# hash here and run `pnpm install`.
+catalog:
+    spark-radix: github:asundqui/radix-test#22cdb1702f66231b3cc6440f35154ec9a81242f3
+
+# A git dependency with a build step has to be allowed to run it.
+onlyBuiltDependencies:
+    - spark-radix

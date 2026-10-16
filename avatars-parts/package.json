@@ -14,7 +14,7 @@
     "dependencies": {
         "math": "^0.1.0",
         "three": "^0.186.0",
-        "spark-radix": "link:../spark"
+        "spark-radix": "catalog:"
     },
     "devDependencies": {
         "@types/three": "^0.186.0",
