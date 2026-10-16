@@ -467,7 +467,7 @@ function blades(): SplatObject {
  * leads each drift, with strays of every kind in between.
  *
  * What keeps them from looking like stickers: each kind has its own shape (a
- * poppy's four broad cupped petals, a daisy's ring of thin rays, a buttercup's
+ * poppy's four broad cupped petals, a daisy's yellow dome in a ring of rays, a buttercup's
  * five glossy cups, a cornflower's ragged florets, a knapweed's upright tuft),
  * in muted colours; no two petals are quite alike, now and then one is missing;
  * heads are tipped every which way, so from eye height most are seen side-on;
@@ -478,7 +478,7 @@ const FLOWERS = {
     count: 10_000,
     stemSegments: 3,
     /** Petal slots per flower: the most any kind has. */
-    slots: 12,
+    slots: 16,
     /** Petal opacity past 1, for a crisp petal edge. */
     crisp: 1.5,
     /** The size of a drift (one over metres), where one starts and is full, and the strays' share. */
@@ -517,13 +517,13 @@ const FLOWERS = {
         },
         {
             name: 'oxeye daisy',
-            petal: [0.93, 0.92, 0.86],
-            centre: [0.88, 0.68, 0.16],
-            petals: 12,
-            length: 0.015,
-            width: 0.22,
-            cup: -0.08,
-            eye: 0.42,
+            petal: [0.9, 0.89, 0.83],
+            centre: [0.9, 0.66, 0.12],
+            petals: 16,
+            length: 0.013,
+            width: 0.3,
+            cup: -0.06,
+            eye: 0.7,
         },
         {
             name: 'buttercup',
@@ -627,13 +627,19 @@ function flowers(): SplatObject {
             const turn = slot.add(own.w.sub(0.5).mul(0.35)).div(count).add(b.z).mul(Math.PI);
             const headTurn = GpuSplatMath.quatMul(alignY(facing), yaw(turn)).toVar();
             const petalTurn = GpuSplatMath.quatMul(headTurn, vec4(0, 0, sin(cup.mul(0.5)), cos(cup.mul(0.5))));
-            const petalAt = head.center.add(GpuSplatMath.quatRotate(petalTurn, vec3(length.mul(1.05), 0, 0)));
             const centreSize = of('eye')(kind)
                 .mul(of('length')(kind))
                 .mul(scale)
-                .mul(bud.select(float(1.4), float(1)));
+                .mul(bud.select(float(1.4), float(1)))
+                .toVar();
+            // Petals radiate from the edge of the eye, not from under it.
+            const petalAt = head.center.add(
+                GpuSplatMath.quatRotate(petalTurn, vec3(centreSize.mul(0.8).add(length.mul(0.95)), 0, 0)),
+            );
+            // The eye sits a little proud of the petals, a dome, so it shows.
+            const eyeAt = head.center.add(facing.mul(centreSize.mul(0.35)));
 
-            const center = isStem.select(along.center, isCentre.select(head.center, petalAt)).toVar();
+            const center = isStem.select(along.center, isCentre.select(eyeAt, petalAt)).toVar();
             const quaternion = isStem.select(alignY(along.tangent), isCentre.select(headTurn, petalTurn));
             const scales = isStem.select(
                 vec3(0.0025, height.div(stemSegments).mul(0.6), 0.0025),

@@ -67,7 +67,7 @@ strays of every kind in between.
 What keeps them from looking like stickers:
 
 - **Each kind has its own shape**: a poppy's four broad cupped petals, a daisy's
-  ring of thin rays bent slightly back, a buttercup's five small cups, a
+  domed yellow eye in a dense ring of rays bent slightly back, a buttercup's five small cups, a
   cornflower's ragged florets, a knapweed's upright tuft.
 - **Muted colours**, and no two petals quite alike in size, angle or shade. Now and
   then one is missing.
