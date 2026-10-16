@@ -7,7 +7,7 @@
  * Encoding is WebCodecs (the hardware H.264 encoder, VP9 if it can't do the size and
  * rate) muxed to an MP4 in memory, then downloaded.
  *
- *   ?record=1&fps=120&seconds=12&width=1920&height=1080&mbps=60&stokes=3,8&warmup=4&sweep=1.8&rise=0.5&period=2.5&seed=1
+ *   ?record=1&fps=120&seconds=12&width=1920&height=1080&mbps=60&stokes=3,8&warmup=4&sweep=1.8&rise=0.5&period=2&seed=1
  *
  * `warmup` seconds run before the first frame, unrecorded, so the fire is already
  * burning rather than lighting as the take starts.
@@ -68,7 +68,7 @@ export function recordingFromUrl(): Recording | null {
         warmup: params.has('warmup') ? Math.max(0, Number(params.get('warmup')) || 0) : 4,
         sweep: unit('sweep', 1.8),
         rise: unit('rise', 0.5),
-        period: num('period', 2.5),
+        period: num('period', 2),
         seed: num('seed', 1),
     };
 }
@@ -115,18 +115,19 @@ export function scriptedMouse({ sweep, rise, period, seed, warmup }: Recording):
         x1,
         y1: between(-1, 1) * rise,
         start,
-        duration: between(0.7, 1.4) * period,
+        duration: between(0.6, 1.2) * period,
         sharp: between(1.6, 2.6),
         over: between(0, 0.1),
         // Brief: the hand passes through places rather than staying anywhere.
         rest: between(0, 0.25) * period,
     });
-    let move = stroke(0, 0, between(-1, 1) * sweep, -warmup);
+    let move = stroke(0, 0, (random() < 0.5 ? -1 : 1) * between(0.5, 1) * sweep, -warmup);
     const next = (from: Move): Move => {
-        // Nearly always across the window, by a varied amount, so it's side to side
-        // without being a metronome.
-        const side = Math.sign(from.x1 || 1) * (random() < 0.85 ? -1 : 1);
-        return stroke(from.x1, from.y1, side * between(0.35, 1) * sweep, from.start + from.duration + from.rest);
+        // Always across to the other side, by a varied amount and at a varied pace:
+        // side to side without being a metronome, and never two strokes one way,
+        // which in a short take reads as the camera wandering off.
+        const side = -Math.sign(from.x1);
+        return stroke(from.x1, from.y1, side * between(0.5, 1) * sweep, from.start + from.duration + from.rest);
     };
     return (time) => {
         while (time >= move.start + move.duration + move.rest) move = next(move);
