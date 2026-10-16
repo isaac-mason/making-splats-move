@@ -5,8 +5,31 @@ The hills and every blade of grass are splats generated on the GPU from their
 index and the time, so the wind costs nothing extra: each frame makes every blade
 afresh, already bent. Cloud shadows sweep across the hills.
 
-Drawn by [spark-radix][radix] on three.js's `WebGPURenderer`. Drag to look around,
-right-drag to move.
+Drawn by [spark-radix][radix] on three.js's `WebGPURenderer`. **WASD** to walk,
+**shift** to run, drag to look round, scroll to come closer or stand back.
+
+## A meadow without end
+
+You're a capsule of splats walking it in third person. Everything in the meadow,
+grass, ground, flowers and butterflies, lives in one 60 metre tile, and each thing
+is drawn at whichever copy of its place is nearest you. So it holds still in the
+world until you've gone far enough that it wraps round to the far side, out in
+the haze ahead. That's all on the GPU, per splat, so it costs nothing to run as
+far and as fast as you like. The hills, the flower drifts, the dry patches, the
+wind and the clouds are all world-space fields, so the land itself never repeats;
+only the scatter of blades does, 60 metres apart, where the haze hides it.
+
+## Trampling, on the GPU
+
+The grass parts round you and stays flattened behind you, springing back over a
+few seconds. That's a little simulation in a compute kernel: a 128 by 128 grid of
+grass state round you, a quarter of a metre a cell, each cell holding which way
+and how far its grass is pushed over. Each frame the kernel lets every cell spring
+back, and pushes the cells you're in outward from you and along your stride. The
+grid is addressed by world position and wraps like the meadow, and each cell
+remembers which bit of world it holds, so it starts clean when it wraps round to
+new ground. Blades and flowers read their cell. The CPU's only job is to say where
+you are. With no compute (the WebGL2 backend) the grass simply doesn't trample.
 
 ## A blade
 
@@ -16,8 +39,7 @@ tip leans by the blade's own rest lean plus the wind, so it bends from the root 
 curls most at the tip. Each blade is turned about its own length at random, so the
 field catches the light at every angle.
 
-The blades are scattered at random, crowded a little towards the middle where you
-stand. Random on purpose: it clumps a little, as grass does, where any evenly
+The blades are scattered at random. Random on purpose: it clumps a little, as grass does, where any evenly
 spread scheme shows its pattern as a lattice across a field. The randomness is
 three's PCG integer hash, since a cheap float hash of neighbouring indices
 correlates in just the same way.
@@ -124,7 +146,7 @@ colour, so the field's edge disappears.
 
 | File | Role |
 | --- | --- |
-| `src/field.ts` | The hills, the grass, the flowers, the butterflies, the wind and the clouds, each with its tunables. |
-| `src/index.ts` | The sky, the shot, the post pass and the loop. |
+| `src/field.ts` | The hills, the grass, the flowers, the butterflies, the wind, the clouds, the trampling and you, each with its tunables. |
+| `src/index.ts` | Walking and the follow camera, the sky, the post pass and the loop. |
 
 [radix]: https://github.com/asundqui/radix-test

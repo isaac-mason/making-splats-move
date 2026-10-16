@@ -1,11 +1,12 @@
 /**
- * Rolling hills of grass on a summer afternoon, every splat of it procedural
- * (field.ts): wind fronts comb the grass, and clouds drift over with their shadows
- * sweeping across the hills beneath them. The far field fades into a haze that is
- * also the sky's horizon.
+ * Rolling hills of grass on a summer afternoon that go on for ever, every splat of
+ * it procedural (field.ts): wind combs the grass, flowers and butterflies, cloud
+ * shadows sweep the hills, and you walk through it all, trampling a path. The far
+ * field fades into a haze that is also the sky's horizon.
  *
  * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
- * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`). Drag to look around.
+ * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`). WASD to walk, shift to run,
+ * drag to look round.
  */
 
 import { createRenderer, SplatCollection, SplatRenderer, TSL } from 'spark-radix';
@@ -14,22 +15,86 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { RenderPipeline, type WebGPURenderer } from 'three/webgpu';
 import cloudUrl from '../assets/cloud.jpg?url';
-import { HAZE, initField, SUN_DIRECTION, terrainHeight, updateField } from './field';
+import { HAZE, initField, SUN_DIRECTION, terrainHeight, updateField, type Walker } from './field';
 import './style.css';
 
 const { dot, max, mix, normalize, pass, positionWorldDirection, pow, screenUV, smoothstep, uniform, vec4 } = TSL;
 
-/* the shot */
+/* walking */
 
 /**
- * Low in the grass at the foot of a long smooth rise, looking up it to the crest
- * against the sky, the way the sketch this came from does. Heights come from the
- * hills themselves.
+ * You walk the meadow in third person: WASD (or the arrows) relative to where the
+ * camera looks, shift to run. The camera follows behind; drag to look round you,
+ * scroll to come closer or stand back. The meadow is centred on you and never
+ * ends, so you can run as far and as fast as you like.
  */
-const EYE_HEIGHT = 1.3;
-const LOOK = { angle: (140 * Math.PI) / 180, distance: 25, height: 0.3 };
-/** The lowest the camera may get over the grass while you drag it round. */
-const MIN_CLEARANCE = 1.1;
+const WALK = {
+    /** Walking and running speed, m/s, and how quickly you get up to speed. */
+    speed: 2.6,
+    run: 9,
+    grip: 8,
+    /** A stride's length, metres, for the bob. */
+    stride: 1.3,
+    /** Which way you face at the start, radians in xz: up the long rise to the crest. */
+    facing: (140 * Math.PI) / 180,
+    /** The camera: how far behind and above to start, and how close to the grass it may get. */
+    behind: 5.5,
+    above: 1.4,
+    clearance: 0.6,
+    /** What the camera looks at: you, at about chest height. */
+    chest: 1.0,
+};
+
+const KEYS: Record<string, [number, number]> = {
+    KeyW: [0, 1],
+    ArrowUp: [0, 1],
+    KeyS: [0, -1],
+    ArrowDown: [0, -1],
+    KeyA: [-1, 0],
+    ArrowLeft: [-1, 0],
+    KeyD: [1, 0],
+    ArrowRight: [1, 0],
+};
+
+function initKeys() {
+    const held = new Set<string>();
+    window.addEventListener('keydown', (event) => held.add(event.code));
+    window.addEventListener('keyup', (event) => held.delete(event.code));
+    window.addEventListener('blur', () => held.clear());
+    return held;
+}
+
+const forward = new THREE.Vector3();
+const right = new THREE.Vector3();
+const wanted = new THREE.Vector3();
+const before = new THREE.Vector3();
+
+/** Moves you a step by the keys held, along the ground, and the camera with you. */
+function walk(walker: Walker, held: Set<string>, camera: THREE.Camera, controls: OrbitControls, dt: number) {
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+    right.crossVectors(forward, camera.up).normalize();
+
+    wanted.set(0, 0, 0);
+    for (const code of held) {
+        const step = KEYS[code];
+        if (step) wanted.addScaledVector(right, step[0]).addScaledVector(forward, step[1]);
+    }
+    const running = held.has('ShiftLeft') || held.has('ShiftRight');
+    if (wanted.lengthSq() > 0) wanted.normalize().multiplyScalar(running ? WALK.run : WALK.speed);
+    walker.velocity.lerp(wanted, 1 - Math.exp(-WALK.grip * dt));
+
+    before.copy(walker.position);
+    walker.position.addScaledVector(walker.velocity, dt);
+    walker.position.y = terrainHeight(walker.position.x, walker.position.z);
+    walker.stride += (walker.velocity.length() * dt) / WALK.stride;
+
+    // The camera comes along, keeping its place behind you.
+    before.subVectors(walker.position, before);
+    camera.position.add(before);
+    controls.target.copy(walker.position).y += WALK.chest;
+}
 
 /** So a stall or a tab switch can't jump the wind forward. */
 const MAX_DT = 0.1;
@@ -94,10 +159,12 @@ async function start() {
     scene.backgroundNode = skyNode();
 
     const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 500);
-    camera.position.set(0, terrainHeight(0, 0) + EYE_HEIGHT, 0);
-    const lookX = Math.cos(LOOK.angle) * LOOK.distance;
-    const lookZ = Math.sin(LOOK.angle) * LOOK.distance;
-    const target = new THREE.Vector3(lookX, terrainHeight(lookX, lookZ) + LOOK.height, lookZ);
+    const walker: Walker = { position: new THREE.Vector3(0, terrainHeight(0, 0), 0), velocity: new THREE.Vector3(), stride: 0 };
+    const target = walker.position.clone();
+    target.y += WALK.chest;
+    camera.position.set(-Math.cos(WALK.facing), 0, -Math.sin(WALK.facing)).multiplyScalar(WALK.behind).add(target);
+    camera.position.y += WALK.above;
+    const held = initKeys();
 
     // WebGPU, or the WebGL2 backend where it's missing. MSAA doesn't help splats.
     const renderer = await createRenderer({ antialias: false });
@@ -108,16 +175,16 @@ async function start() {
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.copy(target);
     controls.enableDamping = true;
-    // Right-drag pans, along the ground rather than up into the sky.
-    controls.screenSpacePanning = false;
-    // Up the slope to the crest at most, never up into the empty sky; never far above.
-    controls.minPolarAngle = 1.05;
+    // The camera's tied to you, so no panning away.
+    controls.enablePan = false;
+    // Never under the grass, never straight down on you.
+    controls.minPolarAngle = 0.5;
     controls.maxPolarAngle = 1.6;
-    controls.minDistance = 8;
-    controls.maxDistance = 35;
+    controls.minDistance = 2.5;
+    controls.maxDistance = 14;
     controls.update();
 
-    const field = initField(await new THREE.TextureLoader().loadAsync(cloudUrl));
+    const field = initField(renderer, await new THREE.TextureLoader().loadAsync(cloudUrl));
     const splats = new SplatRenderer({ renderer });
     splats.collection = new SplatCollection(field.objects);
     scene.add(splats);
@@ -138,16 +205,19 @@ async function start() {
         const dt = Math.min((now - last) / 1000, MAX_DT);
         elapsed += dt;
         last = now;
+        walk(walker, held, camera, controls, dt);
         controls.update();
-        // Dragging round can swing the camera into a hill: keep it above the grass.
-        const floor = terrainHeight(camera.position.x, camera.position.z) + MIN_CLEARANCE;
+        // Looking round can swing the camera into a hill: keep it above the grass.
+        const floor = terrainHeight(camera.position.x, camera.position.z) + WALK.clearance;
         if (camera.position.y < floor) camera.position.y = floor;
-        updateField(elapsed, dt, camera);
+        updateField(elapsed, dt, camera, walker);
         // The WebGL2 backend sorts on the CPU and only when asked; everything moves.
         if (splats.sortMode === 'cpu') splats.requestSort();
         pipeline.render();
         // A few frames in, past the first frame's shader compiles.
         if (++frames === 3) document.getElementById('loading')?.classList.add('hidden');
+        // The hint goes once you've set off.
+        if (walker.velocity.lengthSq() > 1) document.getElementById('hint')?.classList.add('hidden');
     });
 }
 

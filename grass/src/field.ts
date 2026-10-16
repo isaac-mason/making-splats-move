@@ -20,10 +20,23 @@
  * their shadows sweeping over the hills.
  */
 
-import { GpuSplatMath, GpuSplats, SplatCollection, type SplatObject, TSL, type TslNode } from 'spark-radix';
+import {
+    GpuSplatMath,
+    GpuSplats,
+    getGpuCaps,
+    SplatCollection,
+    type SplatObject,
+    TSL,
+    type TslNode,
+    WgpuBuffer,
+    WgpuCompute,
+    WgpuComputeBatch,
+} from 'spark-radix';
 import * as THREE from 'three';
+import type { WebGPURenderer } from 'three/webgpu';
 
 const {
+    If,
     abs,
     atan,
     clamp,
@@ -64,14 +77,17 @@ const SUN: [number, number, number] = [1.0, 0.93, 0.78];
 const SKYLIGHT: [number, number, number] = [0.42, 0.5, 0.62];
 
 const FIELD = {
-    radius: 34,
+    /**
+     * Half the size of the tile of meadow round you, metres. Everything in it is
+     * drawn at whichever copy of its place is nearest you, so the meadow never
+     * ends: what you leave behind comes round again out in the haze ahead.
+     */
+    reach: 30,
     blades: 260_000,
     segments: 5,
     ground: 90_000,
-    /** Below 1, blades crowd towards the middle, where the camera stands. */
-    spread: 0.6,
     /** Where the fade into haze starts and is complete, metres from the camera. */
-    fog: [9, 36],
+    fog: [9, 30],
 };
 
 /**
@@ -171,6 +187,13 @@ const GROUND = {
 export const time = uniform(0);
 /** Where the camera is, for distance fog and backlight. */
 export const eye = uniform(new THREE.Vector3());
+/** Where you are: the meadow is centred on you, and you trample it. */
+const you = uniform(new THREE.Vector3());
+/** Your velocity, m/s. */
+const yourVelocity = uniform(new THREE.Vector3());
+/** Your stride: walking phase in cycles, for the bob. */
+const stride = uniform(0);
+const frameDt = uniform(1 / 60);
 /** The way the wind blows now, a unit xz vector. */
 const windDir = uniform(new THREE.Vector2(1, 0));
 /** How far the wind has carried the gusts and the clouds: integrated, so veering never jumps them. */
@@ -269,15 +292,18 @@ const alignY = (dir: TslNode): TslNode => normalize(vec4(cross(vec3(0, 1, 0), di
 const yaw = (half: TslNode): TslNode => vec4(0, sin(half), 0, cos(half));
 
 /**
- * A random point on the field from two random numbers, crowded towards the middle
- * by `spread` (0.5 would be even). Plain random on purpose: it clumps a little,
- * as grass does, where any evenly spread scheme shows its pattern across a field.
- * Returns the xz point and how far out it is, 0..1.
+ * A random point in the meadow from two random numbers: one place in the tile,
+ * drawn at whichever copy of it is nearest you, so it holds still in the world
+ * until you've gone far enough that it wraps round to the far side, out in the
+ * haze. Plain random on purpose: it clumps a little, as grass does, where any
+ * evenly spread scheme shows its pattern across a field. Returns the xz point and
+ * how far out it is, 0..1, for the fade at the edge.
  */
-function scatter(random: TslNode): { xz: TslNode; out: TslNode } {
-    const out = pow(random.x, FIELD.spread);
-    const angle = random.y.mul(Math.PI * 2);
-    return { xz: vec2(cos(angle), sin(angle)).mul(out.mul(FIELD.radius)), out };
+function place(random: TslNode): { xz: TslNode; out: TslNode } {
+    const size = FIELD.reach * 2;
+    const local = random.xy.mul(size);
+    const xz = local.add(you.xz.sub(local).div(size).round().mul(size)).toVar();
+    return { xz, out: length(xz.sub(you.xz)).div(FIELD.reach) };
 }
 
 /** The far field's finish: fade towards the haze with distance, and out at the edge. */
@@ -301,6 +327,91 @@ function generated(count: number, body: (index: TslNode) => TslNode, hard = fals
         generator: { generateSplat: body },
         ...(hard ? { params: { lodInflate: false } } : {}),
     });
+}
+
+/* trampling, on the GPU */
+
+/**
+ * Where you've walked: a grid of grass state round you, simulated in a compute
+ * kernel each frame. Each cell holds which way and how far its grass is pushed
+ * over. You push the grass in your way outward and along your stride; every cell
+ * springs back over a few seconds. The grid is addressed by world position and
+ * wraps, like the meadow, and each cell remembers which bit of world it holds, so
+ * it starts clean when it wraps round to new ground. Any speed, any length of
+ * trail, and nothing per frame on the CPU but where you are. WebGPU only: with no
+ * compute (the WebGL2 backend) the grass just doesn't trample.
+ */
+const TRAMPLE = {
+    /** Cells across, and a cell's size in metres: 32 m of trail round you. */
+    cells: 128,
+    cell: 0.25,
+    /** How close the grass is pushed, metres, and how far over (radians). */
+    radius: 0.6,
+    flatten: 1.25,
+    /** How far your stride drags it along, against the outward push. */
+    drag: 0.5,
+    /** Seconds for trampled grass to get most of the way back up. */
+    recover: 2.5,
+};
+
+type Trample = { grid: WgpuBuffer<'float32x4'>; kernel: WgpuCompute; batch: WgpuComputeBatch };
+let trampleState: Trample | null = null;
+
+/** `x` modulo `n`, always 0..n: WGSL's own keeps a negative's sign, and world cells go negative. */
+const wrap = (x: TslNode, n: number): TslNode => x.sub(x.div(n).floor().mul(n));
+
+/** The world cell that grid slot (i, j) holds now: of all that share it, the nearest you. */
+function slotCell(i: TslNode, j: TslNode): TslNode {
+    const n = TRAMPLE.cells;
+    const yours = you.xz.div(TRAMPLE.cell).floor();
+    const slot = vec2(i, j);
+    const away = wrap(slot.sub(yours).add(n / 2), n).sub(n / 2);
+    return yours.add(away);
+}
+
+function initTrample(renderer: WebGPURenderer): Trample {
+    const n = TRAMPLE.cells;
+    const grid = new WgpuBuffer({ renderer, format: 'float32x4', count: n * n });
+    const kernel = new WgpuCompute({
+        label: 'grassTrample',
+        body: ({ index }) => {
+            If(index.lessThan(uint(n * n)), () => {
+                const i = float(index.mod(uint(n)));
+                const j = float(index.div(uint(n)));
+                const cell = slotCell(i, j);
+                const state = grid.element(index).toVar();
+                // New ground: the slot wrapped round to a cell it hasn't held.
+                If(state.zw.notEqual(cell).any(), () => {
+                    state.assign(vec4(0, 0, cell));
+                });
+                // Spring back.
+                const push = state.xy.mul(frameDt.div(TRAMPLE.recover).mul(-2.3).exp()).toVar();
+                // You: grass in your way pushed out from you and along your stride.
+                const offset = cell.add(0.5).mul(TRAMPLE.cell).sub(you.xz);
+                const reach = smoothstep(TRAMPLE.radius, TRAMPLE.radius * 0.25, length(offset));
+                const moving = yourVelocity.xz;
+                const along = moving.div(max(length(moving), 0.5)).mul(TRAMPLE.drag);
+                const shove = normalize(offset.add(1e-4)).add(along).mul(TRAMPLE.flatten).mul(reach);
+                // Toward the shove, quickly, but never less trampled than it was.
+                const toward = mix(push, shove, clamp(frameDt.mul(12).mul(reach), 0, 1));
+                push.assign(length(toward).greaterThan(length(push)).select(toward, push));
+                grid.element(index).assign(vec4(push, cell));
+            });
+        },
+    });
+    return { grid, kernel, batch: new WgpuComputeBatch(renderer) };
+}
+
+/** How far the grass at `xz` is pushed over by your passing: an xz vector, its length in radians. */
+function trampled(xz: TslNode): TslNode {
+    const state = trampleState;
+    if (!state) return vec2(0);
+    const n = TRAMPLE.cells;
+    const cell = xz.div(TRAMPLE.cell).floor();
+    const slot = wrap(cell, n);
+    const value = state.grid.element(uint(slot.y.mul(n).add(slot.x)));
+    // Only if the slot holds this cell: otherwise it's a stale bit of somewhere else.
+    return value.zw.equal(cell).all().select(value.xy, vec2(0));
 }
 
 /* the wind and the stem, shared by the grass and the flowers */
@@ -402,7 +513,7 @@ function blades(): SplatObject {
         const b = hash4(blade, 1).toVar();
         const c = hash4(blade, 2).toVar();
 
-        const { xz, out } = scatter(a);
+        const { xz, out } = place(a);
         const ground = terrain(xz);
         const root = vec3(xz.x, ground.height, xz.y).toVar();
 
@@ -419,7 +530,7 @@ function blades(): SplatObject {
         const { gust, push } = windAt(xz, height, c);
         const leanAngle = b.z.mul(Math.PI * 2);
         const lean = vec2(cos(leanAngle), sin(leanAngle)).mul(b.w.mul(BLADE.restLean));
-        const { center, tangent } = stem(root, height, lean.add(windDir.mul(push)), s);
+        const { center, tangent } = stem(root, height, lean.add(windDir.mul(push)).add(trampled(xz)), s);
 
         // Facing turns the blade about its own length; then it's stood along the stem.
         const quaternion = GpuSplatMath.quatMul(alignY(tangent), yaw(b.y.mul(Math.PI))).toVar();
@@ -564,7 +675,7 @@ function flowerPlan(flower: TslNode) {
     const a = hash4(flower, 4).toVar();
     const b = hash4(flower, 5).toVar();
     const c = hash4(flower, 6).toVar();
-    const { xz, out } = scatter(a);
+    const { xz, out } = place(a);
     const root = vec3(xz.x, terrain(xz).height, xz.y).toVar();
     // Drifts: flowers only where the drift field gathers them, but for strays.
     const drift = mx_noise_float(xz.mul(FLOWERS.drift).add(41.7)).mul(0.5).add(0.5);
@@ -574,7 +685,10 @@ function flowerPlan(flower: TslNode) {
     const height = mix(FLOWERS.height[0], FLOWERS.height[1], b.x).toVar();
     const { gust, push } = windAt(xz, height, c);
     // A little stiffer than grass, and each with a lean of its own.
-    const bend = windDir.mul(push.mul(0.75)).add(vec2(cos(b.y.mul(6.283)), sin(b.y.mul(6.283))).mul(0.15));
+    const bend = windDir
+        .mul(push.mul(0.75))
+        .add(vec2(cos(b.y.mul(6.283)), sin(b.y.mul(6.283))).mul(0.15))
+        .add(trampled(xz));
     return { a, b, c, xz, out, root, here, height, gust, bend };
 }
 
@@ -709,7 +823,7 @@ function flowers(): SplatObject {
 /* the butterflies */
 
 /**
- * Butterflies working the flowers in front of you. Each goes from flower to
+ * Butterflies working the flowers all over the meadow. Each goes from flower to
  * flower: it rests on one (wings closed upright, opening flat now and then to bask,
  * swaying with the flower in the wind), takes off, flies an eased, curving path
  * with a rise in the middle, and lands on the next. The flowers are the real ones:
@@ -723,10 +837,7 @@ function flowers(): SplatObject {
  * enough to glow with the sun behind them.
  */
 const BUTTERFLIES = {
-    count: 50,
-    /** Where they work (xz, metres from the middle, the way the shot looks) and how far round it. */
-    home: [-6, 5],
-    roam: 9,
+    count: 120,
     /** How many flowers each looks at to choose its next. */
     choices: 6,
     /** Seconds per flower, rest and flight together, and the share spent resting. */
@@ -787,11 +898,8 @@ function butterflies(): SplatObject {
             const c = hash4(fly, 10).toVar();
             const t = time;
 
-            // Its patch, somewhere in the meadow in front of you.
-            const homeAngle = a.x.mul(Math.PI * 2);
-            const home = vec2(BUTTERFLIES.home[0], BUTTERFLIES.home[1]).add(
-                vec2(cos(homeAngle), sin(homeAngle)).mul(a.y.sqrt().mul(BUTTERFLIES.roam)),
-            );
+            // Its patch: a place in the meadow, wrapping round you like everything else.
+            const home = place(a.xy).xz;
 
             // The flower of visit k: of a few at random, the nearest that shows. Its
             // head, where the butterfly sits, moves with the flower in the wind.
@@ -943,20 +1051,99 @@ function butterflies(): SplatObject {
     );
 }
 
+/* you */
+
+/**
+ * You: a capsule of splats standing in the grass, lit like everything else. It
+ * bobs as it walks and leans into its stride.
+ */
+const YOU = {
+    /** Splats over its surface. */
+    splats: 900,
+    radius: 0.26,
+    /** Height of the straight part between the two round ends, metres. */
+    middle: 0.9,
+    colour: [0.88, 0.5, 0.36],
+    /** How far it leans into its stride, radians per m/s, and bobs, metres. */
+    lean: 0.035,
+    bob: 0.035,
+};
+
+function capsule(): SplatObject {
+    const { splats, radius, middle } = YOU;
+    // Spread over the surface by area: the round ends and the straight middle.
+    const capArea = 4 * Math.PI * radius * radius;
+    const sideArea = 2 * Math.PI * radius * middle;
+    const onSide = sideArea / (capArea + sideArea);
+
+    return generated(
+        splats,
+        (index) => {
+            const r = hash4(index, 12).toVar();
+            const i = float(index);
+            // An even spiral round it, a golden angle a step, a little jittered.
+            const around = i.mul(2.399963).add(r.x.mul(0.4));
+            const t = i.add(r.y).div(splats);
+            const side = t.lessThan(onSide);
+            // On the side: straight up the middle. On the ends: a hemisphere each.
+            const sideY = t.div(onSide).sub(0.5).mul(middle);
+            const capT = t.sub(onSide).div(1 - onSide);
+            const top = capT.greaterThan(0.5);
+            const capU = capT.mul(2).fract();
+            const lat = capU.acos();
+            const normal = side
+                .select(
+                    vec3(cos(around), 0, sin(around)),
+                    vec3(cos(around).mul(lat.sin()), top.select(lat.cos(), lat.cos().negate()), sin(around).mul(lat.sin())),
+                )
+                .toVar();
+            const anchor = side.select(sideY, top.select(float(middle / 2), float(-middle / 2)));
+            const local = normal.mul(radius).add(vec3(0, anchor, 0));
+
+            // Standing on the ground under you, bobbing, leaning into the stride.
+            const speed = length(yourVelocity.xz);
+            const bob = sin(stride.mul(Math.PI * 2))
+                .abs()
+                .mul(YOU.bob)
+                .mul(clamp(speed.div(2), 0, 1));
+            const height = local.y.add(middle / 2 + radius);
+            const lean = yourVelocity.xz.mul(YOU.lean).mul(height);
+            const center = you.add(vec3(local.x.add(lean.x), height.add(bob), local.z.add(lean.y))).toVar();
+
+            const quaternion = alignY(normal);
+            const size = radius * 0.16;
+            const scales = vec3(size, 0.012, size);
+
+            const lit = sunlight(center);
+            const rgb = v3(YOU.colour)
+                .mul(r.z.mul(0.08).add(0.96))
+                .mul(
+                    v3(SUN)
+                        .mul(max(dot(normal, sun), 0).mul(0.85))
+                        .mul(lit)
+                        .add(v3(SKYLIGHT).mul(0.6)),
+                );
+            const finish = distance(center, float(0), rgb);
+            return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity.mul(1.4), uint(index));
+        },
+        true,
+    );
+}
+
 /* the ground */
 
 function ground(): SplatObject {
     // Each splat covers about its share of the field, so they overlap into a floor.
-    const share = Math.sqrt((Math.PI * FIELD.radius ** 2) / FIELD.ground);
+    const share = Math.sqrt((2 * FIELD.reach) ** 2 / FIELD.ground);
 
     return generated(FIELD.ground, (index) => {
         const a = hash4(index, 0).toVar();
         const b = hash4(index, 1).toVar();
-        const { xz, out } = scatter(a);
+        const { xz, out } = place(a);
         const land = terrain(xz);
         const center = vec3(xz.x, land.height.add(b.x.mul(0.01)), xz.y).toVar();
 
-        const size = mix(0.75, 1.4, out).mul(share).mul(b.y.mul(0.5).add(0.8));
+        const size = float(share).mul(b.y.mul(0.5).add(0.8));
         const scales = vec3(size, 0.004, size.mul(b.z.mul(0.5).add(0.5)));
         // Lying on the hillside, turned at random about it.
         const quaternion = GpuSplatMath.quatMul(alignY(land.normal), yaw(b.w.mul(Math.PI)));
@@ -981,16 +1168,26 @@ function ground(): SplatObject {
 export type Field = { objects: SplatObject[] };
 
 /** `clouds` is the cloud picture, already loaded: dark cloud on white. */
-export function initField(clouds: THREE.Texture): Field {
+export function initField(renderer: WebGPURenderer, clouds: THREE.Texture): Field {
     clouds.wrapS = clouds.wrapT = THREE.RepeatWrapping;
     clouds.colorSpace = THREE.NoColorSpace;
     cloudMap = clouds;
-    return { objects: [ground(), blades(), flowers(), butterflies()] };
+    // Before the generators: they read the trample grid if there is one.
+    trampleState = getGpuCaps(renderer).compute ? initTrample(renderer) : null;
+    return { objects: [ground(), blades(), flowers(), butterflies(), capsule()] };
 }
 
-export function updateField(elapsed: number, dt: number, camera: THREE.Camera): void {
+/** Where you are and how you're moving, for the meadow round you. */
+export type Walker = { position: THREE.Vector3; velocity: THREE.Vector3; stride: number };
+
+export function updateField(elapsed: number, dt: number, camera: THREE.Camera, walker: Walker): void {
     time.value = elapsed;
+    frameDt.value = Math.max(dt, 1e-4);
     eye.value.copy(camera.position);
+    you.value.copy(walker.position);
+    yourVelocity.value.copy(walker.velocity);
+    stride.value = walker.stride;
+    if (trampleState) trampleState.batch.add(trampleState.kernel, TRAMPLE.cells ** 2).submit();
     // The wind veers on two slow sines, and carries the gusts and clouds along it.
     const angle = WIND.angle + WIND.veer * (0.7 * Math.sin(elapsed * 0.031) + 0.3 * Math.sin(elapsed * 0.083 + 1.7));
     windDir.value.set(Math.cos(angle), Math.sin(angle));

@@ -8,8 +8,8 @@
 | [`fire/`](fire) | A campfire under a starry sky: a procedural splat flame, splat-space lighting, heat shimmer and embers. |
 | [`avatars/`](avatars) | Procedural rigged characters built out of splats, dual-quaternion skinned by a splat generator and walking around a town square. |
 | [`avatars-parts/`](avatars-parts) | How the avatars are drawn, in five short files: splat shapes, a face built from them, a body, that body skinned, and a flower that bends. The version to read first. |
-| [`grass/`](grass) | Rolling hills of grass with nothing captured: a quarter of a million splat blades combed by the wind, drifts of wildflowers, butterflies, and cloud shadows sweeping the hills. |
-| [`clouds/`](clouds) | A broken, cloudy day with nothing captured: splats sampling a billowy density field, each marching its own light, and a low sun throwing shafts through the gaps. |
+| [`grass/`](grass) | An endless meadow with nothing captured: walk it in third person and trample a path, through splat grass combed by the wind, drifts of wildflowers, butterflies and cloud shadows. |
+| [`clouds/`](clouds) | An endless glide through broken cumulus at golden hour, nothing captured: splats sampling a billowy density field, each marching its own light, the sun peeking out between them and their shadows on the land below. |
 
 ## Quick start
 
