@@ -261,7 +261,7 @@ export const TREES = {
     branches: 5,
     /** Leaves: each a small, crisp, leaf-shaped splat (length, width, metres). */
     leaves: 24000,
-    leaf: [0.04, 0.019],
+    leaf: [0.045, 0.012],
     /** Cells drawn round you, each way; where they fade in, metres. */
     around: 2,
     fade: [40, 50],
@@ -2709,27 +2709,21 @@ function trees(): SplatObject {
             );
             const normal = isBark.select(radial, leafNormal).toVar();
             const lit = sunlight(center);
-            const facing = mix(dot(shaped, sun), dot(leafNormal, sun), 0.45);
-            const band = smoothstep(-0.02, 0.1, facing).mul(lit);
-            const tip = smoothstep(0.62, 0.72, facing).mul(lit);
-            // Deeper under and inside the canopy, and in the creases where a clump turns in
-            // towards the rest: that's what separates the clumps into shapes.
-            const outward = normalize(clumpCentre.add(vec3(0, tree.radius.mul(0.25), 0)));
-            const crease = smoothstep(-0.35, 0.45, dot(dir, outward)).mul(0.15).add(0.85);
-            const inside = smoothstep(-0.5, 0.5, canopyNormal.y).mul(0.2).add(0.8).mul(crease);
-            // Leafy speckle within each clump.
-            const speckle = mx_noise_float(local.mul(7).add(seed.xyz.mul(30)))
-                .mul(0.12)
-                .add(1);
-            // Each leaf its own shade, yellow-green to blue-green, now and then a bright one.
-            const hue = mix(vec3(1.08, 1.02, 0.8), vec3(0.85, 1, 1.15), h2.x);
-            const bright = h2.y.greaterThan(0.94).select(v3(TREES.tip).mul(1.5), vec3(0));
-            const leaf = mix(v3(TREES.deep), v3(TREES.light).mul(hue), band)
-                .add(v3(TREES.tip).mul(tip))
-                .add(bright.mul(band))
-                .mul(inside)
-                .mul(cr.y.mul(0.14).add(0.93))
-                .mul(speckle);
+            // Lit the way the grass is, so the tree belongs to the same meadow: the
+            // grass's greens, soft sun on each leaf, shaded by how the canopy faces the sun
+            // (as a blade by its hillside), blue skylight, light through the leaves towards
+            // the sun, darker under and inside the canopy. No cel banding: that was another
+            // picture's style pasted in.
+            const leafFacing = abs(dot(leafNormal, sun)).mul(0.5).add(0.5);
+            const canopyFacing = clamp(dot(canopyNormal, sun).mul(1.2), 0.25, 1.1);
+            const inside = smoothstep(-0.6, 0.6, canopyNormal.y).mul(0.4).add(0.6);
+            const view = normalize(center.sub(eye));
+            const through = pow(max(dot(view, sun), 0), 5).mul(0.4);
+            const green = mix(v3(BLADE.deep), v3(BLADE.fresh), h2.x.mul(0.7).add(cr.y.mul(0.3)));
+            const body = mix(green, mix(green, v3(BLADE.tip), 0.5), smoothstep(0.1, 0.8, canopyNormal.y).mul(h2.z));
+            const leaf = body
+                .mul(v3(SUN).mul(leafFacing.mul(canopyFacing).add(through)).mul(lit).mul(0.95).add(v3(SKYLIGHT).mul(0.55)))
+                .mul(inside);
             const bark = v3(TREES.trunkColour)
                 .mul(h.z.mul(0.15).add(0.88))
                 .mul(streak)
@@ -2738,7 +2732,9 @@ function trees(): SplatObject {
                         .mul(max(dot(normal, sun), 0).mul(0.7))
                         .mul(lit)
                         .add(v3(SKYLIGHT).mul(0.5)),
-                );
+                )
+                // In its own canopy's shade.
+                .mul(0.6);
             const rgb = isBark.select(bark, isCore.select(v3(TREES.deep).mul(0.45).mul(inside), leaf));
 
             const size = h.y.mul(0.5).add(0.75);
