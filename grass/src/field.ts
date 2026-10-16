@@ -247,14 +247,18 @@ export const TREES = {
     cell: 26,
     chance: 0.5,
     /** The trunk: height to the canopy and radius, metres. */
-    trunk: [2.2, 3.2],
-    girth: 0.17,
+    trunk: [3.4, 4.6],
+    girth: 0.2,
     /** The canopy's radius, metres, and its leaf clumps, spread over a dome. */
-    canopy: [2.1, 3.1],
+    canopy: [2.6, 3.6],
     puffs: 18,
     /** Splats in the trunk and in the canopy. */
     bark: 500,
-    leaves: 9000,
+    /** Dark splats filling each clump's heart, so gaps between leaves show shade, not grass. */
+    core: 180,
+    /** Leaves: each a small, crisp, leaf-shaped splat (length, width, metres). */
+    leaves: 24000,
+    leaf: [0.032, 0.015],
     /** Cells drawn round you, each way; where they fade in, metres. */
     around: 2,
     fade: [40, 50],
@@ -2584,100 +2588,143 @@ function pathSurface(): SplatObject {
 
 function trees(): SplatObject {
     const span = TREES.around * 2 + 1;
-    const perTree = TREES.bark + TREES.leaves;
-    return generated(span * span * perTree, (index) => {
-        const slot = index.div(uint(perTree));
-        const k = float(index.mod(uint(perTree)));
-        const yours = you.xz.div(TREES.cell).floor();
-        const cx = yours.x.add(float(slot.mod(uint(span)))).sub(TREES.around);
-        const cz = yours.y.add(float(slot.div(uint(span)))).sub(TREES.around);
-        const tree = treeOf(cx, cz);
-        const h = hash4(index, 46).toVar();
-        const seed = hash4(tree.seed, 47).toVar();
-        const ground = terrain(tree.xz).height;
-        const base = vec3(tree.xz.x, ground, tree.xz.y);
-        const isBark = k.lessThan(TREES.bark);
+    const perTree = TREES.bark + TREES.core + TREES.leaves;
+    return generated(
+        span * span * perTree,
+        (index) => {
+            const slot = index.div(uint(perTree));
+            const k = float(index.mod(uint(perTree)));
+            const yours = you.xz.div(TREES.cell).floor();
+            const cx = yours.x.add(float(slot.mod(uint(span)))).sub(TREES.around);
+            const cz = yours.y.add(float(slot.div(uint(span)))).sub(TREES.around);
+            const tree = treeOf(cx, cz);
+            const h = hash4(index, 46).toVar();
+            const seed = hash4(tree.seed, 47).toVar();
+            const ground = terrain(tree.xz).height;
+            const base = vec3(tree.xz.x, ground, tree.xz.y);
+            const isBark = k.lessThan(TREES.bark);
+            const isCore = k.greaterThanEqual(TREES.bark).and(k.lessThan(TREES.bark + TREES.core));
+            const h2 = hash4(index, 49).toVar();
 
-        // The wind sways it, more towards the top, each tree in its own time.
-        const gust = sin(time.mul(0.7).add(seed.x.mul(6.283)))
-            .mul(0.6)
-            .add(sin(time.mul(1.9).add(seed.y.mul(6.283))).mul(0.25));
-        const swayAt = (height: TslNode) =>
-            vec3(windDir.x, 0, windDir.y).mul(gust.mul(TREES.sway).mul(height.div(tree.height.add(tree.radius)).pow(1.5)));
+            // The wind sways it, more towards the top, each tree in its own time.
+            const gust = sin(time.mul(0.7).add(seed.x.mul(6.283)))
+                .mul(0.6)
+                .add(sin(time.mul(1.9).add(seed.y.mul(6.283))).mul(0.25));
+            const swayAt = (height: TslNode) =>
+                vec3(windDir.x, 0, windDir.y).mul(gust.mul(TREES.sway).mul(height.div(tree.height.add(tree.radius)).pow(1.5)));
 
-        // The trunk: a tapering cylinder of bark, up into the canopy.
-        const up = h.x.mul(tree.height.add(tree.radius.mul(0.4)));
-        const around = h.y.mul(Math.PI * 2);
-        const taper = up.div(tree.height).mul(-0.35).add(1).max(0.5);
-        const radial = vec3(cos(around), 0, sin(around));
-        const barkAt = base
-            .add(radial.mul(taper.mul(TREES.girth)))
-            .add(vec3(0, up, 0))
-            .add(swayAt(up));
+            // The trunk: a tapering cylinder of bark, up into the canopy.
+            const up = h.x.mul(tree.height.add(tree.radius.mul(0.4)));
+            const around = h.y.mul(Math.PI * 2);
+            const taper = up.div(tree.height).mul(-0.35).add(1).max(0.5);
+            const radial = vec3(cos(around), 0, sin(around));
+            const barkAt = base
+                .add(radial.mul(taper.mul(TREES.girth)))
+                .add(vec3(0, up, 0))
+                .add(swayAt(up));
 
-        // The canopy: many leaf clumps spread over a dome, more of them up top; this
-        // fleck on the shell of one of them.
-        const clump = k.sub(TREES.bark).mod(TREES.puffs);
-        const cr = hash4(uint(clump.add(seed.w.mul(1000))), 48).toVar();
-        const rise = mix(-0.35, 1, clump.add(0.5).div(TREES.puffs));
-        const flat = rise.mul(rise).oneMinus().max(0).sqrt();
-        const turnAround = clump.mul(2.399963).add(seed.z.mul(6.283));
-        const clumpCentre = vec3(cos(turnAround).mul(flat), rise.mul(0.72), sin(turnAround).mul(flat)).mul(tree.radius.mul(0.72));
-        const clumpRadius = tree.radius.mul(mix(0.32, 0.46, cr.x)).mul(smoothstep(-0.35, 1, rise).mul(0.25).add(0.85));
-        const z = h.z.mul(2).sub(1);
-        const ring = z.mul(z).oneMinus().max(0).sqrt();
-        const dir = vec3(cos(h.w.mul(6.283)).mul(ring), z.mul(0.85), sin(h.w.mul(6.283)).mul(ring)).toVar();
-        const local = clumpCentre.add(dir.mul(clumpRadius));
-        const centreHeight = tree.height.add(tree.radius.mul(0.45));
-        const canopyCentre = base.add(vec3(0, centreHeight, 0));
-        // Each clump stirs a little on its own, besides the tree's sway.
-        const wobble = vec3(sin(time.mul(1.6).add(clump.mul(1.7))), 0, cos(time.mul(1.3).add(clump.mul(2.3)))).mul(0.025);
-        const leafAt = canopyCentre
-            .add(local)
-            .add(swayAt(centreHeight.add(local.y)))
-            .add(wobble);
-
-        const center = isBark.select(barkAt, leafAt).toVar();
-        // Painted, the Ghibli way: each clump shaded on its own roundness in two tones
-        // with a crisp edge between (sunlit yellow-green, shadowed teal-green), a pale
-        // highlight on the sunniest tops, and deeper shade under and inside the canopy.
-        const canopyNormal = normalize(local.add(vec3(0, tree.radius.mul(0.25), 0)));
-        const normal = isBark.select(radial, normalize(dir.mul(0.75).add(canopyNormal.mul(0.25)))).toVar();
-        const lit = sunlight(center);
-        const facing = dot(normal, sun);
-        const band = smoothstep(-0.02, 0.1, facing).mul(lit);
-        const tip = smoothstep(0.62, 0.72, facing).mul(lit);
-        // Deeper under and inside the canopy, and in the creases where a clump turns in
-        // towards the rest: that's what separates the clumps into shapes.
-        const outward = normalize(clumpCentre.add(vec3(0, tree.radius.mul(0.25), 0)));
-        const crease = smoothstep(-0.35, 0.45, dot(dir, outward)).mul(0.5).add(0.5);
-        const inside = smoothstep(-0.5, 0.5, canopyNormal.y).mul(0.35).add(0.65).mul(crease);
-        // Leafy speckle within each clump.
-        const speckle = mx_noise_float(local.mul(7).add(seed.xyz.mul(30)))
-            .mul(0.12)
-            .add(1);
-        const leaf = mix(v3(TREES.deep), v3(TREES.light), band)
-            .add(v3(TREES.tip).mul(tip))
-            .mul(inside)
-            .mul(cr.y.mul(0.14).add(0.93))
-            .mul(speckle);
-        const bark = v3(TREES.trunkColour)
-            .mul(h.z.mul(0.25).add(0.8))
-            .mul(
-                v3(SUN)
-                    .mul(max(dot(normal, sun), 0).mul(0.7))
-                    .mul(lit)
-                    .add(v3(SKYLIGHT).mul(0.5)),
+            // The canopy: many leaf clumps spread over a dome, more of them up top; this
+            // fleck on the shell of one of them.
+            const clump = isCore.select(k.sub(TREES.bark), k.sub(TREES.bark + TREES.core)).mod(TREES.puffs);
+            const cr = hash4(uint(clump.add(seed.w.mul(1000))), 48).toVar();
+            const rise = mix(-0.35, 1, clump.add(0.5).div(TREES.puffs));
+            const flat = rise.mul(rise).oneMinus().max(0).sqrt();
+            const turnAround = clump.mul(2.399963).add(seed.z.mul(6.283));
+            // Not evenly spaced: each clump nudged its own way, some further out, some in.
+            const nudge = vec3(cr.z.sub(0.5), cr.w.sub(0.5).mul(0.6), cr.y.sub(0.5)).mul(0.35);
+            const clumpCentre = vec3(cos(turnAround).mul(flat), rise.mul(0.72), sin(turnAround).mul(flat))
+                .add(nudge)
+                .mul(tree.radius.mul(mix(0.62, 0.82, cr.w)));
+            const clumpRadius = tree.radius
+                .mul(mix(0.24, 0.48, cr.x.mul(cr.x)))
+                .mul(smoothstep(-0.35, 1, rise).mul(0.25).add(0.85));
+            const z = h.z.mul(2).sub(1);
+            const ring = z.mul(z).oneMinus().max(0).sqrt();
+            const dir = vec3(cos(h.w.mul(6.283)).mul(ring), z.mul(0.85), sin(h.w.mul(6.283)).mul(ring)).toVar();
+            // Leaves on the clump's shell, a little in and out of it; core splats deep inside.
+            const local = clumpCentre.add(
+                dir.mul(clumpRadius.mul(isCore.select(h.x.mul(0.3).add(0.25), h.x.mul(0.16).add(0.88)))),
             );
-        const rgb = isBark.select(bark, leaf);
+            const centreHeight = tree.height.add(tree.radius.mul(0.45));
+            const canopyCentre = base.add(vec3(0, centreHeight, 0));
+            // Each clump stirs a little on its own, besides the tree's sway.
+            const wobble = vec3(sin(time.mul(1.6).add(clump.mul(1.7))), 0, cos(time.mul(1.3).add(clump.mul(2.3)))).mul(0.025);
+            const leafAt = canopyCentre
+                .add(local)
+                .add(swayAt(centreHeight.add(local.y)))
+                .add(wobble);
 
-        const fleck = mix(0.09, 0.13, h.y);
-        const scales = isBark.select(vec3(0.07, 0.14, 0.02), vec3(fleck, fleck.mul(0.35), fleck.mul(0.75)));
-        const turn = GpuSplatMath.quatMul(alignY(normal), yaw(h.w.mul(Math.PI)));
-        const finish = distance(center, float(0), rgb);
-        const fade = smoothstep(TREES.fade[1], TREES.fade[0], length(tree.xz.sub(you.xz)));
-        return GpuSplats.Splat(center, scales, turn, finish.rgb.min(0.95), finish.opacity.mul(tree.there).mul(fade), uint(index));
-    });
+            const center = isBark.select(barkAt, leafAt).toVar();
+            // Painted, the Ghibli way: each clump shaded on its own roundness in two tones
+            // with a crisp edge between (sunlit yellow-green, shadowed teal-green), a pale
+            // highlight on the sunniest tops, and deeper shade under and inside the canopy.
+            const canopyNormal = normalize(local.add(vec3(0, tree.radius.mul(0.25), 0)));
+            // Each leaf tilted its own way off the clump's surface, so each catches the light
+            // on its own: that's what makes leaves rather than a smooth blob.
+            const tz = h2.z.mul(2).sub(1);
+            const tring = tz.mul(tz).oneMinus().max(0).sqrt();
+            const tilt = vec3(cos(h2.w.mul(6.283)).mul(tring), tz, sin(h2.w.mul(6.283)).mul(tring));
+            const shaped = normalize(dir.mul(0.75).add(canopyNormal.mul(0.25)));
+            // Mostly lying in layers, facing up and out, each tilted a little its own way.
+            const leafNormal = normalize(
+                shaped
+                    .mul(0.55)
+                    .add(vec3(0, 0.45, 0))
+                    .add(tilt.mul(0.3)),
+            );
+            const normal = isBark.select(radial, leafNormal).toVar();
+            const lit = sunlight(center);
+            const facing = mix(dot(shaped, sun), dot(leafNormal, sun), 0.45);
+            const band = smoothstep(-0.02, 0.1, facing).mul(lit);
+            const tip = smoothstep(0.62, 0.72, facing).mul(lit);
+            // Deeper under and inside the canopy, and in the creases where a clump turns in
+            // towards the rest: that's what separates the clumps into shapes.
+            const outward = normalize(clumpCentre.add(vec3(0, tree.radius.mul(0.25), 0)));
+            const crease = smoothstep(-0.35, 0.45, dot(dir, outward)).mul(0.5).add(0.5);
+            const inside = smoothstep(-0.5, 0.5, canopyNormal.y).mul(0.35).add(0.65).mul(crease);
+            // Leafy speckle within each clump.
+            const speckle = mx_noise_float(local.mul(7).add(seed.xyz.mul(30)))
+                .mul(0.12)
+                .add(1);
+            // Each leaf its own shade, yellow-green to blue-green, now and then a bright one.
+            const hue = mix(vec3(1.08, 1.02, 0.8), vec3(0.85, 1, 1.15), h2.x);
+            const bright = h2.y.greaterThan(0.94).select(v3(TREES.tip).mul(1.5), vec3(0));
+            const leaf = mix(v3(TREES.deep), v3(TREES.light).mul(hue), band)
+                .add(v3(TREES.tip).mul(tip))
+                .add(bright.mul(band))
+                .mul(inside)
+                .mul(cr.y.mul(0.14).add(0.93))
+                .mul(speckle);
+            const bark = v3(TREES.trunkColour)
+                .mul(h.z.mul(0.25).add(0.8))
+                .mul(
+                    v3(SUN)
+                        .mul(max(dot(normal, sun), 0).mul(0.7))
+                        .mul(lit)
+                        .add(v3(SKYLIGHT).mul(0.5)),
+                );
+            const rgb = isBark.select(bark, isCore.select(v3(TREES.deep).mul(0.45).mul(inside), leaf));
+
+            const size = h.y.mul(0.5).add(0.75);
+            const leafScales = vec3(TREES.leaf[0], 0.004, TREES.leaf[1]).mul(size);
+            const coreScales = vec3(clumpRadius.mul(0.5));
+            const scales = isBark.select(vec3(0.07, 0.14, 0.02), isCore.select(coreScales, leafScales));
+            const turn = GpuSplatMath.quatMul(alignY(normal), yaw(h.w.mul(Math.PI)));
+            const finish = distance(center, float(0), rgb);
+            const fade = smoothstep(TREES.fade[1], TREES.fade[0], length(tree.xz.sub(you.xz)));
+            // Leaves crisp (opacity past 1, a harder edge), the core and bark soft.
+            const crisp = isBark.or(isCore).select(float(1), float(1.6));
+            return GpuSplats.Splat(
+                center,
+                scales,
+                turn,
+                finish.rgb.min(0.95),
+                finish.opacity.mul(tree.there).mul(fade).mul(crisp),
+                uint(index),
+            );
+        },
+        true,
+    );
 }
 
 /**

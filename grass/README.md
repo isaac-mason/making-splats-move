@@ -135,17 +135,19 @@ there, rare clearings: soft patches where the grass grows a little shorter and s
 
 ## Trees
 
-Painted, the Ghibli way: a tapering trunk under a canopy of eighteen leaf clumps
-spread over a dome, each a shell of small leafy flecks. Each clump is shaded on its
-own roundness in two tones with a crisp edge between (sunlit yellow-green,
-shadowed teal), with a pale highlight on the sunniest tops, deeper shade under and
-inside the canopy, and darker creases where a clump turns in towards the rest,
-which is what separates the clumps into shapes. The tree sways in the wind, more
-towards the top, each clump stirring a little on its own. And they cast dappled
-shadows, the way the clouds do: everything looks up towards the sun to canopy
-height and asks that cell's tree. Scattered on a world grid like the boulders,
-never on the path or in a boulder, and mirrored on the CPU so you walk round the
-trunks.
+Painted, the Ghibli way, and made of leaves you can see. A tall trunk lifts a
+canopy of eighteen clumps, unevenly sized and spaced over a dome, each covered in
+small, crisp, leaf-shaped splats (24,000 a tree) lying mostly in layers facing up
+and out, each tilted a little its own way so each catches the light on its own,
+over a dark core so the gaps between leaves show deep shade. Each clump is shaded
+on its own roundness in two tones with a crisp edge (sunlit yellow-green, shadowed
+teal), with a pale highlight on the sunniest tops, deeper shade under and inside
+the canopy, and darker creases where clumps meet; leaves vary from yellow-green to
+blue-green, now and then a bright one. (Big soft splats only ever made a smooth
+green blob, and big crisp ones read as scales.) The tree sways in the wind, each
+clump stirring on its own, and casts dappled shadows the way the clouds do.
+Scattered on a world grid like the boulders, never on the path or in a boulder,
+and mirrored on the CPU so you walk round the trunks.
 
 ## Trampling, on the GPU
 
