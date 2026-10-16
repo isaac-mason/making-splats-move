@@ -8,9 +8,7 @@ export type Vec3 = [number, number, number];
 
 import campfireUrl from '../assets/campfire.spz?url';
 
-// The flat capture. Radix reads .rad files but doesn't select LoD subsets or page
-// them in yet, so the LoD build (public/campfire-lod.rad) has nothing to gain here:
-// every splat draws every frame either way.
+// The flat capture: radix draws every splat every frame, so there's no LoD build.
 export const SPLAT_URL = campfireUrl;
 
 export const CAMERA_POSITION: Vec3 = [-0.77, 0.655, -1.58];

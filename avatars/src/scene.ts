@@ -8,8 +8,7 @@ export type Vec3 = [number, number, number];
 
 import courtyardUrl from '../assets/school-courtyard.spz?url';
 
-// The flat capture. Radix selects no LoD subsets and pages nothing in, so the LoD
-// build (public/school-courtyard-lod.rad) has nothing to add here.
+// The flat capture: radix draws every splat every frame, so there's no LoD build.
 export const SPLAT_URL = courtyardUrl;
 
 // This capture arrives at about the avatars' scale. Another may not: check.

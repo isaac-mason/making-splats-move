@@ -9,8 +9,7 @@
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build",
-        "preview": "vite preview",
-        "build:lod": "scripts/build-lod.sh"
+        "preview": "vite preview"
     },
     "dependencies": {
         "mp4-muxer": "^5.2.2",

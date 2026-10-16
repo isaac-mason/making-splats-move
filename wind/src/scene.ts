@@ -7,9 +7,7 @@ import cityUrl from '../assets/anime-city.spz?url';
 /** A world-space point. Kept local so the app has no math-library dependency. */
 export type Vec3 = [number, number, number];
 
-// The flat capture. Radix reads .rad files but doesn't select LoD subsets or page
-// them in yet, so the LoD build (public/anime-city-lod.rad) has nothing to gain
-// here: every splat draws every frame either way.
+// The flat capture: radix draws every splat every frame, so there's no LoD build.
 export const SPLAT_URL = cityUrl;
 
 // --- Camera framing (world-space) — the orbit camera's start pose ---

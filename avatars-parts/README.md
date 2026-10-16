@@ -19,8 +19,9 @@ pnpm --filter avatars-parts dev    # ?step=1 to 5, or use the buttons
    limbs, and the hair as a slightly bigger head kept only above a hairline — low at
    the back, a toothed fringe at the front.
 4. **[`4-skinning.ts`](src/4-skinning.ts)** — the same body with one bone per part.
-   Each splat follows the bone of the part that built it, and Spark's `SplatSkinning`
-   moves them on the GPU: swing a bone and its splats follow. He waves with a forearm
+   Each splat follows the bone of the part that built it, and the example's own
+   dual-quaternion skinning (`src/splats.ts`, a radix splat generator) moves them on
+   the GPU: swing a bone and its splats follow. He waves with a forearm
    bone parented to the upper arm, so it turns inside it.
 5. **[`5-bend.ts`](src/5-bend.ts)** — a flower on a chain of four bones up its stem,
    for the other half of skinning: each splat is shared between its two nearest bones,

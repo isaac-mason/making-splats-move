@@ -55,10 +55,8 @@ LFS** (see [`.gitattributes`](.gitattributes)). If you clone without git-lfs
 installed you'll get small pointer text files instead of splats and the examples
 will fail to load — install git-lfs and run `git lfs pull`.
 
-Per example, the convention is:
-
-- `assets/` — the splats the examples load, as `.spz`, through Vite's `?url` import.
-- `public/` — the LOD-paged `.rad` files from the earlier Spark version, no longer loaded.
+Each example loads its splats from its own `assets/` as `.spz`, through Vite's
+`?url` import.
 
 [radix]: https://github.com/asundqui/radix-test
 [three]: https://threejs.org
