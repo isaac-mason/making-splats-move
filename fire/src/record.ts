@@ -109,31 +109,24 @@ type Move = {
 export function scriptedMouse({ sweep, rise, period, seed, warmup }: Recording): (time: number) => [number, number] {
     const random = prng(seed);
     const between = (lo: number, hi: number) => lo + (hi - lo) * random();
-    // Strokes go out to a side or come home to the middle, and the hand lingers at
-    // home, not at the edges: it's the shot's framing, the sides are glances.
-    const HOME = 0.35;
-    const stroke = (x0: number, y0: number, x1: number, start: number): Move => {
-        const home = Math.abs(x1) <= HOME * sweep;
-        return {
-            x0,
-            y0,
-            x1,
-            y1: between(-1, 1) * rise,
-            start,
-            duration: between(0.7, 1.4) * period,
-            sharp: between(1.6, 2.6),
-            over: between(0, 0.1),
-            rest: (home ? between(0.2, 0.6) : between(0.1, 0.4)) * period,
-        };
-    };
-    let move = stroke(0, 0, between(-HOME, HOME) * sweep, -warmup);
+    const stroke = (x0: number, y0: number, x1: number, start: number): Move => ({
+        x0,
+        y0,
+        x1,
+        y1: between(-1, 1) * rise,
+        start,
+        duration: between(0.7, 1.4) * period,
+        sharp: between(1.6, 2.6),
+        over: between(0, 0.1),
+        // Brief: the hand passes through places rather than staying anywhere.
+        rest: between(0, 0.25) * period,
+    });
+    let move = stroke(0, 0, between(-1, 1) * sweep, -warmup);
     const next = (from: Move): Move => {
-        const wasHome = Math.abs(from.x1) <= HOME * sweep;
-        // Out from home most of the time; back home from out more often than not.
-        const goHome = wasHome ? random() < 0.15 : random() < 0.65;
-        const side = wasHome ? (random() < 0.5 ? -1 : 1) : -Math.sign(from.x1);
-        const x1 = goHome ? between(-HOME, HOME) * sweep : side * between(0.6, 1) * sweep;
-        return stroke(from.x1, from.y1, x1, from.start + from.duration + from.rest);
+        // Nearly always across the window, by a varied amount, so it's side to side
+        // without being a metronome.
+        const side = Math.sign(from.x1 || 1) * (random() < 0.85 ? -1 : 1);
+        return stroke(from.x1, from.y1, side * between(0.35, 1) * sweep, from.start + from.duration + from.rest);
     };
     return (time) => {
         while (time >= move.start + move.duration + move.rest) move = next(move);
