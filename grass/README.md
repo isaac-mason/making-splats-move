@@ -12,8 +12,9 @@ stand back.
 ## A meadow without end
 
 You're a little cartoon kid walking it in third person, seen mostly from above
-(see below): the camera follows high and well back (10 to 24 metres), looking down
-at 35 to 60 degrees, so the meadow's waves, the cloud shadows and the trail you trample read best. Everything in the meadow,
+(see below): the camera follows high and well back (10 to 18 metres), looking down
+at 23 to 40 degrees, never far enough out to see the haze 48 metres away (it
+only hides the tiles' edges), so the meadow's waves, the cloud shadows and the trail you trample read best. Everything in the meadow,
 grass, ground, flowers and butterflies, lives in one 112 metre tile, and each thing
 is drawn at whichever copy of its place is nearest you. So it holds still in the
 world until you've gone far enough that it wraps round to the far side, out in

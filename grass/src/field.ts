@@ -99,8 +99,11 @@ const FIELD = {
     ],
     segments: 5,
     ground: 220_000,
-    /** Where the fade into haze starts and is complete, metres from the camera. */
-    fog: [22, 56],
+    /**
+     * Where the haze starts and is complete, metres from you (across the ground). It
+     * only hides the tiles' edges: the camera never looks out as far as it starts.
+     */
+    fog: [48, 58],
 };
 
 /**
@@ -224,7 +227,7 @@ export const BOULDERS = {
     /** Cells drawn round you, each way, and splats on each boulder. */
     around: 3,
     /** Where they fade in, metres from you: well inside the cells drawn, so none pops in. */
-    fade: [42, 52],
+    fade: [46, 54],
     /** Splats on each: enough that each is small and the stone reads crisp, not soft, even close. */
     splats: 8000,
     granite: [0.5, 0.48, 0.45],
@@ -384,7 +387,7 @@ function place(random: TslNode, reach: number = FIELD.reach): { xz: TslNode; out
 
 /** The far field's finish: fade towards the haze with distance, and out at the edge. */
 function distance(center: TslNode, out: TslNode, rgb: TslNode, edge = 0.88): { rgb: TslNode; opacity: TslNode } {
-    const fog = smoothstep(FIELD.fog[0], FIELD.fog[1], length(center.sub(eye)));
+    const fog = smoothstep(FIELD.fog[0], FIELD.fog[1], length(center.xz.sub(you.xz)));
     return { rgb: mix(rgb, v3(HAZE), fog.mul(0.85)), opacity: smoothstep(1, edge, out) };
 }
 
