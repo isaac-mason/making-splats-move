@@ -42,21 +42,23 @@ velocity and the forces on it, then rounds of constraints (stretch between
 neighbours, bending across two, a little memory of the rest shape, collisions with
 the legs, hips, back, shoulders and head).
 
-What makes them flow is the air. The wind is turbulent, varying in space and time,
-and the force on a bit of fabric is along its surface normal, in proportion to how
-fast the air crosses it relative to the fabric's own motion. So a gust billows the
-skirt, and running into still air streams the dress and hair out behind. Hair
-takes drag the same way along its whole length. Points live in world space, so
-inertia is free: what's pinned to you moves with you, and the rest has to catch up,
-overshoot and settle.
+What makes them flow is the air, and what keeps them peaceful is keeping it
+gentle. A soft summer breeze with slow, broad swirls; the force on a bit of fabric
+along its surface normal, in proportion to how fast the air crosses it relative to
+the fabric's own motion, so a gust lifts the skirt and walking trails it; hair
+takes drag the same way. The fabric and hair are weighty (well damped, stiff in
+bending, drawn gently back to rest), constraints are corrected exactly rather than
+over-relaxed, and no point may move faster than a walk, so nothing gets kicked.
+Points live in world space, so inertia is free: what's pinned to you moves with
+you and the rest catches up and settles.
 
 The dress is a mid-calf skirt of 40 by 16 points, fitted at the waist and free
 below, drawn as two splats a cloth cell lit by the cloth's own normal, with pleat
 shading, a white hem and a darker lining when you see inside it. The hair is
 eighteen long ribbon locks of ten joints each, the first two held by the head so it
-leaves at the right angle under the hat brim, drawn along a Catmull-Rom curve
-through the joints, overlapping into a sheet, with a Kajiya-Kay sheen that slides
-along it as it moves. Without compute (WebGL2) the kid keeps a solid skirt and
+leaves at the right angle under the hat brim, drawn as single-layer ribbons along a Catmull-Rom curve through the joints,
+overlapping softly into a sheet, with a gentle Kajiya-Kay sheen that slides along
+it as it moves. Without compute (WebGL2) the kid keeps a solid skirt and
 pigtails.
 
 `?kid=1` shows just the kid on the ground, walking, skipping and standing round a

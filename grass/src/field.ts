@@ -1141,9 +1141,9 @@ function kidPose() {
     const within = step.fract();
     const arc = sin(within.mul(Math.PI));
     const big = wrap(step.floor(), 2).lessThan(0.5).select(float(1), float(0.55));
-    const hop = arc.mul(mix(0.035, big.mul(0.2), skip)).mul(moving);
+    const hop = arc.mul(mix(0.03, big.mul(0.11), skip)).mul(moving);
     // Squash on landing, stretch in the air.
-    const squash = pow(arc.oneMinus(), 4).mul(0.14).sub(arc.mul(0.05)).mul(skip);
+    const squash = pow(arc.oneMinus(), 4).mul(0.07).sub(arc.mul(0.03)).mul(skip);
     // Legs swing in turn, the leading knee higher when skipping.
     const swing = sin(step.mul(Math.PI))
         .mul(mix(0.5, 0.75, skip))
@@ -1155,7 +1155,7 @@ function kidPose() {
     const freeArm = rightLeg.mul(0.9).negate().sub(skip.mul(arc).mul(0.6));
     const breath = sin(t.mul(1.8)).mul(0.012).mul(moving.oneMinus());
     const nod = sin(step.mul(Math.PI * 2))
-        .mul(0.07)
+        .mul(0.035)
         .mul(moving);
     const hatLag = sin(within.mul(Math.PI).sub(0.9)).mul(0.018).mul(skip);
 
@@ -1367,13 +1367,15 @@ function kid(simulated: boolean): SplatObject {
  * rest has to catch up, overshoot, and settle.
  */
 const AIR = {
-    /** The meadow's breeze at the kid's height, m/s, and how gusty. */
-    breeze: 1.6,
-    gusts: 0.5,
-    /** Turbulence: its speed (m/s), size (one over metres) and how fast it churns. */
-    turbulence: 1.4,
-    scale: 2.2,
-    churn: 1.6,
+    /** The meadow's breeze at the kid's height, m/s, and how gusty: calm, a summer afternoon. */
+    breeze: 1.1,
+    gusts: 0.3,
+    /** Swirls in it: their speed (m/s), size (one over metres) and how slowly they turn over. */
+    turbulence: 0.35,
+    scale: 1.1,
+    churn: 0.5,
+    /** The fastest any simulated point may move, m/s: nothing gets kicked. */
+    limit: 3,
 };
 
 const CLOTH = {
@@ -1385,12 +1387,14 @@ const CLOTH = {
     /** Rows near the waist held to their fitted shape, and how firmly; the rest barely. */
     fitted: 3,
     fit: 0.12,
-    shape: 0.003,
+    shape: 0.015,
     /** Velocity kept each substep, and how hard the air pushes the fabric. */
-    damping: 0.998,
-    aero: 2.6,
+    damping: 0.99,
+    aero: 1.4,
     /** Bending stiffness, against stretch's 1. */
-    bend: 0.35,
+    bend: 0.6,
+    /** Constraint rounds a substep (odd). */
+    rounds: 5,
     pleats: [0.93, 1.0],
     trim: [0.97, 0.97, 0.94],
     lining: [0.42, 0.52, 0.72],
@@ -1406,20 +1410,21 @@ const HAIR = {
     depth: 0.01,
     /** Joints held by the head: they set the angle the hair leaves it at. */
     held: 2,
-    shape: 0.004,
-    damping: 0.995,
+    shape: 0.02,
+    damping: 0.985,
     /** Air drag on hair, 1/s, and bending stiffness. */
-    drag: 3,
-    bend: 0.45,
-    around: 8,
+    drag: 1.2,
+    bend: 0.8,
+    /** Splats across a lock's ribbon, and along it. */
+    across: 5,
     rings: 26,
-    /** The sheen: a band of highlight that slides along the hair as it moves. */
-    sheen: [0.35, 0.3, 0.24],
+    /** The sheen: a soft band of highlight that slides along the hair as it moves. */
+    sheen: [0.18, 0.15, 0.12],
+    /** Constraint rounds a substep for the hair (odd). Exact corrections, so more of them. */
+    rounds: 5,
 };
 
 const SUBSTEPS = 4;
-/** Constraint rounds a substep: odd, so they end back in the main buffer. */
-const ROUNDS = 3;
 const GRAVITY = 9.8;
 
 type Points = { now: WgpuBuffer<'float32x4'>; before: WgpuBuffer<'float32x4'>; next: WgpuBuffer<'float32x4'> };
@@ -1440,23 +1445,18 @@ function outOf(p: TslNode, a: TslNode, b: TslNode, r: number): TslNode {
 }
 
 /** The air's velocity at `p`: the breeze, gusting, and turbulence churning through it. */
+/** The air's velocity at `p`: the breeze, gusting gently, and slow broad swirls in it. */
 function air(p: TslNode): TslNode {
     const t = time.mul(AIR.churn);
     const q = p.mul(AIR.scale);
     const swirl = vec3(
         sin(q.y.mul(1.3).add(q.z.mul(0.7)).add(t)),
-        sin(q.x.mul(0.9).sub(q.z.mul(1.1)).sub(t.mul(1.3))).mul(0.5),
+        sin(q.x.mul(0.9).sub(q.z.mul(1.1)).sub(t.mul(1.3))).mul(0.4),
         sin(q.x.mul(1.1).add(q.y.mul(0.8)).add(t.mul(0.8)).add(2)),
-    ).add(
-        vec3(
-            sin(q.z.mul(2.7).sub(t.mul(1.9)).add(1)),
-            sin(q.x.mul(2.3).add(t.mul(2.2))).mul(0.4),
-            sin(q.y.mul(2.9).add(t.mul(1.7)).add(4)),
-        ).mul(0.5),
     );
-    const gust = sin(time.mul(0.7))
-        .mul(0.5)
-        .add(sin(time.mul(1.9).add(1)).mul(0.3))
+    const gust = sin(time.mul(0.35))
+        .mul(0.6)
+        .add(sin(time.mul(0.9).add(1)).mul(0.4))
         .mul(AIR.gusts)
         .add(1);
     return vec3(windDir.x, 0, windDir.y).mul(gust.mul(AIR.breeze)).add(swirl.mul(AIR.turbulence));
@@ -1524,6 +1524,7 @@ function initSim(renderer: WebGPURenderer): Sim {
                 const { i, r, rest, pinned } = clothAt(index);
                 const x = cloth.now.element(index).xyz.toVar();
                 const v = x.sub(cloth.before.element(index).xyz).div(subDt).mul(CLOTH.damping).toVar();
+                v.mulAssign(min(float(AIR.limit).div(max(length(v), 1e-4)), 1));
                 // The fabric's normal here, from its neighbours, and the air crossing it.
                 const across = cloth.now.element(clothIndex(i.add(1), r)).xyz.sub(cloth.now.element(clothIndex(i.sub(1), r)).xyz);
                 const down = cloth.now.element(clothIndex(i, r.add(1))).xyz.sub(cloth.now.element(clothIndex(i, r.sub(1))).xyz);
@@ -1569,7 +1570,7 @@ function initSim(renderer: WebGPURenderer): Sim {
                         [0, -2],
                     ])
                         link(di, dr, CLOTH.bend);
-                    const moved = p.add(fix.div(max(weight, 1)).mul(1.6));
+                    const moved = p.add(fix.div(max(weight, 1)));
                     // Fitted at the waist, free below.
                     const keep = r
                         .lessThan(CLOTH.fitted)
@@ -1602,6 +1603,7 @@ function initSim(renderer: WebGPURenderer): Sim {
                 const { rest, pinned } = hairAt(index);
                 const x = hair.now.element(index).xyz.toVar();
                 const v = x.sub(hair.before.element(index).xyz).div(subDt).mul(HAIR.damping).toVar();
+                v.mulAssign(min(float(AIR.limit).div(max(length(v), 1e-4)), 1));
                 const push = air(x).sub(v).mul(HAIR.drag);
                 const next = x.add(v.mul(subDt)).add(push.sub(vec3(0, GRAVITY, 0)).mul(subDt.mul(subDt)));
                 hair.next.element(index).assign(vec4(settling.or(pinned).select(rest, next), 1));
@@ -1632,7 +1634,7 @@ function initSim(renderer: WebGPURenderer): Sim {
                         fix.addAssign(hold(p, q, restLength, share).mul(real));
                         weight.addAssign(real);
                     }
-                    const moved = p.add(fix.div(max(weight, 1)).mul(1.6));
+                    const moved = p.add(fix.div(max(weight, 1)));
                     let out = mix(moved, rest, k.div(HAIR.points).oneMinus().mul(HAIR.shape));
                     // Off the head, shoulders and back.
                     const headAt = pose.toWorld(pose.neck.add(GpuSplatMath.quatRotate(pose.head, vec3(0, 0.15, 0))));
@@ -1652,9 +1654,9 @@ function initSim(renderer: WebGPURenderer): Sim {
     const kernels: [WgpuCompute, number][] = [];
     for (let step = 0; step < SUBSTEPS; step++) {
         kernels.push([clothPredict, clothCount], [clothThere, clothCount]);
-        for (let n = 1; n < ROUNDS; n += 2) kernels.push([clothBack, clothCount], [clothThere, clothCount]);
+        for (let n = 1; n < CLOTH.rounds; n += 2) kernels.push([clothBack, clothCount], [clothThere, clothCount]);
         kernels.push([hairPredict, hairCount], [hairThere, hairCount]);
-        for (let n = 1; n < ROUNDS; n += 2) kernels.push([hairBack, hairCount], [hairThere, hairCount]);
+        for (let n = 1; n < HAIR.rounds; n += 2) kernels.push([hairBack, hairCount], [hairThere, hairCount]);
     }
     return { cloth, hair, kernels };
 }
@@ -1720,13 +1722,13 @@ function skirt(sim: Sim): SplatObject {
  * slides along it as it moves.
  */
 function hairLocks(sim: Sim): SplatObject {
-    const { around, rings, points: joints } = HAIR;
+    const { across: wide, rings, points: joints } = HAIR;
     return generated(
-        HAIR.locks * rings * around,
+        HAIR.locks * rings * wide,
         (index) => {
-            const s = index.div(uint(rings * around));
-            const j = float(index.div(uint(around)).mod(uint(rings)));
-            const a = float(index.mod(uint(around)));
+            const s = index.div(uint(rings * wide));
+            const j = float(index.div(uint(wide)).mod(uint(rings)));
+            const a = float(index.mod(uint(wide)));
             const t = j.add(0.5).div(rings).toVar();
             const along = t.mul(joints - 1);
             const seg = along.floor().clamp(0, joints - 2);
@@ -1758,24 +1760,20 @@ function hairLocks(sim: Sim): SplatObject {
             const outward = normalize(cross(across, tangent)).toVar();
 
             const width = float(HAIR.width).mul(pow(t, 3).mul(-0.55).add(1));
-            const depth = float(HAIR.depth);
-            const angle = a
-                .add(j.mod(2).mul(0.5))
-                .div(around)
-                .mul(Math.PI * 2);
-            const center = spine
-                .add(across.mul(cos(angle).mul(width)))
-                .add(outward.mul(sin(angle).mul(depth)))
-                .toVar();
-            const normal = normalize(across.mul(cos(angle).div(width)).add(outward.mul(sin(angle).div(depth))));
-            const size = max(width.mul(4 / around), float(HAIR.length / rings)).mul(0.85);
+            // One layer, across the ribbon, facing out: no back face to fight it in the sort.
+            const offset = a
+                .div(wide - 1)
+                .mul(2)
+                .sub(1);
+            const center = spine.add(across.mul(offset.mul(width))).toVar();
+            const normal = outward;
+            const size = max(width.mul(2 / (wide - 1)), float(HAIR.length / rings)).mul(0.8);
 
             // Cartoon light, and the sheen sliding along the hair.
-            const facing = towardViewer(normal, center);
-            const shade = cartoon(center, facing, v3(KID.hair));
+            const shade = cartoon(center, towardViewer(normal, center), v3(KID.hair));
             const half = normalize(sun.add(normalize(eye.sub(center))));
             const runs = dot(tangent, half);
-            const sheen = pow(runs.mul(runs).oneMinus().max(0).sqrt(), 40).mul(sunlight(center));
+            const sheen = pow(runs.mul(runs).oneMinus().max(0).sqrt(), 10).mul(sunlight(center));
             const rgb = shade.add(v3(HAIR.sheen).mul(sheen));
             const finish = distance(center, float(0), rgb);
             return GpuSplats.Splat(
@@ -1783,11 +1781,11 @@ function hairLocks(sim: Sim): SplatObject {
                 vec3(size, 0.003, size),
                 alignY(normal),
                 finish.rgb.min(0.97),
-                finish.opacity.mul(1.4),
+                finish.opacity.mul(0.95),
                 uint(index),
             );
         },
-        true,
+        false,
     );
 }
 
