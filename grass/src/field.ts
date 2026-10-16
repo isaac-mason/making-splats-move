@@ -1226,7 +1226,7 @@ function kid(simulated: boolean): SplatObject {
         }),
         // the head, hair, pigtails, face
         { pivot: neck, turn: head, offset: [0, 0.15, 0], radii: [0.17, 0.165, 0.165], colour: KID.skin },
-        { pivot: neck, turn: head, offset: [0, 0.18, -0.035], radii: [0.178, 0.155, 0.165], colour: KID.hair },
+        { pivot: neck, turn: head, offset: [0, 0.14, -0.03], radii: [0.182, 0.182, 0.178], colour: KID.hair },
         ...[-1, 1].map(
             (side): Part =>
                 simulated
@@ -1250,19 +1250,19 @@ function kid(simulated: boolean): SplatObject {
         { pivot: neck, turn: head, offset: [-0.105, 0.105, 0.135], radii: [0.032, 0.02, 0.008], colour: KID.cheeks },
         { pivot: neck, turn: head, offset: [0.105, 0.105, 0.135], radii: [0.032, 0.02, 0.008], colour: KID.cheeks },
         // the sunhat: brim, crown and ribbon, bouncing a beat late
-        { pivot: neck.add(vec3(0, hatLag, 0)), turn: head, offset: [0, 0.27, 0], radii: [0.33, 0.012, 0.33], colour: KID.straw },
+        { pivot: neck.add(vec3(0, hatLag, 0)), turn: head, offset: [0, 0.28, 0], radii: [0.44, 0.014, 0.44], colour: KID.straw },
         {
             pivot: neck.add(vec3(0, hatLag, 0)),
             turn: head,
-            offset: [0, 0.31, -0.005],
-            radii: [0.15, 0.085, 0.15],
+            offset: [0, 0.32, -0.005],
+            radii: [0.18, 0.1, 0.18],
             colour: KID.straw,
         },
         {
             pivot: neck.add(vec3(0, hatLag, 0)),
             turn: head,
-            offset: [0, 0.29, -0.005],
-            radii: [0.155, 0.026, 0.155],
+            offset: [0, 0.3, -0.005],
+            radii: [0.185, 0.03, 0.185],
             colour: KID.ribbon,
         },
         // the basket on the right hand, swinging: bowl, rim, handle, posies
@@ -1377,12 +1377,12 @@ const CLOTH = {
 
 const HAIR = {
     /** Strands in the curtain at the back, and in each pigtail; points along each. */
-    back: 36,
-    pigtail: 10,
+    back: 16,
+    pigtail: 3,
     points: 7,
     /** Lengths, metres. */
-    backLength: 0.17,
-    pigtailLength: 0.27,
+    backLength: 0.15,
+    pigtailLength: 0.26,
     shape: 0.05,
     damping: 0.97,
     wind: 4,
@@ -1425,13 +1425,15 @@ function strand(s: TslNode): { root: TslNode; dir: TslNode; length: TslNode; pig
     const isPigtail = s.greaterThanEqual(HAIR.back);
     const side = s.greaterThanEqual(HAIR.back + HAIR.pigtail).select(float(1), float(-1));
     // The curtain: round the back of the head, under the brim.
-    const round = s.add(0.5).div(HAIR.back).mul(3.8).sub(1.9);
-    const backRoot = vec3(sin(round).mul(0.165), 0.195, cos(round).mul(-0.15));
-    const backDir = normalize(vec3(sin(round).mul(0.35), -1, cos(round).mul(-0.3)));
+    // Hugging the head, not fanning off it: roots just inside the cap, hanging down.
+    const round = s.add(0.5).div(HAIR.back).mul(4).sub(2);
+    const backRoot = vec3(sin(round).mul(0.16), 0.17, cos(round).mul(-0.15).sub(0.02));
+    const backDir = normalize(vec3(sin(round).mul(0.1), -1, cos(round).mul(-0.12)));
     // A pigtail: a bundle from its tie.
-    const jitter = vec3(r.x.sub(0.5), r.y.sub(0.5), r.z.sub(0.5)).mul(0.03);
+    const jitter = vec3(r.x.sub(0.5), r.y.sub(0.5), r.z.sub(0.5)).mul(0.016);
     const tieRoot = vec3(side.mul(0.17), 0.08, -0.05).add(jitter);
-    const tieDir = normalize(vec3(side.mul(0.55), -1, -0.25).add(jitter.mul(4)));
+    // Hanging from the tie, a little out and back: a rope, not a wing.
+    const tieDir = normalize(vec3(side.mul(0.22), -1, -0.15).add(jitter.mul(3)));
     const length = isPigtail.select(float(HAIR.pigtailLength), float(HAIR.backLength)).mul(r.w.mul(0.3).add(0.85));
     return {
         root: isPigtail.select(tieRoot, backRoot),
@@ -1658,7 +1660,8 @@ function hairStrands(sim: Sim): SplatObject {
             const dir = along.div(l);
             const st = strand(float(s));
             const taper = float(k).div(segments).mul(-0.5).add(1);
-            const width = st.pigtail.select(float(0.016), float(0.011)).mul(taper);
+            // Chunky opaque locks, not strands: hair in a cartoon is a few clumps.
+            const width = st.pigtail.select(float(0.026), float(0.03)).mul(taper);
             const quaternion = alignY(dir);
             // Lit across the strand: the side facing out from the head.
             const normal = normalize(cross(dir, cross(vec3(0, 1, 0), dir)).add(vec3(0, 0.001, 0)));
@@ -1667,7 +1670,7 @@ function hairStrands(sim: Sim): SplatObject {
             const finish = distance(center, float(0), rgb);
             return GpuSplats.Splat(
                 center,
-                vec3(width, l.mul(0.62), width.mul(0.7)),
+                vec3(width, l.mul(0.75), width.mul(0.55)),
                 quaternion,
                 finish.rgb.min(0.97),
                 finish.opacity.mul(1.4),
