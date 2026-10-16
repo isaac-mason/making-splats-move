@@ -31,7 +31,7 @@ const { dot, max, mix, normalize, pass, positionWorldDirection, pow, screenUV, s
 const WALK = {
     /** Walking and running speed, m/s, and how quickly you get up to speed. */
     speed: 2.6,
-    run: 9,
+    run: 6,
     grip: 8,
     /** A step's length walking, and a skip's running, metres: the stride clock. */
     stride: 0.9,
@@ -41,11 +41,6 @@ const WALK = {
     /** Jumping (space): take-off speed, m/s, and gravity, floaty: about half a metre up. */
     jump: 3.8,
     gravity: 14,
-    /**
-     * How far round from behind the kid the camera may go, radians each way: never
-     * round to the face. It follows the kid's facing.
-     */
-    behind: 1.45,
     /** Which way you face at the start, radians in xz: up the long rise to the crest. */
     facing: (140 * Math.PI) / 180,
     /** The camera: how far back and above to start, and how close to the grass it may get. */
@@ -152,11 +147,8 @@ function walk(
     const skipping = THREE.MathUtils.clamp((speed - WALK.speed) / (WALK.run - WALK.speed), 0, 1);
     walker.skipping += (skipping - walker.skipping) * (1 - Math.exp(-6 * dt));
     if (walker.lift === 0) walker.stride += (speed * dt) / THREE.MathUtils.lerp(WALK.stride, WALK.skip, walker.skipping);
-    // Turn to face the way you're going, unless that's back towards the camera:
-    // then back-pedal, or the kid would turn to face the camera, the camera would
-    // swing round behind, and round and round.
-    const backing = wanted.lengthSq() > 0 && wanted.dot(forward) < -0.3 * wanted.length();
-    if (speed > 0.2 && !backing) {
+    // Turn to face the way you're going.
+    if (speed > 0.2) {
         const toward = Math.atan2(walker.velocity.x, walker.velocity.z);
         const turn = Math.atan2(Math.sin(toward - walker.facing), Math.cos(toward - walker.facing));
         walker.facing += turn * (1 - Math.exp(-WALK.turn * dt));
@@ -166,10 +158,6 @@ function walk(
     before.subVectors(walker.position, before);
     camera.position.add(before);
     controls.target.copy(walker.position).y += WALK.chest;
-    // And only ever behind: never round to the face.
-    const behindYou = walker.facing + Math.PI;
-    controls.minAzimuthAngle = behindYou - WALK.behind;
-    controls.maxAzimuthAngle = behindYou + WALK.behind;
 }
 
 /** So a stall or a tab switch can't jump the wind forward. */

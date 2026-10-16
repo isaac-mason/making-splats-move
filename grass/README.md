@@ -11,8 +11,7 @@ stand back.
 
 ## A meadow without end
 
-You're a little cartoon kid walking it in third person (see below). The camera
-stays behind the kid, never round to the face; walking back towards it back-pedals. Everything in the meadow,
+You're a little cartoon kid walking it in third person (see below). Everything in the meadow,
 grass, ground, flowers and butterflies, lives in one 60 metre tile, and each thing
 is drawn at whichever copy of its place is nearest you. So it holds still in the
 world until you've gone far enough that it wraps round to the far side, out in
@@ -24,7 +23,7 @@ only the scatter of blades does, 60 metres apart, where the haze hides it.
 ## You
 
 A little cartoon kid in a sky-blue sundress and a wide straw sunhat with a red
-ribbon, pigtails, red shoes, and a wicker basket of posies on one arm. A couple of
+ribbon, red shoes, and a wicker basket of posies on one arm. A couple of
 dozen parts, each a shell of splats over an ellipsoid (the basket's handle a
 ring), hinged at hips, shoulders, neck and hand, and posed in the shader from a
 stride clock, so the CPU only says how far you've gone, which way you face and how
@@ -54,6 +53,11 @@ the fabric's own motion, so a gust lifts the skirt and walking trails it; hair
 takes drag the same way. The fabric and hair are weighty (well damped, stiff in
 bending, drawn gently back to rest), constraints are corrected exactly rather than
 over-relaxed, and no point may move faster than a walk, so nothing gets kicked.
+The air they feel is capped, however fast you go, so skipping trails them a
+little rather than streaming them out; and each point of the skirt is tethered to
+its spot on the waistband, never further away than the fabric between them is long
+(long-range attachments, the standard fix for stretchy position-based cloth), so it
+swings and billows but never stretches off behind the legs.
 Points live in world space, so inertia is free: what's pinned to you moves with
 you and the rest catches up and settles.
 

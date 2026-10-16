@@ -1077,8 +1077,7 @@ const KID = {
     shoes: [0.82, 0.24, 0.2],
     straw: [0.96, 0.85, 0.55],
     ribbon: [0.9, 0.3, 0.32],
-    eyes: [0.12, 0.08, 0.08],
-    cheeks: [1.0, 0.58, 0.58],
+    eyes: [0.16, 0.11, 0.09],
     wicker: [0.72, 0.5, 0.28],
     rim: [0.55, 0.36, 0.18],
     posies: [
@@ -1276,10 +1275,9 @@ function kid(simulated: boolean): SplatObject {
                 colour: KID.hair,
             }),
         ),
-        { pivot: neck, turn: head, offset: [-0.06, 0.16, 0.155], radii: [0.02, 0.027, 0.008], colour: KID.eyes, flat: true },
-        { pivot: neck, turn: head, offset: [0.06, 0.16, 0.155], radii: [0.02, 0.027, 0.008], colour: KID.eyes, flat: true },
-        { pivot: neck, turn: head, offset: [-0.105, 0.105, 0.135], radii: [0.032, 0.02, 0.008], colour: KID.cheeks },
-        { pivot: neck, turn: head, offset: [0.105, 0.105, 0.135], radii: [0.032, 0.02, 0.008], colour: KID.cheeks },
+        // a face, just: two small dark eyes, calm
+        { pivot: neck, turn: head, offset: [-0.052, 0.15, 0.159], radii: [0.011, 0.015, 0.004], colour: KID.eyes, flat: true },
+        { pivot: neck, turn: head, offset: [0.052, 0.15, 0.159], radii: [0.011, 0.015, 0.004], colour: KID.eyes, flat: true },
         // the sunhat, tipped back a little: a floppy brim, a round crown and a ribbon, bouncing a beat late
         {
             pivot: neck.add(vec3(0, hatLag, 0)),
@@ -1430,6 +1428,11 @@ const AIR = {
     churn: 0.5,
     /** The fastest any simulated point may move, m/s: nothing gets kicked. */
     limit: 3,
+    /**
+     * The most air the dress and hair feel against them, m/s, however fast you go:
+     * running into still air at a skip would otherwise stream them out like a cape.
+     */
+    felt: 1.3,
 };
 
 const CLOTH = {
@@ -1444,7 +1447,9 @@ const CLOTH = {
     /** Rows near the waist held to their fitted shape, and how firmly; below, barely at all. */
     fitted: 2,
     fit: 0.1,
-    shape: 0.004,
+    shape: 0.02,
+    /** Long-range tethers: no point further from its spot on the waist than the fabric's length times this. */
+    tether: 1.03,
     /** Velocity kept each substep, and how hard the air pushes the fabric: light, so it follows through. */
     damping: 0.995,
     aero: 1.8,
@@ -1533,6 +1538,12 @@ function air(p: TslNode): TslNode {
     return vec3(windDir.x, 0, windDir.y).mul(gust.mul(AIR.breeze)).add(swirl.mul(AIR.turbulence));
 }
 
+/** The air crossing something moving at `v`, capped at `AIR.felt`. */
+function against(x: TslNode, v: TslNode): TslNode {
+    const rel = air(x).sub(v);
+    return rel.mul(min(float(AIR.felt).div(max(length(rel), 1e-4)), 1));
+}
+
 /** The cloth's rest place for ring `i`, row `r`, in the kid's own frame. */
 function clothRest(i: TslNode, r: TslNode): TslNode {
     const around = i.div(CLOTH.around).mul(Math.PI * 2);
@@ -1600,7 +1611,7 @@ function initSim(renderer: WebGPURenderer): Sim {
                 const across = cloth.now.element(clothIndex(i.add(1), r)).xyz.sub(cloth.now.element(clothIndex(i.sub(1), r)).xyz);
                 const down = cloth.now.element(clothIndex(i, r.add(1))).xyz.sub(cloth.now.element(clothIndex(i, r.sub(1))).xyz);
                 const n = normalize(cross(down, across).add(vec3(0, 1e-6, 0)));
-                const wind = air(x).sub(v);
+                const wind = against(x, v);
                 const push = n.mul(dot(n, wind).mul(CLOTH.aero)).add(wind.mul(0.12));
                 const next = x.add(v.mul(subDt)).add(push.sub(vec3(0, GRAVITY, 0)).mul(subDt.mul(subDt)));
                 cloth.next.element(index).assign(vec4(settling.or(pinned).select(rest, next), 1));
@@ -1654,6 +1665,13 @@ function initSim(renderer: WebGPURenderer): Sim {
                         out = outOf(out, pose.toWorld(top), pose.toWorld(foot), CLOTH.legs);
                     }
                     out = outOf(out, pose.toWorld(vec3(0, 0.3, 0)), pose.toWorld(vec3(0, 0.62, 0)), CLOTH.hips);
+                    // Long-range tether: never further from its spot on the waistband than
+                    // the fabric between them is long. Swing and billow, never stretch away.
+                    const anchor = pose.toWorld(clothRest(i, float(0)));
+                    const span = length(clothRest(i, r).sub(clothRest(i, float(0)))).mul(CLOTH.tether);
+                    const reach = out.sub(anchor);
+                    const far = length(reach);
+                    out = far.greaterThan(span).select(anchor.add(reach.div(max(far, 1e-5)).mul(span)), out);
                     to.element(index).assign(vec4(settling.or(pinned).select(rest, out), 1));
                 });
             },
@@ -1675,7 +1693,7 @@ function initSim(renderer: WebGPURenderer): Sim {
                 const x = hair.now.element(index).xyz.toVar();
                 const v = x.sub(hair.before.element(index).xyz).div(subDt).mul(HAIR.damping).toVar();
                 v.mulAssign(min(float(AIR.limit).div(max(length(v), 1e-4)), 1));
-                const push = air(x).sub(v).mul(HAIR.drag);
+                const push = against(x, v).mul(HAIR.drag);
                 const next = x.add(v.mul(subDt)).add(push.sub(vec3(0, GRAVITY, 0)).mul(subDt.mul(subDt)));
                 hair.next.element(index).assign(vec4(settling.or(pinned).select(rest, next), 1));
                 hair.before.element(index).assign(vec4(settling.select(rest, x), 1));
