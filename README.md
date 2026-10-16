@@ -8,6 +8,7 @@
 | [`fire/`](fire) | A campfire under a starry sky: a procedural splat flame, splat-space lighting, heat shimmer and embers. |
 | [`avatars/`](avatars) | Procedural rigged characters built out of splats, dual-quaternion skinned by a splat generator and walking around a town square. |
 | [`avatars-parts/`](avatars-parts) | How the avatars are drawn, in five short files: splat shapes, a face built from them, a body, that body skinned, and a flower that bends. The version to read first. |
+| [`grass/`](grass) | A meadow at golden hour with nothing captured: splat ground and a quarter of a million grass blades, waving in gusts that roll across the field. |
 
 ## Quick start
 

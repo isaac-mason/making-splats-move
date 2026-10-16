@@ -119,6 +119,25 @@ importers:
         specifier: ^8.0.12
         version: 8.3.0
 
+  grass:
+    dependencies:
+      spark-radix:
+        specifier: 'catalog:'
+        version: git+https://github.com/asundqui/radix-test.git#22cdb1702f66231b3cc6440f35154ec9a81242f3(three@0.186.1)
+      three:
+        specifier: ^0.186.0
+        version: 0.186.1
+    devDependencies:
+      '@types/three':
+        specifier: ^0.186.0
+        version: 0.186.0
+      typescript:
+        specifier: ~6.0.2
+        version: 6.0.3
+      vite:
+        specifier: ^8.0.12
+        version: 8.3.0
+
   reveal:
     dependencies:
       spark-radix:
