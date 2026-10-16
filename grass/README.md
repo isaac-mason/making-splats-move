@@ -121,6 +121,17 @@ so any point only has to ask its own cell about it: grass and flowers don't grow
 through one, and the same integer hash on the CPU keeps you from walking through
 one.
 
+## A path
+
+One footpath winds through the meadow, endlessly: it runs where a sine crosses
+zero, bent by a few sines of its own along its length, so it meanders at a
+walking scale. Either side of it the grass peters out, shorter and sparser
+towards the edge, scattered rather than cut off, and flowers keep off it. Its
+surface is laid along the path itself rather than scattered and mostly thrown
+away: rows of small, crisp splats of trodden earth, a step apart, in a window
+round you on a world grid so they hold still as you walk, with a pebble here and
+there. Elsewhere, clearings: soft patches where the grass grows short and sparse.
+
 ## Trampling, on the GPU
 
 The grass parts round you and stays flattened behind you, springing back over a

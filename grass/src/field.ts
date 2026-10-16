@@ -291,6 +291,99 @@ function terrain(xz: TslNode): { height: TslNode; normal: TslNode } {
     return { height, normal: normalize(vec3(slope.x.negate(), 1, slope.y.negate())) };
 }
 
+/* paths and clearings */
+
+/**
+ * Footpaths wind through the meadow: each family is where a warped sine crosses
+ * zero, a smooth line meandering for ever; two families at different angles cross
+ * into forks and junctions. On a path the grass gives way to trodden earth. And
+ * clearings: soft patches where the grass grows short and sparse.
+ */
+const PATHS = {
+    /**
+     * Each family: its heading (radians), how far apart its paths run (metres), and
+     * its meander: bends as [wavelength, swing either side] in metres, summed, so it
+     * winds at a walking scale rather than running straight.
+     */
+    families: [
+        {
+            angle: 0.4,
+            spacing: 80,
+            bends: [
+                [70, 6],
+                [29, 2.6],
+                [12, 0.8],
+            ],
+        },
+        {
+            angle: 2.1,
+            spacing: 96,
+            bends: [
+                [85, 7],
+                [33, 3],
+                [14, 0.9],
+            ],
+        },
+    ],
+    /** A path's half-width, metres, and the fringe either side where the grass peters out. */
+    width: 0.6,
+    fringe: 2.2,
+    /** Trodden earth, dusty and pale. */
+    dust: [0.5, 0.41, 0.29],
+    /** Clearings: their size (one over metres), and how much they shorten and thin the grass. */
+    clearings: 0.02,
+    short: 0.6,
+    /**
+     * The path's surface, laid along each path: rows of small splats across its
+     * width, a step apart along it, in a window round you; a share become pebbles.
+     */
+    lanes: 12,
+    step: 0.11,
+    window: 30,
+    grain: [0.06, 0.09],
+    pebbles: 0.1,
+    pebbleSize: [0.018, 0.05],
+    stone: [0.6, 0.57, 0.52],
+};
+
+/**
+ * The paths at `xz`: `core`, 1 on a path's trodden earth, and `fringe`, rising from
+ * 0 in the open meadow to 1 at the path's edge, where the grass peters out.
+ */
+function paths(xz: TslNode): { core: TslNode; fringe: TslNode } {
+    let core: TslNode = float(0);
+    let fringe: TslNode = float(0);
+    const ragged = mx_noise_float(xz.mul(0.6)).mul(0.18);
+    for (const f of PATHS.families) {
+        const k = Math.PI / f.spacing;
+        const along = vec2(Math.cos(f.angle), Math.sin(f.angle));
+        const across = vec2(-Math.sin(f.angle), Math.cos(f.angle));
+        const run = dot(xz, along);
+        const swing = meander(f, run);
+        // Distance to the nearest zero crossing, in metres (near enough), the edge a little ragged.
+        const off = sin(dot(xz, across).add(swing).mul(k)).abs().div(k).add(ragged);
+        core = max(core, smoothstep(PATHS.width + 0.25, PATHS.width - 0.15, off));
+        fringe = max(fringe, smoothstep(PATHS.width + PATHS.fringe, PATHS.width, off));
+    }
+    return { core, fringe };
+}
+
+/** How far family `f`'s paths swing sideways at distance `run` along them, metres. */
+function meander(f: (typeof PATHS.families)[number], run: TslNode): TslNode {
+    let swing: TslNode = float(0);
+    f.bends.forEach(([wavelength, size], n) => {
+        swing = swing.add(sin(run.mul((Math.PI * 2) / wavelength).add(n * 1.7)).mul(size));
+    });
+    return swing;
+}
+
+/** How much of a path's trodden earth is at `xz`: 1 on one, 0 in the grass. */
+const onPath = (xz: TslNode): TslNode => paths(xz).core;
+
+/** How much of a clearing is at `xz`, 0..1. */
+const inClearing = (xz: TslNode): TslNode =>
+    smoothstep(0.35, 0.6, mx_noise_float(xz.mul(PATHS.clearings).add(61)).mul(0.5).add(0.5));
+
 /* clouds */
 
 /**
@@ -638,8 +731,12 @@ function blades(count: number, reach: number, girth: number, stream: number, edg
 
         // Taller in patches, and patches of dry straw among the green.
         const lush = mx_noise_float(xz.mul(0.09)).mul(0.5).add(0.5);
+        const { core: path, fringe } = paths(xz);
+        const clearing = inClearing(xz);
         const height = mix(BLADE.height[0], BLADE.height[1], pow(b.x, 0.7))
             .mul(mix(0.65, 1.3, lush))
+            .mul(clearing.mul(-PATHS.short).add(1))
+            .mul(fringe.mul(-0.55).add(1))
             .toVar();
         const dryPatch = mx_noise_float(xz.mul(0.05).add(7.3));
         const dry = smoothstep(0.25, 0.7, dryPatch.add(c.z.sub(0.5).mul(0.3))).mul(0.7);
@@ -686,7 +783,10 @@ function blades(count: number, reach: number, girth: number, stream: number, edg
             .add(max(gust, 0).mul(WIND.sheen).mul(s).mul(lit.mul(0.7).add(0.3)));
 
         const finish = distance(center, out, rgb, edge);
-        finish.opacity = finish.opacity.mul(clear(xz));
+        // Not through boulders, none on the paths, sparse in the clearings.
+        // Thinning: sparse in clearings, and petering out towards a path, scattered rather than cut off.
+        const thin = max(clearing.mul(0.55), pow(fringe, 1.5).mul(0.95)).greaterThan(c.y).select(float(0), float(1));
+        finish.opacity = finish.opacity.mul(clear(xz)).mul(path.oneMinus()).mul(thin);
         return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity, uint(index));
     });
 }
@@ -801,6 +901,7 @@ function flowerPlan(flower: TslNode) {
     const drift = mx_noise_float(xz.mul(FLOWERS.drift).add(41.7)).mul(0.5).add(0.5);
     const here = smoothstep(FLOWERS.gather[0], FLOWERS.gather[1], drift.sub(0.25))
         .mul(clear(xz))
+        .mul(onPath(xz).oneMinus())
         .max(c.z.lessThan(FLOWERS.strays).select(float(1), float(0)));
     const height = mix(FLOWERS.height[0], FLOWERS.height[1], b.x).toVar();
     const { gust, push } = windAt(xz, height, c);
@@ -2170,7 +2271,9 @@ function ground(): SplatObject {
         const earth = mix(v3(GROUND.earth), v3(GROUND.loam), mottle).mul(a.w.mul(0.25).add(0.88));
         const soil = b.x.greaterThan(0.995).select(mix(earth, v3(GROUND.pebble), 0.5), earth);
         const turf = mix(v3(BLADE.deep), v3(BLADE.fresh), 0.55);
-        const body = mix(soil, turf, smoothstep(6, 22, length(center.sub(eye))));
+        const { core: path, fringe } = paths(xz);
+        const trodden = mix(soil, v3(PATHS.dust).mul(a.w.mul(0.2).add(0.9)), max(path, fringe.mul(0.12)));
+        const body = mix(trodden, turf, smoothstep(6, 22, length(center.sub(eye))).mul(path.oneMinus()));
         const direct = v3(SUN)
             .mul(max(dot(land.normal, sun), 0))
             .mul(sunlight(center));
@@ -2295,6 +2398,92 @@ function grass(): SplatObject[] {
     return FIELD.layers.map((layer, n) => blades(layer.blades, layer.reach, layer.girth, n * 4, layer.edge));
 }
 
+/* the paths' surface */
+
+/**
+ * Trodden earth and pebbles, laid along the paths themselves rather than scattered
+ * and mostly thrown away. A family's path n runs where its winding sine crosses
+ * zero: at distance `run` along it, `n * spacing - meander(run)` across. So each
+ * splat is a path, a step along it, and a lane across it: small, crisp, dense
+ * exactly where the path is. Steps are on a world grid, so they hold still as you
+ * walk, in a window round you; the three paths of each family nearest you are laid.
+ */
+function pathSurface(): SplatObject {
+    const { lanes, step, window } = PATHS;
+    const runs = Math.round((window * 2) / step);
+    const perPath = runs * lanes;
+    const perFamily = perPath * 3;
+    return generated(
+        PATHS.families.length * perFamily,
+        (index) => {
+            const family = index.div(uint(perFamily));
+            const slot = float(index.div(uint(perPath)).mod(uint(3))).sub(1);
+            const r = float(index.mod(uint(perPath)).div(uint(lanes)));
+            const lane = float(index.mod(uint(lanes)));
+            const h = hash4(index, 52).toVar();
+
+            let center: TslNode = vec3(0);
+            let shows: TslNode = float(0);
+            PATHS.families.forEach((f, n) => {
+                const along = vec2(Math.cos(f.angle), Math.sin(f.angle));
+                const across = vec2(-Math.sin(f.angle), Math.cos(f.angle));
+                // Which path: the one nearest you, or either side of it.
+                const yourRun = dot(you.xz, along);
+                const nearest = dot(you.xz, across).add(meander(f, yourRun)).div(f.spacing).round();
+                const which = nearest.add(slot);
+                // A step along it, on a world grid; a lane across it.
+                const run = yourRun
+                    .div(step)
+                    .floor()
+                    .add(r.sub(runs / 2))
+                    .add(h.x.sub(0.5).mul(0.8))
+                    .mul(step);
+                const side = lane
+                    .add(h.y)
+                    .div(lanes)
+                    .mul(2)
+                    .sub(1)
+                    .mul(PATHS.width + 0.2);
+                const off = which.mul(f.spacing).sub(meander(f, run)).add(side);
+                const xz = along.mul(run).add(across.mul(off));
+                const here = family.equal(uint(n));
+                center = here.select(vec3(xz.x, 0, xz.y), center);
+                // Fades at the window's ends, so nothing pops.
+                const inWindow = smoothstep(window, window * 0.8, run.sub(yourRun).abs());
+                shows = here.select(inWindow, shows);
+            });
+            const xz = center.xz.toVar();
+            const { core } = paths(xz);
+            const land = terrain(xz);
+
+            // Mostly trodden earth; now and then a pebble, smaller, raised and grey.
+            const pebble = h.z.lessThan(PATHS.pebbles);
+            const size = pebble.select(
+                mix(PATHS.pebbleSize[0], PATHS.pebbleSize[1], pow(h.w, 2)),
+                mix(PATHS.grain[0], PATHS.grain[1], h.w),
+            );
+            // Clear of the ground's big soft splats, or they win the sort half the time and blur it.
+            const lift = pebble.select(size.mul(0.3).add(0.02), float(0.02));
+            const at = vec3(xz.x, land.height.add(lift), xz.y).toVar();
+            const turn = GpuSplatMath.quatMul(alignY(land.normal), yaw(h.x.mul(Math.PI)));
+            const scales = pebble.select(vec3(size, size.mul(0.5), size.mul(0.75)), vec3(size, 0.003, size.mul(0.8)));
+            const dirt = v3(PATHS.dust)
+                .mul(h.y.mul(0.3).add(0.8))
+                .mul(mx_noise_float(xz.mul(2.3)).mul(0.08).add(1));
+            const stone = v3(PATHS.stone).mul(h.w.mul(0.35).add(0.75));
+            const colour = pebble.select(stone, dirt);
+            const direct = v3(SUN)
+                .mul(max(dot(land.normal, sun), 0))
+                .mul(sunlight(at));
+            const rgb = colour.mul(direct.mul(0.8).add(v3(SKYLIGHT).mul(0.55)));
+            const finish = distance(at, float(0), rgb);
+            const visible = shows.mul(smoothstep(0.35, 0.7, core)).mul(clear(xz));
+            return GpuSplats.Splat(at, scales, turn, finish.rgb.min(0.95), finish.opacity.mul(visible).mul(1.3), uint(index));
+        },
+        true,
+    );
+}
+
 /* the field */
 
 export type Field = { objects: SplatObject[] };
@@ -2314,7 +2503,7 @@ export function initField(renderer: WebGPURenderer, clouds: THREE.Texture, kidOn
     return {
         objects: kidOnly
             ? [ground(), ...grass().slice(0, 2), ...you]
-            : [ground(), boulders(), ...grass(), flowers(), butterflies(), ...you],
+            : [ground(), boulders(), ...grass(), pathSurface(), flowers(), butterflies(), ...you],
     };
 }
 
