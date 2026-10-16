@@ -10,7 +10,7 @@ Drawn by [spark-radix][radix] on three.js's `WebGPURenderer`. **WASD** to walk,
 
 ## A meadow without end
 
-You're a capsule of splats walking it in third person. Everything in the meadow,
+You're a little cartoon kid walking it in third person (see below). Everything in the meadow,
 grass, ground, flowers and butterflies, lives in one 60 metre tile, and each thing
 is drawn at whichever copy of its place is nearest you. So it holds still in the
 world until you've gone far enough that it wraps round to the far side, out in
@@ -18,6 +18,21 @@ the haze ahead. That's all on the GPU, per splat, so it costs nothing to run as
 far and as fast as you like. The hills, the flower drifts, the dry patches, the
 wind and the clouds are all world-space fields, so the land itself never repeats;
 only the scatter of blades does, 60 metres apart, where the haze hides it.
+
+## You
+
+A little cartoon kid in a sky-blue sundress and a wide straw sunhat with a red
+ribbon, pigtails, red shoes, and a wicker basket of posies on one arm. A couple of
+dozen parts, each a shell of splats over an ellipsoid (the basket's handle a
+ring), hinged at hips, shoulders, neck and hand, and posed in the shader from a
+stride clock, so the CPU only says how far you've gone, which way you face and how
+fast.
+
+Walking is a light bounce on alternating legs. Running is skipping: big and small
+hops in turn, the leading knee up, the free arm swinging up, a squash on landing
+and a stretch in the air. The hat bounces a beat late, the basket swings, the head
+nods, and standing still, the kid breathes. Lit like a cartoon: banded sun, sky
+fill and a rim.
 
 ## Trampling, on the GPU
 

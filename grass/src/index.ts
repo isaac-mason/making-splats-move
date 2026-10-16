@@ -33,12 +33,15 @@ const WALK = {
     speed: 2.6,
     run: 9,
     grip: 8,
-    /** A stride's length, metres, for the bob. */
-    stride: 1.3,
+    /** A step's length walking, and a skip's running, metres: the stride clock. */
+    stride: 0.9,
+    skip: 3.2,
+    /** How quickly you turn to face the way you're going. */
+    turn: 10,
     /** Which way you face at the start, radians in xz: up the long rise to the crest. */
     facing: (140 * Math.PI) / 180,
     /** The camera: how far behind and above to start, and how close to the grass it may get. */
-    behind: 5.5,
+    behind: 4,
     above: 1.4,
     clearance: 0.6,
     /** What the camera looks at: you, at about chest height. */
@@ -88,7 +91,16 @@ function walk(walker: Walker, held: Set<string>, camera: THREE.Camera, controls:
     before.copy(walker.position);
     walker.position.addScaledVector(walker.velocity, dt);
     walker.position.y = terrainHeight(walker.position.x, walker.position.z);
-    walker.stride += (walker.velocity.length() * dt) / WALK.stride;
+    // Faster than a walk is skipping; turn to face the way you're going.
+    const speed = Math.hypot(walker.velocity.x, walker.velocity.z);
+    const skipping = THREE.MathUtils.clamp((speed - WALK.speed) / (WALK.run - WALK.speed), 0, 1);
+    walker.skipping += (skipping - walker.skipping) * (1 - Math.exp(-6 * dt));
+    walker.stride += (speed * dt) / THREE.MathUtils.lerp(WALK.stride, WALK.skip, walker.skipping);
+    if (speed > 0.2) {
+        const toward = Math.atan2(walker.velocity.x, walker.velocity.z);
+        const turn = Math.atan2(Math.sin(toward - walker.facing), Math.cos(toward - walker.facing));
+        walker.facing += turn * (1 - Math.exp(-WALK.turn * dt));
+    }
 
     // The camera comes along, keeping its place behind you.
     before.subVectors(walker.position, before);
@@ -159,7 +171,13 @@ async function start() {
     scene.backgroundNode = skyNode();
 
     const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 500);
-    const walker: Walker = { position: new THREE.Vector3(0, terrainHeight(0, 0), 0), velocity: new THREE.Vector3(), stride: 0 };
+    const walker: Walker = {
+        position: new THREE.Vector3(0, terrainHeight(0, 0), 0),
+        velocity: new THREE.Vector3(),
+        stride: 0,
+        facing: Math.atan2(Math.cos(WALK.facing), Math.sin(WALK.facing)),
+        skipping: 0,
+    };
     const target = walker.position.clone();
     target.y += WALK.chest;
     camera.position.set(-Math.cos(WALK.facing), 0, -Math.sin(WALK.facing)).multiplyScalar(WALK.behind).add(target);

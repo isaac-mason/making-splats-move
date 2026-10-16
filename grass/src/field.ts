@@ -1062,77 +1062,235 @@ function butterflies(): SplatObject {
 /* you */
 
 /**
- * You: a capsule of splats standing in the grass, lit like everything else. It
- * bobs as it walks and leans into its stride.
+ * You: a little cartoon kid in a sundress and a wide straw sunhat, a basket of
+ * flowers on one arm, built from a couple of dozen splat-shelled parts and
+ * animated in the shader from a stride clock. Walking is a light bounce. Running
+ * is skipping: big and small hops in turn, the leading knee up, the free arm
+ * swinging up, a squash on landing and a stretch in the air; the hat bounces a
+ * beat late and the basket swings. Standing still, breathing.
  */
-const YOU = {
-    /** Splats over its surface. */
-    splats: 900,
-    radius: 0.26,
-    /** Height of the straight part between the two round ends, metres. */
-    middle: 0.9,
-    colour: [0.88, 0.5, 0.36],
-    /** How far it leans into its stride, radians per m/s, and bobs, metres. */
-    lean: 0.035,
-    bob: 0.035,
+const KID = {
+    skin: [0.98, 0.8, 0.68],
+    hair: [0.47, 0.29, 0.15],
+    dress: [0.55, 0.72, 0.96],
+    shoes: [0.82, 0.24, 0.2],
+    straw: [0.96, 0.85, 0.55],
+    ribbon: [0.9, 0.3, 0.32],
+    eyes: [0.12, 0.08, 0.08],
+    cheeks: [1.0, 0.58, 0.58],
+    wicker: [0.72, 0.5, 0.28],
+    rim: [0.55, 0.36, 0.18],
+    posies: [
+        [0.92, 0.22, 0.14],
+        [1.0, 0.85, 0.2],
+        [0.97, 0.96, 0.92],
+    ],
+    /** Splats per square metre of surface, at least a few a part. */
+    density: 9000,
 };
 
-function capsule(): SplatObject {
-    const { splats, radius, middle } = YOU;
-    // Spread over the surface by area: the round ends and the straight middle.
-    const capArea = 4 * Math.PI * radius * radius;
-    const sideArea = 2 * Math.PI * radius * middle;
-    const onSide = sideArea / (capArea + sideArea);
+/** How hard you're skipping, 0 walking to 1 running; and the way you face, radians. */
+const skipping = uniform(0);
+const facing = uniform(0);
+
+/** A turn of `angle` about x (nodding, swinging a limb forward), as a quaternion. */
+const aboutX = (angle: TslNode): TslNode => vec4(sin(angle.mul(0.5)), 0, 0, cos(angle.mul(0.5)));
+/** A turn of `angle` about z (an arm out to the side). */
+const aboutZ = (angle: TslNode): TslNode => vec4(0, 0, sin(angle.mul(0.5)), cos(angle.mul(0.5)));
+
+type Part = {
+    /** Where it hinges, in the kid's own frame (x right, y up, z forward, feet at 0). */
+    pivot: TslNode;
+    /** How it's turned about that hinge. */
+    turn: TslNode;
+    /** Its middle, from the hinge, before the turn; and its radii. */
+    offset: [number, number, number];
+    radii: [number, number, number];
+    colour: readonly number[];
+    /** A ring (the basket's handle) rather than a shell. */
+    ring?: boolean;
+    /** Unlit: eyes stay dark whatever the light. */
+    flat?: boolean;
+};
+
+function kid(): SplatObject {
+    const t = time;
+    const step = stride.toVar();
+    const moving = clamp(length(yourVelocity.xz).div(1.2), 0, 1);
+    const skip = skipping.mul(moving);
+    // One hop a step; when skipping, big and small in turn.
+    const within = step.fract();
+    const arc = sin(within.mul(Math.PI));
+    const big = wrap(step.floor(), 2).lessThan(0.5).select(float(1), float(0.55));
+    const hop = arc.mul(mix(0.035, big.mul(0.2), skip)).mul(moving);
+    // Squash on landing, stretch in the air.
+    const squash = pow(arc.oneMinus(), 4).mul(0.14).sub(arc.mul(0.05)).mul(skip);
+    // Legs swing in turn, the leading knee higher when skipping.
+    const swing = sin(step.mul(Math.PI))
+        .mul(mix(0.5, 0.75, skip))
+        .mul(moving);
+    const lead = (x: TslNode) => x.greaterThan(0).select(x.mul(mix(1, 1.5, skip)), x.mul(0.7));
+    const leftLeg = lead(swing);
+    const rightLeg = lead(swing.negate());
+    // The free arm swings against its leg, and up when skipping.
+    const freeArm = rightLeg.mul(0.9).negate().sub(skip.mul(arc).mul(0.6));
+    const breath = sin(t.mul(1.8)).mul(0.012).mul(moving.oneMinus());
+    const nod = sin(step.mul(Math.PI * 2))
+        .mul(0.07)
+        .mul(moving);
+    const hatLag = sin(within.mul(Math.PI).sub(0.9)).mul(0.018).mul(skip);
+
+    const neck = vec3(0, 0.78, 0);
+    const head = aboutX(nod);
+    const hip = (side: number) => vec3(side * 0.07, 0.36, 0);
+    const shoulder = (side: number) => vec3(side * 0.15, 0.68, 0);
+    const leftArm = GpuSplatMath.quatMul(aboutZ(float(-0.22)), aboutX(freeArm.negate()));
+    const rightArm = GpuSplatMath.quatMul(aboutZ(float(0.12)), aboutX(float(-0.55).add(arc.mul(0.06))));
+    const hand = shoulder(1).add(GpuSplatMath.quatRotate(rightArm, vec3(0, -0.29, 0)));
+    const basket = aboutX(sin(within.mul(Math.PI).sub(0.5)).mul(0.3).mul(moving));
+    const none = vec4(0, 0, 0, 1);
+
+    const parts: Part[] = [
+        // legs and shoes
+        ...[-1, 1].flatMap((side): Part[] => {
+            const turn = aboutX((side < 0 ? leftLeg : rightLeg).negate());
+            return [
+                { pivot: hip(side), turn, offset: [0, -0.16, 0], radii: [0.048, 0.16, 0.048], colour: KID.skin },
+                { pivot: hip(side), turn, offset: [0, -0.33, 0.03], radii: [0.055, 0.04, 0.085], colour: KID.shoes },
+            ];
+        }),
+        // the sundress: a bell of a skirt and a bodice
+        { pivot: vec3(0, 0.36, 0), turn: none, offset: [0, 0.12, 0], radii: [0.2, 0.19, 0.18], colour: KID.dress },
+        { pivot: vec3(0, 0.36, 0), turn: none, offset: [0, 0.31, 0], radii: [0.13, 0.13, 0.11], colour: KID.dress },
+        // arms and hands
+        ...[-1, 1].flatMap((side): Part[] => {
+            const turn = side < 0 ? leftArm : rightArm;
+            return [
+                { pivot: shoulder(side), turn, offset: [0, -0.14, 0], radii: [0.038, 0.14, 0.038], colour: KID.skin },
+                { pivot: shoulder(side), turn, offset: [0, -0.29, 0], radii: [0.042, 0.042, 0.042], colour: KID.skin },
+            ];
+        }),
+        // the head, hair, pigtails, face
+        { pivot: neck, turn: head, offset: [0, 0.15, 0], radii: [0.17, 0.165, 0.165], colour: KID.skin },
+        { pivot: neck, turn: head, offset: [0, 0.18, -0.035], radii: [0.178, 0.155, 0.165], colour: KID.hair },
+        { pivot: neck, turn: head, offset: [-0.17, 0.08, -0.05], radii: [0.055, 0.07, 0.055], colour: KID.hair },
+        { pivot: neck, turn: head, offset: [0.17, 0.08, -0.05], radii: [0.055, 0.07, 0.055], colour: KID.hair },
+        { pivot: neck, turn: head, offset: [-0.06, 0.16, 0.155], radii: [0.02, 0.027, 0.008], colour: KID.eyes, flat: true },
+        { pivot: neck, turn: head, offset: [0.06, 0.16, 0.155], radii: [0.02, 0.027, 0.008], colour: KID.eyes, flat: true },
+        { pivot: neck, turn: head, offset: [-0.105, 0.105, 0.135], radii: [0.032, 0.02, 0.008], colour: KID.cheeks },
+        { pivot: neck, turn: head, offset: [0.105, 0.105, 0.135], radii: [0.032, 0.02, 0.008], colour: KID.cheeks },
+        // the sunhat: brim, crown and ribbon, bouncing a beat late
+        { pivot: neck.add(vec3(0, hatLag, 0)), turn: head, offset: [0, 0.27, 0], radii: [0.33, 0.012, 0.33], colour: KID.straw },
+        {
+            pivot: neck.add(vec3(0, hatLag, 0)),
+            turn: head,
+            offset: [0, 0.31, -0.005],
+            radii: [0.15, 0.085, 0.15],
+            colour: KID.straw,
+        },
+        {
+            pivot: neck.add(vec3(0, hatLag, 0)),
+            turn: head,
+            offset: [0, 0.29, -0.005],
+            radii: [0.155, 0.026, 0.155],
+            colour: KID.ribbon,
+        },
+        // the basket on the right hand, swinging: bowl, rim, handle, posies
+        { pivot: hand, turn: basket, offset: [0, -0.11, 0], radii: [0.11, 0.07, 0.085], colour: KID.wicker },
+        { pivot: hand, turn: basket, offset: [0, -0.06, 0], radii: [0.112, 0.014, 0.087], colour: KID.rim },
+        { pivot: hand, turn: basket, offset: [0, -0.06, 0], radii: [0.1, 0.07, 0], colour: KID.rim, ring: true },
+        { pivot: hand, turn: basket, offset: [-0.04, -0.05, 0.02], radii: [0.03, 0.03, 0.03], colour: KID.posies[0] },
+        { pivot: hand, turn: basket, offset: [0.03, -0.045, -0.02], radii: [0.028, 0.028, 0.028], colour: KID.posies[1] },
+        { pivot: hand, turn: basket, offset: [0.01, -0.04, 0.035], radii: [0.026, 0.026, 0.026], colour: KID.posies[2] },
+    ];
+
+    // Splats per part, by its area (a ring by its length).
+    const counts = parts.map((part) => {
+        const [a, b, c] = part.radii;
+        const area = part.ring ? Math.PI * (a + b) * 0.02 : 4 * Math.PI * ((a * b + b * c + c * a) / 3);
+        return Math.max(10, Math.round(area * KID.density));
+    });
+    const total = counts.reduce((sum, n) => sum + n, 0);
 
     return generated(
-        splats,
+        total,
         (index) => {
-            const r = hash4(index, 12).toVar();
             const i = float(index);
-            // An even spiral round it, a golden angle a step, a little jittered.
-            const around = i.mul(2.399963).add(r.x.mul(0.4));
-            const t = i.add(r.y).div(splats);
-            const side = t.lessThan(onSide);
-            // On the side: straight up the middle. On the ends: a hemisphere each.
-            const sideY = t.div(onSide).sub(0.5).mul(middle);
-            const capT = t.sub(onSide).div(1 - onSide);
-            const top = capT.greaterThan(0.5);
-            const capU = capT.mul(2).fract();
-            const lat = capU.acos();
-            const normal = side
-                .select(
-                    vec3(cos(around), 0, sin(around)),
-                    vec3(cos(around).mul(lat.sin()), top.select(lat.cos(), lat.cos().negate()), sin(around).mul(lat.sin())),
-                )
-                .toVar();
-            const anchor = side.select(sideY, top.select(float(middle / 2), float(-middle / 2)));
-            const local = normal.mul(radius).add(vec3(0, anchor, 0));
-
-            // Standing on the ground under you, bobbing, leaning into the stride.
-            const speed = length(yourVelocity.xz);
-            const bob = sin(stride.mul(Math.PI * 2))
-                .abs()
-                .mul(YOU.bob)
-                .mul(clamp(speed.div(2), 0, 1));
-            const height = local.y.add(middle / 2 + radius);
-            const lean = yourVelocity.xz.mul(YOU.lean).mul(height);
-            const center = you.add(vec3(local.x.add(lean.x), height.add(bob), local.z.add(lean.y))).toVar();
-
-            const quaternion = alignY(normal);
-            const size = radius * 0.16;
-            const scales = vec3(size, 0.012, size);
-
-            const lit = sunlight(center);
-            const rgb = v3(YOU.colour)
-                .mul(r.z.mul(0.08).add(0.96))
-                .mul(
-                    v3(SUN)
-                        .mul(max(dot(normal, sun), 0).mul(0.85))
-                        .mul(lit)
-                        .add(v3(SKYLIGHT).mul(0.6)),
+            let start = 0;
+            let center: TslNode = vec3(0);
+            let normal: TslNode = vec3(0, 1, 0);
+            let colour: TslNode = vec3(1);
+            let size: TslNode = float(0.01);
+            let flat: TslNode = float(0);
+            parts.forEach((part, n) => {
+                const count = counts[n];
+                const k = i.sub(start);
+                // An even spiral over a sphere (or round a ring), stretched to the part.
+                const angle = k.mul(2.399963);
+                let dir: TslNode;
+                if (part.ring) {
+                    const around = k.add(0.5).div(count).mul(Math.PI);
+                    dir = vec3(cos(around), sin(around), 0);
+                } else {
+                    const y = k.add(0.5).div(count).mul(-2).add(1);
+                    const r = y.mul(y).oneMinus().max(0).sqrt();
+                    dir = vec3(cos(angle).mul(r), y, sin(angle).mul(r));
+                }
+                const [rx, ry, rz] = part.radii;
+                const local = vec3(part.offset[0], part.offset[1], part.offset[2]).add(dir.mul(vec3(rx, ry, rz)));
+                const at = part.pivot.add(GpuSplatMath.quatRotate(part.turn, local));
+                const facingOut = GpuSplatMath.quatRotate(
+                    part.turn,
+                    normalize(dir.div(vec3(Math.max(rx, 0.01), Math.max(ry, 0.01), Math.max(rz, 0.01)))),
                 );
-            const finish = distance(center, float(0), rgb);
-            return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity.mul(1.4), uint(index));
+                const [a, b, c] = part.radii;
+                const area = part.ring ? Math.PI * (a + b) * 0.02 : 4 * Math.PI * ((a * b + b * c + c * a) / 3);
+                const here = i.greaterThanEqual(start).and(i.lessThan(start + count));
+                center = here.select(at, center);
+                normal = here.select(facingOut, normal);
+                colour = here.select(v3(part.colour), colour);
+                size = here.select(float(Math.sqrt(area / count) * 0.75), size);
+                flat = here.select(float(part.flat ? 1 : 0), flat);
+                start += count;
+            });
+
+            // The whole kid: squashed or stretched from the feet, breathing, leaning
+            // into the run, turned to face the way you go, standing on the ground.
+            const body = center.toVar();
+            const scaled = vec3(
+                body.x.mul(squash.mul(0.5).add(1)),
+                body.y.mul(squash.oneMinus().add(breath)),
+                body.z.mul(squash.mul(0.5).add(1)),
+            );
+            const lean = aboutX(length(yourVelocity.xz).mul(0.025));
+            const turn = GpuSplatMath.quatMul(yaw(facing.mul(0.5)), lean);
+            const world = you
+                .add(vec3(0, hop, 0))
+                .add(GpuSplatMath.quatRotate(turn, scaled))
+                .toVar();
+            const outward = GpuSplatMath.quatRotate(turn, normal).toVar();
+
+            // Cartoon light: banded sun, unless a cloud's in the way, plus sky and a rim.
+            const lit = sunlight(world);
+            const band = smoothstep(-0.05, 0.2, dot(outward, sun));
+            const rim = pow(
+                dot(normalize(eye.sub(world)), outward)
+                    .oneMinus()
+                    .max(0),
+                3,
+            ).mul(0.25);
+            const shaded = colour.mul(v3(SUN).mul(band.mul(0.7)).mul(lit).add(v3(SKYLIGHT).mul(0.75))).add(rim);
+            const rgb = flat.greaterThan(0.5).select(colour, shaded);
+
+            const finish = distance(world, float(0), rgb);
+            return GpuSplats.Splat(
+                world,
+                vec3(size, size.mul(0.35), size),
+                alignY(outward),
+                finish.rgb.min(0.97),
+                finish.opacity.mul(1.5),
+                uint(index),
+            );
         },
         true,
     );
@@ -1182,11 +1340,19 @@ export function initField(renderer: WebGPURenderer, clouds: THREE.Texture): Fiel
     cloudMap = clouds;
     // Before the generators: they read the trample grid if there is one.
     trampleState = getGpuCaps(renderer).compute ? initTrample(renderer) : null;
-    return { objects: [ground(), blades(), flowers(), butterflies(), capsule()] };
+    return { objects: [ground(), blades(), flowers(), butterflies(), kid()] };
 }
 
 /** Where you are and how you're moving, for the meadow round you. */
-export type Walker = { position: THREE.Vector3; velocity: THREE.Vector3; stride: number };
+export type Walker = {
+    position: THREE.Vector3;
+    velocity: THREE.Vector3;
+    /** Steps taken, for the stride clock. */
+    stride: number;
+    /** The way you face, radians, and how hard you're skipping, 0..1. */
+    facing: number;
+    skipping: number;
+};
 
 export function updateField(elapsed: number, dt: number, camera: THREE.Camera, walker: Walker): void {
     time.value = elapsed;
@@ -1195,6 +1361,8 @@ export function updateField(elapsed: number, dt: number, camera: THREE.Camera, w
     you.value.copy(walker.position);
     yourVelocity.value.copy(walker.velocity);
     stride.value = walker.stride;
+    facing.value = walker.facing;
+    skipping.value = walker.skipping;
     if (trampleState) trampleState.batch.add(trampleState.kernel, TRAMPLE.cells ** 2).submit();
     // The wind veers on two slow sines, and carries the gusts and clouds along it.
     const angle = WIND.angle + WIND.veer * (0.7 * Math.sin(elapsed * 0.031) + 0.3 * Math.sin(elapsed * 0.083 + 1.7));
