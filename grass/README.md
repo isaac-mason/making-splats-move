@@ -60,8 +60,11 @@ you and the rest catches up and settles.
 The dress is a mid-calf skirt of 40 by 16 points, fitted at the waist and free
 below: a soft A-line that hangs close round the legs, light and quick to ripple,
 so each stride and skip pushes the hem and it swings back after the knee, flowing
-round the legs rather than standing off them as a bell. drawn as two splats a cloth cell lit by the cloth's own normal, with pleat
-shading, a white hem and a darker lining when you see inside it. The hair is
+round the legs rather than standing off them as a bell. It's drawn as two splats a
+cloth cell lit by the cloth's own normal, with pleat shading, a white hem and a
+darker lining when you see inside it.
+
+The hair is
 done the way splats are good at, and the way the grass is: thin strands of long,
 thin Gaussians, which is how Gaussian hair is rendered. Twenty-four guide strands of
 ten joints are simulated (the first two held by the head, so the hair leaves it at
