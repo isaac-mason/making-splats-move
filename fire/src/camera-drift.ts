@@ -4,9 +4,10 @@
  * enough you don't quite notice it. Mouse only — touch has no hover, and reacting
  * to it would fight the orbit gesture.
  *
- * Two styles. `orbit` swings the camera a degree or two about the shot's target,
- * so the fire holds its place while the near ground and the far trees slide past
- * each other. `parallax` slides the camera along its own axes without re-aiming.
+ * Two motions, blended by `mix`. The orbit swings the camera a degree or two about
+ * the shot's target, so the fire holds its place while the near ground and the far
+ * trees slide past each other. The slide moves the camera along its own axes without
+ * re-aiming. `mix` 1 is all swing, 0 all slide, and between them each at its share.
  *
  * OrbitControls derives its state FROM `camera.position` each update, so a lean
  * left in the position compounds into a drift. Hence `apply()`: put back last
@@ -15,8 +16,6 @@
 
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
-export type LeanStyle = 'orbit' | 'parallax';
 
 /** Maximum parallax slide in world units, at the very edge of the window. */
 const DRIFT_RANGE = 0.2;
@@ -47,7 +46,7 @@ export function createCameraDrift(
     camera: THREE.PerspectiveCamera,
     controls: OrbitControls,
     domElement: HTMLElement,
-    style: LeanStyle = 'orbit',
+    mix = 0.5,
 ): CameraDrift {
     const target = new THREE.Vector2();
     const current = new THREE.Vector2();
@@ -101,18 +100,22 @@ export function createCameraDrift(
             hasBase = true;
 
             camera.matrixWorld.extractBasis(right, up, forward);
-            if (style === 'parallax') {
-                // Along the camera's own axes, without re-aiming: that's what makes it
-                // parallax rather than a pan.
-                camera.position.addScaledVector(right, current.x * DRIFT_RANGE).addScaledVector(up, current.y * DRIFT_RANGE);
-            } else {
+            if (mix > 0) {
                 // Round the target: yaw about the world's up, pitch about the camera's
                 // right, then look back at it.
-                swing.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, -current.x * ORBIT_RANGE);
-                tilt.setFromAxisAngle(right, current.y * ORBIT_RANGE);
+                swing.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, -current.x * ORBIT_RANGE * mix);
+                tilt.setFromAxisAngle(right, current.y * ORBIT_RANGE * mix);
                 offset.copy(camera.position).sub(controls.target).applyQuaternion(tilt).applyQuaternion(swing);
                 camera.position.copy(controls.target).add(offset);
                 camera.lookAt(controls.target);
+                camera.updateMatrixWorld();
+                camera.matrixWorld.extractBasis(right, up, forward);
+            }
+            if (mix < 1) {
+                // Along the camera's own axes, without re-aiming: that's what makes it
+                // parallax rather than a pan.
+                const slide = DRIFT_RANGE * (1 - mix);
+                camera.position.addScaledVector(right, current.x * slide).addScaledVector(up, current.y * slide);
             }
         },
 
