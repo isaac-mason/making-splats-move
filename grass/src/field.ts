@@ -143,8 +143,17 @@ const WIND = {
     /** How fast gusts travel, m/s. */
     speed: 4.5,
     /** A gust's depth along the wind and its length across it, metres. */
-    depth: 8,
-    length: 22,
+    depth: 9,
+    length: 14,
+    /**
+     * Organic, not one big wave: the gust pattern's coordinates bent by a slower noise
+     * (how far, in gust-sizes), so gusts come as curling patches, not bands; a second
+     * layer of gusts at another size, angle and pace drifting through the first; and
+     * the wind's direction wandering across the field (radians either way).
+     */
+    warp: 1.3,
+    second: 0.6,
+    wander: 0.45,
     /** Bend everyone has all the time, and the extra in a gust, radians. */
     breeze: 0.12,
     gust: 0.75,
@@ -499,13 +508,41 @@ function windAt(xz: TslNode, height: TslNode, r: TslNode): { gust: TslNode; push
     const across = dot(p, vec2(windDir.y.negate(), windDir.x));
     // Rolling, not on-or-off: the broad pattern mapped gently, with a finer octave
     // sliding along with it.
+    // The bend in the gusts' coordinates: slow, so it's shared by the whole moment of a stem.
+    const q0 = vec2(along.div(WIND.depth), across.div(WIND.length));
+    const bend = vec2(
+        mx_noise_float(vec3(q0.mul(0.45), time.mul(0.04))),
+        mx_noise_float(vec3(q0.mul(0.45).add(31), time.mul(0.04))),
+    )
+        .mul(WIND.warp)
+        .toVar();
+    // The second layer: its own frame, turned off the wind, slower, smaller.
+    const p2 = xz.sub(gustTravel.mul(0.65));
+    const turned = vec2(cos(0.7), sin(0.7));
+    const along2 = dot(
+        p2,
+        vec2(windDir.x.mul(turned.x).sub(windDir.y.mul(turned.y)), windDir.x.mul(turned.y).add(windDir.y.mul(turned.x))),
+    );
+    const across2 = dot(
+        p2,
+        vec2(windDir.x.mul(turned.y).add(windDir.y.mul(turned.x)).negate(), windDir.x.mul(turned.x).sub(windDir.y.mul(turned.y))),
+    );
     const gustAt = (ago: number) => {
         const a = along.add(WIND.speed * WIND.respond * ago);
-        const broad = mx_noise_float(vec3(a.div(WIND.depth), across.div(WIND.length), time.mul(0.02)));
+        const broad = mx_noise_float(vec3(vec2(a.div(WIND.depth), across.div(WIND.length)).add(bend), time.mul(0.02)));
+        const other = mx_noise_float(
+            vec3(
+                vec2(
+                    along2.add(WIND.speed * 0.65 * WIND.respond * ago).div(WIND.depth * 0.6),
+                    across2.div(WIND.length * 0.6),
+                ).add(bend.mul(0.5)),
+                time.mul(0.03).add(7),
+            ),
+        );
         const fine = mx_noise_float(
             vec3(a.div(WIND.depth * WIND.detail), across.div(WIND.length * WIND.detail), time.mul(0.03).add(17)),
         );
-        return clamp(broad.add(fine.mul(WIND.detailWeight)).mul(0.8).add(0.45), 0, 1);
+        return clamp(broad.add(other.mul(WIND.second)).add(fine.mul(WIND.detailWeight)).mul(0.7).add(0.45), 0, 1);
     };
     const felt = gustAt(1).toVar();
     // Lulls travel too: how hard it blows here is how hard it blew upwind, earlier.
@@ -528,8 +565,13 @@ function windAt(xz: TslNode, height: TslNode, r: TslNode): { gust: TslNode; push
     const flutter = gust.add(0.25).mul(WIND.flutter);
     const shake = vec2(sin(time.mul(rate).add(phase)), sin(time.mul(rate.mul(1.37)).add(phase.mul(2.1))).mul(0.6)).mul(flutter);
 
-    // Each stem leans a little its own way, so a gust doesn't lay the field over as one sheet.
-    const stray = r.z.sub(0.5).mul(2 * WIND.scatter);
+    // Each stem leans a little its own way, so a gust doesn't lay the field over as one
+    // sheet; and the wind's own way wanders slowly across the field, so gusts eddy.
+    const wander = mx_noise_float(vec3(xz.div(20), time.mul(0.03).add(5))).mul(WIND.wander);
+    const stray = r.z
+        .sub(0.5)
+        .mul(2 * WIND.scatter)
+        .add(wander);
     const way = vec2(
         windDir.x.mul(cos(stray)).sub(windDir.y.mul(sin(stray))),
         windDir.x.mul(sin(stray)).add(windDir.y.mul(cos(stray))),
@@ -1196,8 +1238,6 @@ type Part = {
     brim?: { inner: number; outer: number; droop: number };
     /** Unlit: eyes stay dark whatever the light. */
     flat?: boolean;
-    /** Squeezes the part's height (a blink). */
-    squeeze?: TslNode;
 };
 
 /**
@@ -1311,9 +1351,6 @@ function kidPose() {
             GpuSplatMath.quatMul(aboutX(nod.sub(lean.mul(0.6))), aboutZ(look.mul(0.12).sub(bank.mul(0.5)))),
         ),
     );
-    // Blinking, every few seconds.
-    const blinkAt = t.div(3.3).fract();
-    const blink = smoothstep(0.035, 0, blinkAt.sub(0.5).abs()).mul(0.9).oneMinus();
     const none = vec4(0, 0, 0, 1);
 
     // The whole kid, swaying, breathing, leaning and banking (from the CPU's
@@ -1323,12 +1360,12 @@ function kidPose() {
     const toWorld = (local: TslNode): TslNode =>
         you.add(vec3(0, hop, 0)).add(GpuSplatMath.quatRotate(turn, vec3(local.x.add(sway), local.y.mul(breath.add(1)), local.z)));
     const turnToWorld = (dir: TslNode): TslNode => GpuSplatMath.quatRotate(turn, dir);
-    return { leg, arm, chest, upper, neck, head, hip, shoulder, hand, basket, blink, none, toWorld, turnToWorld };
+    return { leg, arm, chest, upper, neck, head, hip, shoulder, hand, basket, none, toWorld, turnToWorld };
 }
 
 /** `simulated`: the dress and hair are simulations of their own, so leave out the solid skirt and pigtails. */
 function kid(simulated: boolean): SplatObject {
-    const { leg, arm, chest, upper, neck, head, hip, shoulder, hand, basket, blink, none, toWorld, turnToWorld } = kidPose();
+    const { leg, arm, chest, upper, neck, head, hip, shoulder, hand, basket, none, toWorld, turnToWorld } = kidPose();
     // The hat sits tipped back on the head, so the brim frames the face rather than lying flat.
     // Steady on the head: it rides the body's hop but doesn't nod or bounce on its own, or
     // the wide brim turns the head's little nod into a see-saw at its edge.
@@ -1393,25 +1430,6 @@ function kid(simulated: boolean): SplatObject {
                 colour: KID.hair,
             }),
         ),
-        // a face, just: two small dark eyes, calm
-        {
-            pivot: neck,
-            turn: head,
-            offset: [-0.052, 0.15, 0.159],
-            radii: [0.011, 0.015, 0.004],
-            colour: KID.eyes,
-            flat: true,
-            squeeze: blink,
-        },
-        {
-            pivot: neck,
-            turn: head,
-            offset: [0.052, 0.15, 0.159],
-            radii: [0.011, 0.015, 0.004],
-            colour: KID.eyes,
-            flat: true,
-            squeeze: blink,
-        },
         // the sunhat, tipped back a little: a floppy brim, a round crown and a ribbon, bouncing a beat late
         {
             pivot: neck,
@@ -1481,9 +1499,7 @@ function kid(simulated: boolean): SplatObject {
                     dir = vec3(cos(angle).mul(r), y, sin(angle).mul(r));
                 }
                 const [rx, ry, rz] = part.radii;
-                let local = vec3(part.offset[0], part.offset[1], part.offset[2]).add(
-                    dir.mul(vec3(rx, part.squeeze ? part.squeeze.mul(ry) : ry, rz)),
-                );
+                let local = vec3(part.offset[0], part.offset[1], part.offset[2]).add(dir.mul(vec3(rx, ry, rz)));
                 let surface = normalize(dir.div(vec3(Math.max(rx, 0.01), Math.max(ry, 0.01), Math.max(rz, 0.01))));
                 if (part.brim) {
                     // Evenly over the ring, drooping more towards the edge, gently wavy.
@@ -1606,7 +1622,9 @@ const HAIR = {
      * Guide strands, simulated, round the back and sides under the brim, and joints
      * along each. The hair you see is thousands of strands drawn between them.
      */
-    locks: 24,
+    locks: 40,
+    /** Guides in each of the two rows of roots, one above the other, staggered. */
+    row: 20,
     points: 10,
     length: 0.44,
     /** Joints held by the head: they set the angle the hair leaves it at. */
@@ -1631,21 +1649,20 @@ const HAIR = {
     /** Each strand's opacity: soft enough that where thousands overlap they don't pop in the sort. */
     opacity: 0.8,
     /**
-     * Clumps: strands gather into locks that taper together towards their tips,
-     * each at its own depth and shade, with gaps between; that, not evenly spread
-     * strands, is what reads as hair rather than a sheet. How many, how tightly
-     * the tips gather (0..1), a clump's width at the root (in guide spacings), and
-     * the share of stray strands.
+     * Clumps: one guide each, so they swing independently, with no strand ever
+     * stretched between two; strands gather into each towards its tips. How tightly
+     * the tips gather (0..1), a clump's half-width at the root (metres), and the
+     * share of stray strands.
      */
-    clumps: 40,
     gather: 0.85,
-    spread: 0.9,
+    spread: 0.028,
+    /** A clump's half-depth at the root, metres, and the gap clumps keep from each other. */
+    depth: 0.01,
+    gap: 0.03,
     strays: 0.03,
     /** A gentle wave down each clump: how far it swings (metres, at the tip) and how many waves along it. */
     wave: 0.014,
     waves: 1.6,
-    /** How far strands spread out in depth from their guides, metres. */
-    volume: 0.014,
     /** The sheen along the hair (Kajiya-Kay). */
     sheen: [0.12, 0.1, 0.08],
 };
@@ -1705,11 +1722,15 @@ function clothRest(i: TslNode, r: TslNode): TslNode {
 
 /** Joint `k` of lock `s` at rest, in the head's frame (from the neck): out from under the brim, then straight down. */
 function hairRest(s: TslNode, k: TslNode): TslNode {
-    const round = s.add(0.5).div(HAIR.locks).mul(2.9).sub(1.45);
+    // Two staggered rows of roots under the brim, the lower a little further out, so
+    // the clumps layer over each other rather than lying in one sheet.
+    const lower = s.greaterThanEqual(HAIR.row).select(float(1), float(0));
+    const i = s.sub(lower.mul(HAIR.row));
+    const round = i.add(0.5).add(lower.mul(0.5)).div(HAIR.row).mul(2.9).sub(1.45);
     const out = vec3(sin(round), 0, cos(round).negate());
-    const root = out.mul(vec3(0.165, 0, 0.155)).add(vec3(0, 0.17, -0.015));
+    const root = out.mul(vec3(0.165, 0, 0.155).add(lower.mul(0.008))).add(vec3(0, lower.mul(-0.03).add(0.17), -0.015));
     const f = k.div(HAIR.points - 1);
-    const length = hash4(uint(s), 14).x.mul(0.15).add(0.92).mul(HAIR.length);
+    const length = hash4(uint(s), 14).x.mul(0.25).add(0.85).mul(HAIR.length);
     return root
         .add(out.mul(smoothstep(0, 0.2, f).mul(0.04)))
         .add(vec3(0, -1, 0).mul(length.mul(f)))
@@ -1838,11 +1859,13 @@ function initSim(renderer: WebGPURenderer): Sim {
         label: 'kidHairPredict',
         body: ({ index }) => {
             If(index.lessThan(uint(hairCount)), () => {
-                const { rest, pinned } = hairAt(index);
+                const { sIndex, rest, pinned } = hairAt(index);
                 const x = hair.now.element(index).xyz.toVar();
                 const v = x.sub(hair.before.element(index).xyz).div(subDt).mul(HAIR.damping).toVar();
                 v.mulAssign(min(float(AIR.limit).div(max(length(v), 1e-4)), 1));
-                const push = against(x, v).mul(HAIR.drag);
+                // Each clump catches the air a little differently, so they swing out of step.
+                const catches = mix(0.6, 1.4, hash4(uint(sIndex), 23).x);
+                const push = against(x, v).mul(HAIR.drag).mul(catches);
                 const next = x.add(v.mul(subDt)).add(push.sub(vec3(0, GRAVITY, 0)).mul(subDt.mul(subDt)));
                 hair.next.element(index).assign(vec4(settling.or(pinned).select(rest, next), 1));
                 hair.before.element(index).assign(vec4(settling.select(rest, x), 1));
@@ -1854,7 +1877,7 @@ function initSim(renderer: WebGPURenderer): Sim {
             label,
             body: ({ index }) => {
                 If(index.lessThan(uint(hairCount)), () => {
-                    const { pose, k, restOf, rest, pinned } = hairAt(index);
+                    const { pose, sIndex, k, restOf, rest, pinned } = hairAt(index);
                     const p = from.element(index).xyz.toVar();
                     const fix = vec3(0).toVar();
                     const weight = float(0).toVar();
@@ -1874,6 +1897,26 @@ function initSim(renderer: WebGPURenderer): Sim {
                     }
                     const moved = p.add(fix.div(max(weight, 1)));
                     let out = mix(moved, rest, k.div(HAIR.points).oneMinus().mul(HAIR.shape));
+                    // Clumps keep a little apart from their neighbours, in their row and the
+                    // other: volume, but free to part and swing.
+                    const row = sIndex.greaterThanEqual(HAIR.row);
+                    for (const ds of [-1, 1, -HAIR.row, HAIR.row]) {
+                        const ns = sIndex.add(ds);
+                        const inRange = ns.greaterThanEqual(0).and(ns.lessThan(HAIR.locks));
+                        const sameRow = Math.abs(ds) === 1 ? ns.greaterThanEqual(HAIR.row).equal(row) : inRange;
+                        const q = from.element(
+                            uint(
+                                ns
+                                    .clamp(0, HAIR.locks - 1)
+                                    .mul(HAIR.points)
+                                    .add(k),
+                            ),
+                        ).xyz;
+                        const d = out.sub(q);
+                        const l = max(length(d), 1e-5);
+                        const push = d.div(l).mul(float(HAIR.gap).sub(l).max(0).mul(0.5));
+                        out = out.add(inRange.and(sameRow).select(push, vec3(0)));
+                    }
                     // Off the head, shoulders and back.
                     const headAt = pose.toWorld(pose.neck.add(GpuSplatMath.quatRotate(pose.head, vec3(0, 0.15, 0))));
                     out = outOf(out, headAt, headAt, 0.175);
@@ -1987,15 +2030,16 @@ function hairStrands(sim: Sim): SplatObject {
 
         const h2 = hash4(strand, 22).toVar();
 
-        // Its clump, and its own place in it at the root, gathering in towards the clump's middle at the tip.
-        const clump = h.x.mul(HAIR.clumps).floor();
-        const c = hash4(uint(clump), 21).toVar();
-        const middle = clump
-            .add(0.5)
-            .div(HAIR.clumps)
-            .mul(HAIR.locks - 1)
-            .add(c.x.sub(0.5).mul(0.3));
-        const own = middle.add(h.y.sub(0.5).mul(HAIR.spread));
+        // Its clump (one guide), and its own place across and in depth within it,
+        // gathering in towards the guide at the tip. Offsets are across the guide's
+        // own direction, so a strand moves with its clump and never stretches.
+        const g = uint(
+            h.x
+                .mul(HAIR.locks)
+                .floor()
+                .min(HAIR.locks - 1),
+        );
+        const c = hash4(g, 21).toVar();
         // Ragged ends: each clump its own length, each strand a little its own.
         const reach = mix(0.68, 1.04, c.w.mul(0.65).add(h.z.mul(0.35)));
         const stray = h2.y.lessThan(HAIR.strays).select(float(1), float(0));
@@ -2003,22 +2047,27 @@ function hairStrands(sim: Sim): SplatObject {
         const pose = kidPose();
         const axis = pose.toWorld(vec3(0, 0.6, 0));
         const strandAt = (t: TslNode) => {
-            const u = clamp(mix(own, middle, pow(t, 1.2).mul(HAIR.gather)), 0, HAIR.locks - 1.001);
-            const g0 = uint(u.floor());
-            const g1 = g0.add(uint(1)).min(uint(HAIR.locks - 1));
-            const p = mix(guideAt(sim, g0, t), guideAt(sim, g1, t), u.fract());
+            const p = guideAt(sim, g, t);
+            const towards = normalize(guideAt(sim, g, t.add(0.02).min(1)).sub(guideAt(sim, g, t.sub(0.02).max(0))));
             const out = normalize(vec3(p.x.sub(axis.x), 0, p.z.sub(axis.z)).add(vec3(0, 1e-4, 0)));
-            // Each clump at its own depth; a stray wandering off.
-            const depth = c.y.mul(HAIR.volume).add(h2.x.mul(0.004)).mul(t.mul(-0.4).add(1));
-            // A gentle wave down each clump, its own phase, growing towards the tip: the
-            // locks part along their length, not only at their ends.
-            const across = normalize(cross(vec3(0, 1, 0), out).add(vec3(1e-4, 0, 0)));
+            const across = normalize(cross(towards, out).add(vec3(1e-4, 0, 0)));
+            const depthward = normalize(cross(across, towards));
+            const gathered = pow(t, 1.2).mul(HAIR.gather).oneMinus();
+            const side = h.y
+                .sub(0.5)
+                .mul(2 * HAIR.spread)
+                .mul(gathered);
+            const depth = h2.x
+                .sub(0.5)
+                .mul(2 * HAIR.depth)
+                .mul(gathered);
+            // A gentle wave down each clump, its own phase, growing towards the tip.
             const wave = sin(t.mul(HAIR.waves * Math.PI * 2).add(c.w.mul(6.283)))
                 .mul(t)
                 .mul(HAIR.wave);
             return p
-                .add(out.mul(depth))
-                .add(across.mul(wave))
+                .add(across.mul(side.add(wave)))
+                .add(depthward.mul(depth))
                 .add(strayDir.mul(t.mul(t).mul(0.06).mul(stray)));
         };
         const t0 = k.div(segments).mul(reach);

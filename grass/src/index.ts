@@ -49,8 +49,8 @@ const WALK = {
     /** Which way you face at the start, radians in xz: up the long rise to the crest. */
     facing: (140 * Math.PI) / 180,
     /** The camera: how far back and above to start, and how close to the grass it may get. */
-    back: 4,
-    above: 1.4,
+    back: 5,
+    above: 4.2,
     clearance: 0.6,
     /** Your radius, for keeping out of boulders. */
     body: 0.25,
@@ -289,11 +289,13 @@ async function start() {
     controls.enableDamping = true;
     // The camera's tied to you, so no panning away.
     controls.enablePan = false;
-    // Never under the grass, never straight down on you.
-    controls.minPolarAngle = 0.5;
-    controls.maxPolarAngle = 1.6;
-    controls.minDistance = 2.5;
-    controls.maxDistance = 14;
+    // Mostly top down: looking down on you and the meadow round you, from between
+    // about 35 and 60 degrees off straight down. Never at the horizon, never overhead,
+    // where the hat would hide the dress and hair.
+    controls.minPolarAngle = 0.6;
+    controls.maxPolarAngle = 1.05;
+    controls.minDistance = 4;
+    controls.maxDistance = 12;
     controls.update();
 
     const field = initField(renderer, await new THREE.TextureLoader().loadAsync(cloudUrl), PREVIEW);

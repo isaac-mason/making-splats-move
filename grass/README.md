@@ -11,7 +11,9 @@ stand back.
 
 ## A meadow without end
 
-You're a little cartoon kid walking it in third person (see below). Everything in the meadow,
+You're a little cartoon kid walking it in third person, seen mostly from above
+(see below): the camera follows high, looking down at 35 to 60 degrees, so the
+meadow's waves, the cloud shadows and the trail you trample read best. Everything in the meadow,
 grass, ground, flowers and butterflies, lives in one 80 metre tile, and each thing
 is drawn at whichever copy of its place is nearest you. So it holds still in the
 world until you've gone far enough that it wraps round to the far side, out in
@@ -78,21 +80,20 @@ darker lining when you see inside it.
 
 The hair is
 done the way splats are good at, and the way the grass is: thin strands of long,
-thin Gaussians, which is how Gaussian hair is rendered. Twenty-four guide strands of
-ten joints are simulated (the first two held by the head, so the hair leaves it at
-the right angle under the brim); 1,600 strands are drawn between neighbouring
-guides, each at its own place between them, with its own length and a little depth
-of its own, so they make a soft, full mass with wispy ends. Guides plus followers
-is how games do hair. Strands gather into forty clumps that taper together towards their tips, each at
-its own depth and shade and darker at its edges, with gaps between, a gentle wave of its own,
-ragged ends and the odd stray: clumping, not evenly spread strands, is what reads as hair rather than a
-sheet. Each strand is twelve splats along a Catmull-Rom curve
-through its guides, lit along its length (Kajiya-Kay), darker at the roots and
-lighter at the ends. An earlier try built it from a few sculpted ribbons, and
-soft round splats can't make a clean ribbon edge: it always looked scuffed.
-Strands are never thinner than about a pixel from the camera, and soft: thinner
-or more opaque, they flicker in and out of pixels and swap in the sort, and the
-hair shimmers as it moves.
+thin Gaussians, which is how Gaussian hair is rendered. It moves in clumps, the
+way hair does: forty guide strands of ten joints are simulated, one per clump,
+their roots in two staggered rows under the brim so the clumps layer, each
+catching the air a little differently so they swing out of step, and each keeping
+a little apart from its neighbours, so the hair keeps its volume but parts and
+swings. 1,600 strands are drawn, each following only its own clump's guide, offset
+across and in depth within the clump and gathering in towards the tip, measured
+across the guide's own direction so a strand moves with its clump and never
+stretches. (An earlier version drew strands between neighbouring guides in one
+ring: the hair was a sheet stretched between them, and moved like paper.) Each
+clump has its own wave, length and shade, darker at its edges, with ragged ends
+and the odd stray. Each strand is twelve splats along a Catmull-Rom curve through
+its guide, lit along its length (Kajiya-Kay), never thinner than about a pixel and
+soft, or it shimmers.
 
 The sunhat sits tipped back, its brim a floppy ring drooping towards the edge
 with a gentle wave, over a round crown and a ribbon.
