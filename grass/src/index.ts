@@ -72,8 +72,33 @@ const right = new THREE.Vector3();
 const wanted = new THREE.Vector3();
 const before = new THREE.Vector3();
 
-/** Moves you a step by the keys held, along the ground, and the camera with you. */
-function walk(walker: Walker, held: Set<string>, camera: THREE.Camera, controls: OrbitControls, dt: number) {
+/**
+ * `?kid=1`: just the kid on the ground, walking and skipping round a circle on its
+ * own (walk, skip, stand, again), so the dress and hair can be looked at closely
+ * and cheaply. Drag to look round; the camera follows.
+ */
+const PREVIEW = new URLSearchParams(location.search).has('kid');
+
+/** Where the preview kid wants to go: round a circle, walking, then skipping, then standing. */
+function previewSteer(elapsed: number, walker: Walker, out: THREE.Vector3): THREE.Vector3 {
+    const phase = elapsed % 15;
+    const speed = phase < 6 ? WALK.speed : phase < 12 ? WALK.run * 0.6 : 0;
+    const angle = Math.atan2(walker.position.z, walker.position.x) + 0.6;
+    const radius = 3;
+    // Towards a point a little way round the circle.
+    out.set(Math.cos(angle) * radius - walker.position.x, 0, Math.sin(angle) * radius - walker.position.z);
+    return out.lengthSq() > 0 ? out.normalize().multiplyScalar(speed) : out;
+}
+
+/** Moves you a step by the keys held (or `steer`, a velocity), along the ground, and the camera with you. */
+function walk(
+    walker: Walker,
+    held: Set<string>,
+    camera: THREE.Camera,
+    controls: OrbitControls,
+    dt: number,
+    steer?: THREE.Vector3,
+) {
     camera.getWorldDirection(forward);
     forward.y = 0;
     forward.normalize();
@@ -86,6 +111,7 @@ function walk(walker: Walker, held: Set<string>, camera: THREE.Camera, controls:
     }
     const running = held.has('ShiftLeft') || held.has('ShiftRight');
     if (wanted.lengthSq() > 0) wanted.normalize().multiplyScalar(running ? WALK.run : WALK.speed);
+    if (steer) wanted.copy(steer);
     walker.velocity.lerp(wanted, 1 - Math.exp(-WALK.grip * dt));
 
     before.copy(walker.position);
@@ -202,7 +228,7 @@ async function start() {
     controls.maxDistance = 14;
     controls.update();
 
-    const field = initField(renderer, await new THREE.TextureLoader().loadAsync(cloudUrl));
+    const field = initField(renderer, await new THREE.TextureLoader().loadAsync(cloudUrl), PREVIEW);
     const splats = new SplatRenderer({ renderer });
     splats.collection = new SplatCollection(field.objects);
     scene.add(splats);
@@ -215,6 +241,7 @@ async function start() {
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
+    const steering = new THREE.Vector3();
     let last = performance.now();
     let elapsed = 0;
     let frames = 0;
@@ -223,7 +250,7 @@ async function start() {
         const dt = Math.min((now - last) / 1000, MAX_DT);
         elapsed += dt;
         last = now;
-        walk(walker, held, camera, controls, dt);
+        walk(walker, held, camera, controls, dt, PREVIEW ? previewSteer(elapsed, walker, steering) : undefined);
         controls.update();
         // Looking round can swing the camera into a hill: keep it above the grass.
         const floor = terrainHeight(camera.position.x, camera.position.z) + WALK.clearance;

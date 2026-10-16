@@ -45,6 +45,7 @@ const {
     dot,
     float,
     hash,
+    int,
     length,
     max,
     min,
@@ -1086,7 +1087,7 @@ const KID = {
         [0.97, 0.96, 0.92],
     ],
     /** Splats per square metre of surface, at least a few a part. */
-    density: 9000,
+    density: 16000,
 };
 
 /** How hard you're skipping, 0 walking to 1 running; and the way you face, radians. */
@@ -1101,7 +1102,7 @@ function cartoon(world: TslNode, normal: TslNode, colour: TslNode): TslNode {
             .oneMinus()
             .max(0),
         3,
-    ).mul(0.25);
+    ).mul(0.12);
     return colour.mul(v3(SUN).mul(band.mul(0.7)).mul(sunlight(world)).add(v3(SKYLIGHT).mul(0.75))).add(rim);
 }
 
@@ -1227,24 +1228,18 @@ function kid(simulated: boolean): SplatObject {
         // the head, hair, pigtails, face
         { pivot: neck, turn: head, offset: [0, 0.15, 0], radii: [0.17, 0.165, 0.165], colour: KID.skin },
         { pivot: neck, turn: head, offset: [0, 0.14, -0.03], radii: [0.182, 0.182, 0.178], colour: KID.hair },
-        ...[-1, 1].map(
-            (side): Part =>
-                simulated
-                    ? {
-                          pivot: neck,
-                          turn: head,
-                          offset: [side * 0.17, 0.08, -0.05],
-                          radii: [0.028, 0.028, 0.028],
-                          colour: KID.ribbon,
-                      }
-                    : {
-                          pivot: neck,
-                          turn: head,
-                          offset: [side * 0.17, 0.08, -0.05],
-                          radii: [0.055, 0.07, 0.055],
-                          colour: KID.hair,
-                      },
-        ),
+        // Without the simulation, solid pigtails stand in for the flowing hair.
+        ...(simulated
+            ? []
+            : [-1, 1].map(
+                  (side): Part => ({
+                      pivot: neck,
+                      turn: head,
+                      offset: [side * 0.17, 0.08, -0.05],
+                      radii: [0.055, 0.07, 0.055],
+                      colour: KID.hair,
+                  }),
+              )),
         // a fringe across the forehead, under the brim
         ...[-0.09, -0.03, 0.03, 0.09].map(
             (x): Part => ({
@@ -1329,7 +1324,7 @@ function kid(simulated: boolean): SplatObject {
                 center = here.select(at, center);
                 normal = here.select(facingOut, normal);
                 colour = here.select(v3(part.colour), colour);
-                size = here.select(float(Math.sqrt(area / count) * 0.75), size);
+                size = here.select(float(Math.sqrt(area / count) * 0.95), size);
                 flat = here.select(float(part.flat ? 1 : 0), flat);
                 start += count;
             });
@@ -1357,69 +1352,82 @@ function kid(simulated: boolean): SplatObject {
 /* the dress and the hair, simulated */
 
 /**
- * The skirt is cloth: a ring of points round the waist and rows of them down to
- * the hem, pinned at the waist and simulated in compute kernels each frame. Verlet
- * steps carry it on under gravity, the meadow's wind and your own motion, so it
- * lags and swings as you skip; then rounds of distance constraints between
- * neighbours keep it fabric, a gentle pull towards a flared rest shape keeps it a
- * skirt rather than a heap, and it's pushed out of the legs and hips so it drapes
- * over them. The hair is the same idea in chains: strands of points from roots on
- * the head (a curtain at the back under the brim, and two pigtails from their
- * ties), held at the root, swung by gravity, wind and you, and kept off the head
- * and shoulders. Points live in world space, so inertia comes for free: the
- * pinned ends move with you and the rest have to catch up.
+ * The highlight: a sundress and long hair that flow. Both are position-based
+ * simulations in compute kernels, run in four substeps a frame for stability:
+ * predict each point from its velocity and the forces on it, then rounds of
+ * constraints (stretch between neighbours, bending across two, a little memory of
+ * the rest shape, collisions with the body).
+ *
+ * What makes them flow is the air. Wind is turbulent, varying in space and time,
+ * and the force on a bit of fabric is along its surface normal, in proportion to
+ * how fast the air crosses it relative to the fabric's own motion: so a gust
+ * billows the skirt, and running into still air streams the dress and hair out
+ * behind. Hair takes drag the same way, along its whole length. Points live in
+ * world space, so inertia is free: what's pinned to you moves with you and the
+ * rest has to catch up, overshoot, and settle.
  */
+const AIR = {
+    /** The meadow's breeze at the kid's height, m/s, and how gusty. */
+    breeze: 1.6,
+    gusts: 0.5,
+    /** Turbulence: its speed (m/s), size (one over metres) and how fast it churns. */
+    turbulence: 1.4,
+    scale: 2.2,
+    churn: 1.6,
+};
+
 const CLOTH = {
-    around: 28,
-    rows: 8,
-    /** Waist and hem: height above the feet and radius, metres. */
-    waist: [0.55, 0.115],
-    hem: [0.2, 0.25],
-    /** How strongly it holds its rest shape, each round. */
-    shape: 0.035,
-    /** Velocity kept each step. */
-    damping: 0.985,
-    /** The wind's pull on it, m/s². */
-    wind: 2.5,
-    pleats: [0.92, 1.0],
+    around: 40,
+    rows: 16,
+    /** Waist and hem: height above the feet and radius, metres. Mid-calf, flared. */
+    waist: [0.56, 0.115],
+    hem: [0.1, 0.3],
+    /** Rows near the waist held to their fitted shape, and how firmly; the rest barely. */
+    fitted: 3,
+    fit: 0.12,
+    shape: 0.003,
+    /** Velocity kept each substep, and how hard the air pushes the fabric. */
+    damping: 0.998,
+    aero: 2.6,
+    /** Bending stiffness, against stretch's 1. */
+    bend: 0.35,
+    pleats: [0.93, 1.0],
     trim: [0.97, 0.97, 0.94],
+    lining: [0.42, 0.52, 0.72],
 };
 
-/**
- * The hair: a few sculpted locks, the way stylised characters have it, not
- * strands. Each lock is a shell of splats round a tapered, curving tube, opaque
- * and solid, driven by a short spring-bone chain in the simulation: four joints,
- * stiff shape springs, so a lock swings and bounces as one piece. A bob of wide
- * flat locks round the back and sides under the brim, a lock in front of each
- * ear, and two pigtails as thick ropes, bunched a little and tapering to a point;
- * a fringe on the forehead is part of the head. Shaded like the kid, plus the
- * bright highlight ring stylised hair has across its crown.
- */
 const HAIR = {
-    /** Locks in the bob, and joints along every lock's chain. */
-    bob: 12,
-    points: 4,
-    /** How strongly a lock holds its shape each round: a spring bone, not a rope. */
-    shape: 0.22,
-    damping: 0.92,
-    wind: 2.5,
-    /** Splats round a lock and along it. */
-    around: 10,
-    rings: 12,
-    highlight: [0.3, 0.24, 0.16],
+    /** Locks, round the back and sides under the brim, and joints along each. */
+    locks: 18,
+    points: 10,
+    length: 0.44,
+    /** A lock's half-width and half-depth: a ribbon, overlapping its neighbours. */
+    width: 0.034,
+    depth: 0.01,
+    /** Joints held by the head: they set the angle the hair leaves it at. */
+    held: 2,
+    shape: 0.004,
+    damping: 0.995,
+    /** Air drag on hair, 1/s, and bending stiffness. */
+    drag: 3,
+    bend: 0.45,
+    around: 8,
+    rings: 26,
+    /** The sheen: a band of highlight that slides along the hair as it moves. */
+    sheen: [0.35, 0.3, 0.24],
 };
-/** The bob, a lock in front of each ear, and the two pigtails. */
-const LOCKS = HAIR.bob + 4;
 
-/** Constraint rounds a frame: an even number, ping-ponging between two buffers. */
-const ROUNDS = 8;
+const SUBSTEPS = 4;
+/** Constraint rounds a substep: odd, so they end back in the main buffer. */
+const ROUNDS = 3;
 const GRAVITY = 9.8;
 
-type Points = { now: WgpuBuffer<'float32x4'>; before: WgpuBuffer<'float32x4'>; spare: WgpuBuffer<'float32x4'> };
+type Points = { now: WgpuBuffer<'float32x4'>; before: WgpuBuffer<'float32x4'>; next: WgpuBuffer<'float32x4'> };
 type Sim = { cloth: Points; hair: Points; kernels: [WgpuCompute, number][] };
 let simState: Sim | null = null;
 /** 1 for the first few frames: put everything at rest before simulating. */
 const settle = uniform(1);
+const subDt = uniform(1 / 240);
 
 /** Point `p` pushed out of the capsule from `a` to `b` of radius `r`. */
 function outOf(p: TslNode, a: TslNode, b: TslNode, r: number): TslNode {
@@ -1431,221 +1439,231 @@ function outOf(p: TslNode, a: TslNode, b: TslNode, r: number): TslNode {
     return l.lessThan(r).select(closest.add(d.div(max(l, 1e-5)).mul(r)), p);
 }
 
+/** The air's velocity at `p`: the breeze, gusting, and turbulence churning through it. */
+function air(p: TslNode): TslNode {
+    const t = time.mul(AIR.churn);
+    const q = p.mul(AIR.scale);
+    const swirl = vec3(
+        sin(q.y.mul(1.3).add(q.z.mul(0.7)).add(t)),
+        sin(q.x.mul(0.9).sub(q.z.mul(1.1)).sub(t.mul(1.3))).mul(0.5),
+        sin(q.x.mul(1.1).add(q.y.mul(0.8)).add(t.mul(0.8)).add(2)),
+    ).add(
+        vec3(
+            sin(q.z.mul(2.7).sub(t.mul(1.9)).add(1)),
+            sin(q.x.mul(2.3).add(t.mul(2.2))).mul(0.4),
+            sin(q.y.mul(2.9).add(t.mul(1.7)).add(4)),
+        ).mul(0.5),
+    );
+    const gust = sin(time.mul(0.7))
+        .mul(0.5)
+        .add(sin(time.mul(1.9).add(1)).mul(0.3))
+        .mul(AIR.gusts)
+        .add(1);
+    return vec3(windDir.x, 0, windDir.y).mul(gust.mul(AIR.breeze)).add(swirl.mul(AIR.turbulence));
+}
+
 /** The cloth's rest place for ring `i`, row `r`, in the kid's own frame. */
 function clothRest(i: TslNode, r: TslNode): TslNode {
     const around = i.div(CLOTH.around).mul(Math.PI * 2);
     const down = r.div(CLOTH.rows - 1);
     const y = mix(CLOTH.waist[0], CLOTH.hem[0], down);
-    const radius = mix(CLOTH.waist[1], CLOTH.hem[1], pow(down, 0.8));
+    const radius = mix(CLOTH.waist[1], CLOTH.hem[1], pow(down, 0.75));
     return vec3(sin(around).mul(radius), y, cos(around).mul(radius));
 }
 
-/**
- * Lock `s`'s shape at rest, in the head's frame (from the neck): its root, which
- * way it hangs, how long it is, how its tip curls (a vector, metres), and its
- * half-width and half-depth at the root.
- */
-function lock(s: TslNode) {
-    const r = hash4(uint(s), 14);
-    const vary = r.x.mul(0.2).add(0.9);
-    const isEar = s.greaterThanEqual(HAIR.bob).and(s.lessThan(HAIR.bob + 2));
-    const isPigtail = s.greaterThanEqual(HAIR.bob + 2);
-    const side = s.mod(2).lessThan(0.5).select(float(-1), float(1));
-
-    // The bob: round the back and sides, roots just inside the cap, tips curling in.
-    const round = s.add(0.5).div(HAIR.bob).mul(3.6).sub(1.8);
+/** Joint `k` of lock `s` at rest, in the head's frame (from the neck): out from under the brim, then straight down. */
+function hairRest(s: TslNode, k: TslNode): TslNode {
+    const round = s.add(0.5).div(HAIR.locks).mul(3.4).sub(1.7);
     const out = vec3(sin(round), 0, cos(round).negate());
-    const bob = {
-        root: out.mul(vec3(0.16, 0, 0.15)).add(vec3(0, 0.16, -0.02)),
-        dir: normalize(out.mul(0.15).add(vec3(0, -1, 0))),
-        length: float(0.16).mul(vary),
-        curl: out.mul(-0.035),
-        width: float(0.044),
-        depth: float(0.018),
-    };
-    // In front of each ear.
-    const ear = {
-        root: vec3(side.mul(0.152), 0.12, 0.05),
-        dir: normalize(vec3(side.mul(0.1), -1, 0.05)),
-        length: float(0.13).mul(vary),
-        curl: vec3(side.mul(-0.02), 0, 0.01),
-        width: float(0.03),
-        depth: float(0.016),
-    };
-    // A pigtail from its tie, hanging a little out and back, flicking out at the end.
-    const pigtail = {
-        root: vec3(side.mul(0.17), 0.08, -0.05),
-        dir: normalize(vec3(side.mul(0.22), -1, -0.15)),
-        length: float(0.25),
-        curl: vec3(side.mul(0.03), 0.01, 0),
-        width: float(0.034),
-        depth: float(0.034),
-    };
-    const pick3 = <K extends keyof typeof bob>(key: K) => isPigtail.select(pigtail[key], isEar.select(ear[key], bob[key]));
-    return {
-        root: pick3('root'),
-        dir: pick3('dir'),
-        length: pick3('length'),
-        curl: pick3('curl'),
-        width: pick3('width'),
-        depth: pick3('depth'),
-        pigtail: isPigtail,
-    };
-}
-
-/** Joint `k` of a lock at rest, in the head's frame: down its line, curling at the end. */
-function lockJoint(l: ReturnType<typeof lock>, k: TslNode): TslNode {
+    const root = out.mul(vec3(0.165, 0, 0.155)).add(vec3(0, 0.17, -0.015));
     const f = k.div(HAIR.points - 1);
-    return l.root.add(l.dir.mul(l.length.mul(f))).add(l.curl.mul(f.mul(f)));
+    const length = hash4(uint(s), 14).x.mul(0.15).add(0.92).mul(HAIR.length);
+    return root
+        .add(out.mul(smoothstep(0, 0.2, f).mul(0.04)))
+        .add(vec3(0, -1, 0).mul(length.mul(f)))
+        .add(vec3(0, 0, -0.03).mul(f));
 }
 
 function points(renderer: WebGPURenderer, count: number): Points {
     const make = () => new WgpuBuffer({ renderer, format: 'float32x4', count });
-    return { now: make(), before: make(), spare: make() };
+    return { now: make(), before: make(), next: make() };
 }
 
-/**
- * One Verlet step for each point: carry on at the speed it was going, plus
- * gravity and the wind; pinned points go where they're held. While settling,
- * everything goes to its rest place.
- */
-function integrate(
-    label: string,
-    state: Points,
-    count: number,
-    at: (index: TslNode) => { rest: TslNode; pinned: TslNode; phase: TslNode },
-    damping: number,
-    windPull: number,
-): WgpuCompute {
-    return new WgpuCompute({
-        label,
-        body: ({ index }) => {
-            If(index.lessThan(uint(count)), () => {
-                const { rest, pinned, phase } = at(index);
-                const x = state.now.element(index).xyz.toVar();
-                // Read before `before` is overwritten below: a TSL expression is evaluated where it's used.
-                const v = x.sub(state.before.element(index).xyz).mul(damping).toVar();
-                const gust = sin(time.mul(3.1).add(phase)).mul(0.4).add(0.8);
-                const pull = vec3(windDir.x, 0, windDir.y)
-                    .mul(windPull)
-                    .mul(gust)
-                    .sub(vec3(0, GRAVITY, 0));
-                const step = frameDt.min(1 / 30);
-                const next = x.add(v).add(pull.mul(step.mul(step)));
-                const placed = settle.greaterThan(0.5).or(pinned).select(rest, next);
-                state.before.element(index).assign(vec4(settle.greaterThan(0.5).select(rest, x), 1));
-                state.now.element(index).assign(vec4(placed, 1));
-            });
-        },
-    });
+/** A constraint between `p` and a neighbour `q` that should be `rest` apart: the move for `p`. */
+function hold(p: TslNode, q: TslNode, rest: TslNode, share: TslNode): TslNode {
+    const d = p.sub(q);
+    const l = max(length(d), 1e-5);
+    return d.div(l).mul(rest.sub(l)).mul(share);
 }
 
 function initSim(renderer: WebGPURenderer): Sim {
     const clothCount = CLOTH.around * CLOTH.rows;
-    const hairCount = LOCKS * HAIR.points;
+    const hairCount = HAIR.locks * HAIR.points;
     const cloth = points(renderer, clothCount);
     const hair = points(renderer, hairCount);
+    const settling = settle.greaterThan(0.5);
 
-    // The cloth.
+    // The cloth: ring i, row r.
+    const clothIndex = (i: TslNode, r: TslNode) =>
+        uint(
+            r
+                .clamp(0, CLOTH.rows - 1)
+                .mul(CLOTH.around)
+                .add(wrap(i, CLOTH.around)),
+        );
     const clothAt = (index: TslNode) => {
         const pose = kidPose();
         const i = float(index.mod(uint(CLOTH.around)));
         const r = float(index.div(uint(CLOTH.around)));
-        return { i, r, pose, rest: pose.toWorld(clothRest(i, r)), pinned: r.lessThan(0.5), phase: i.mul(0.9).add(r.mul(0.4)) };
+        return { pose, i, r, rest: pose.toWorld(clothRest(i, r)), pinned: r.lessThan(0.5) };
     };
+    const clothPredict = new WgpuCompute({
+        label: 'kidClothPredict',
+        body: ({ index }) => {
+            If(index.lessThan(uint(clothCount)), () => {
+                const { i, r, rest, pinned } = clothAt(index);
+                const x = cloth.now.element(index).xyz.toVar();
+                const v = x.sub(cloth.before.element(index).xyz).div(subDt).mul(CLOTH.damping).toVar();
+                // The fabric's normal here, from its neighbours, and the air crossing it.
+                const across = cloth.now.element(clothIndex(i.add(1), r)).xyz.sub(cloth.now.element(clothIndex(i.sub(1), r)).xyz);
+                const down = cloth.now.element(clothIndex(i, r.add(1))).xyz.sub(cloth.now.element(clothIndex(i, r.sub(1))).xyz);
+                const n = normalize(cross(down, across).add(vec3(0, 1e-6, 0)));
+                const wind = air(x).sub(v);
+                const push = n.mul(dot(n, wind).mul(CLOTH.aero)).add(wind.mul(0.12));
+                const next = x.add(v.mul(subDt)).add(push.sub(vec3(0, GRAVITY, 0)).mul(subDt.mul(subDt)));
+                cloth.next.element(index).assign(vec4(settling.or(pinned).select(rest, next), 1));
+                cloth.before.element(index).assign(vec4(settling.select(rest, x), 1));
+            });
+        },
+    });
     const clothRelax = (from: WgpuBuffer<'float32x4'>, to: WgpuBuffer<'float32x4'>, label: string) =>
         new WgpuCompute({
             label,
             body: ({ index }) => {
                 If(index.lessThan(uint(clothCount)), () => {
-                    const { i, r, pose, rest, pinned } = clothAt(index);
+                    const { pose, i, r, rest, pinned } = clothAt(index);
                     const p = from.element(index).xyz.toVar();
                     const fix = vec3(0).toVar();
-                    const neighbours: [TslNode, TslNode, TslNode][] = [
-                        [i.sub(1).add(CLOTH.around).mod(CLOTH.around), r, float(1)],
-                        [i.add(1).mod(CLOTH.around), r, float(1)],
-                        [i, r.sub(1), float(1)],
-                        [i, r.add(1), r.lessThan(CLOTH.rows - 1.5).select(float(1), float(0))],
-                    ];
-                    for (const [ni, nr, real] of neighbours) {
-                        const q = from.element(uint(nr.max(0).mul(CLOTH.around).add(ni))).xyz;
-                        const restLength = length(clothRest(i, r).sub(clothRest(ni, nr)));
-                        const d = p.sub(q);
-                        const l = max(length(d), 1e-5);
-                        // Half the error each, all of it against a pinned neighbour.
+                    const weight = float(0).toVar();
+                    const link = (di: number, dr: number, stiffness: number) => {
+                        const ni = i.add(di);
+                        const nr = r.add(dr);
+                        const real = nr.greaterThanEqual(0).and(nr.lessThan(CLOTH.rows)).select(float(stiffness), float(0));
+                        const q = from.element(clothIndex(ni, nr)).xyz;
+                        const restLength = length(clothRest(i, r).sub(clothRest(ni, nr.clamp(0, CLOTH.rows - 1))));
                         const share = nr.lessThan(0.5).select(float(1), float(0.5));
-                        fix.subAssign(d.div(l).mul(l.sub(restLength)).mul(share).mul(real));
-                    }
-                    const held = p.add(fix.mul(0.45));
-                    const shaped = mix(held, rest, CLOTH.shape);
-                    // Off the legs and hips.
-                    let out = shaped;
+                        fix.addAssign(hold(p, q, restLength, share).mul(real));
+                        weight.addAssign(real);
+                    };
+                    for (const [di, dr] of [
+                        [1, 0],
+                        [-1, 0],
+                        [0, 1],
+                        [0, -1],
+                    ])
+                        link(di, dr, 1);
+                    for (const [di, dr] of [
+                        [2, 0],
+                        [-2, 0],
+                        [0, 2],
+                        [0, -2],
+                    ])
+                        link(di, dr, CLOTH.bend);
+                    const moved = p.add(fix.div(max(weight, 1)).mul(1.6));
+                    // Fitted at the waist, free below.
+                    const keep = r
+                        .lessThan(CLOTH.fitted)
+                        .select(r.div(CLOTH.fitted).oneMinus().mul(CLOTH.fit), float(CLOTH.shape));
+                    let out = mix(moved, rest, keep);
                     for (const side of [-1, 1]) {
                         const leg = aboutX((side < 0 ? pose.leftLeg : pose.rightLeg).negate());
                         const top = pose.hip(side);
                         const foot = top.add(GpuSplatMath.quatRotate(leg, vec3(0, -0.33, 0)));
-                        out = outOf(out, pose.toWorld(top), pose.toWorld(foot), 0.065);
+                        out = outOf(out, pose.toWorld(top), pose.toWorld(foot), 0.07);
                     }
-                    out = outOf(out, pose.toWorld(vec3(0, 0.3, 0)), pose.toWorld(vec3(0, 0.62, 0)), 0.11);
-                    to.element(index).assign(vec4(settle.greaterThan(0.5).or(pinned).select(rest, out), 1));
+                    out = outOf(out, pose.toWorld(vec3(0, 0.3, 0)), pose.toWorld(vec3(0, 0.62, 0)), 0.115);
+                    to.element(index).assign(vec4(settling.or(pinned).select(rest, out), 1));
                 });
             },
         });
 
-    // The hair.
+    // The hair: lock s, joint k.
     const hairAt = (index: TslNode) => {
         const pose = kidPose();
         const sIndex = float(index.div(uint(HAIR.points)));
         const k = float(index.mod(uint(HAIR.points)));
-        const l = lock(sIndex);
-        const restOf = (kk: TslNode) => pose.toWorld(pose.neck.add(GpuSplatMath.quatRotate(pose.head, lockJoint(l, kk))));
-        return { pose, k, l, restOf, rest: restOf(k), pinned: k.lessThan(0.5), phase: sIndex.mul(1.7).add(k.mul(0.5)) };
+        const restOf = (kk: TslNode) => pose.toWorld(pose.neck.add(GpuSplatMath.quatRotate(pose.head, hairRest(sIndex, kk))));
+        return { pose, sIndex, k, restOf, rest: restOf(k), pinned: k.lessThan(HAIR.held - 0.5) };
     };
+    const hairPredict = new WgpuCompute({
+        label: 'kidHairPredict',
+        body: ({ index }) => {
+            If(index.lessThan(uint(hairCount)), () => {
+                const { rest, pinned } = hairAt(index);
+                const x = hair.now.element(index).xyz.toVar();
+                const v = x.sub(hair.before.element(index).xyz).div(subDt).mul(HAIR.damping).toVar();
+                const push = air(x).sub(v).mul(HAIR.drag);
+                const next = x.add(v.mul(subDt)).add(push.sub(vec3(0, GRAVITY, 0)).mul(subDt.mul(subDt)));
+                hair.next.element(index).assign(vec4(settling.or(pinned).select(rest, next), 1));
+                hair.before.element(index).assign(vec4(settling.select(rest, x), 1));
+            });
+        },
+    });
     const hairRelax = (from: WgpuBuffer<'float32x4'>, to: WgpuBuffer<'float32x4'>, label: string) =>
         new WgpuCompute({
             label,
             body: ({ index }) => {
                 If(index.lessThan(uint(hairCount)), () => {
-                    const { pose, k, l, rest, pinned } = hairAt(index);
+                    const { pose, k, restOf, rest, pinned } = hairAt(index);
                     const p = from.element(index).xyz.toVar();
                     const fix = vec3(0).toVar();
-                    const links: [TslNode, TslNode, TslNode][] = [
-                        [index.sub(uint(1)), float(1), k.lessThan(1.5).select(float(1), float(0.5))],
-                        [index.add(uint(1)), k.lessThan(HAIR.points - 1.5).select(float(1), float(0)), float(0.5)],
-                    ];
-                    const segment = l.length.div(HAIR.points - 1);
-                    for (const [n, real, share] of links) {
-                        const q = from.element(n).xyz;
-                        const d = p.sub(q);
-                        const span = max(length(d), 1e-5);
-                        fix.subAssign(d.div(span).mul(span.sub(segment)).mul(share).mul(real));
+                    const weight = float(0).toVar();
+                    for (const [dk, stiffness] of [
+                        [1, 1],
+                        [-1, 1],
+                        [2, HAIR.bend],
+                        [-2, HAIR.bend],
+                    ]) {
+                        const nk = k.add(dk);
+                        const real = nk.greaterThanEqual(0).and(nk.lessThan(HAIR.points)).select(float(stiffness), float(0));
+                        const q = from.element(uint(int(index).add(int(dk)).max(0))).xyz;
+                        const restLength = length(rest.sub(restOf(nk.clamp(0, HAIR.points - 1))));
+                        const share = nk.lessThan(HAIR.held - 0.5).select(float(1), float(0.5));
+                        fix.addAssign(hold(p, q, restLength, share).mul(real));
+                        weight.addAssign(real);
                     }
-                    const held = p.add(fix.mul(0.8));
-                    const shaped = mix(held, rest, k.div(HAIR.points).mul(-0.3).add(1).mul(HAIR.shape));
-                    // Off the head and shoulders.
+                    const moved = p.add(fix.div(max(weight, 1)).mul(1.6));
+                    let out = mix(moved, rest, k.div(HAIR.points).oneMinus().mul(HAIR.shape));
+                    // Off the head, shoulders and back.
                     const headAt = pose.toWorld(pose.neck.add(GpuSplatMath.quatRotate(pose.head, vec3(0, 0.15, 0))));
-                    let out = outOf(shaped, headAt, headAt, 0.18);
-                    out = outOf(out, pose.toWorld(vec3(-0.15, 0.66, 0)), pose.toWorld(vec3(0.15, 0.66, 0)), 0.07);
-                    out = outOf(out, pose.toWorld(vec3(0, 0.45, 0)), pose.toWorld(vec3(0, 0.62, 0)), 0.13);
-                    to.element(index).assign(vec4(settle.greaterThan(0.5).or(pinned).select(rest, out), 1));
+                    out = outOf(out, headAt, headAt, 0.175);
+                    out = outOf(out, pose.toWorld(vec3(-0.15, 0.66, -0.01)), pose.toWorld(vec3(0.15, 0.66, -0.01)), 0.06);
+                    out = outOf(out, pose.toWorld(vec3(0, 0.42, -0.01)), pose.toWorld(vec3(0, 0.66, -0.01)), 0.125);
+                    to.element(index).assign(vec4(settling.or(pinned).select(rest, out), 1));
                 });
             },
         });
 
-    const kernels: [WgpuCompute, number][] = [
-        [integrate('kidClothStep', cloth, clothCount, clothAt, CLOTH.damping, CLOTH.wind), clothCount],
-    ];
-    const clothThere = clothRelax(cloth.now, cloth.spare, 'kidClothThere');
-    const clothBack = clothRelax(cloth.spare, cloth.now, 'kidClothBack');
-    for (let n = 0; n < ROUNDS / 2; n++) kernels.push([clothThere, clothCount], [clothBack, clothCount]);
-    kernels.push([integrate('kidHairStep', hair, hairCount, hairAt, HAIR.damping, HAIR.wind), hairCount]);
-    const hairThere = hairRelax(hair.now, hair.spare, 'kidHairThere');
-    const hairBack = hairRelax(hair.spare, hair.now, 'kidHairBack');
-    for (let n = 0; n < ROUNDS / 2; n++) kernels.push([hairThere, hairCount], [hairBack, hairCount]);
+    // Each substep: predict into `next`, then relax next → now → next → now.
+    const clothThere = clothRelax(cloth.next, cloth.now, 'kidClothThere');
+    const clothBack = clothRelax(cloth.now, cloth.next, 'kidClothBack');
+    const hairThere = hairRelax(hair.next, hair.now, 'kidHairThere');
+    const hairBack = hairRelax(hair.now, hair.next, 'kidHairBack');
+    const kernels: [WgpuCompute, number][] = [];
+    for (let step = 0; step < SUBSTEPS; step++) {
+        kernels.push([clothPredict, clothCount], [clothThere, clothCount]);
+        for (let n = 1; n < ROUNDS; n += 2) kernels.push([clothBack, clothCount], [clothThere, clothCount]);
+        kernels.push([hairPredict, hairCount], [hairThere, hairCount]);
+        for (let n = 1; n < ROUNDS; n += 2) kernels.push([hairBack, hairCount], [hairThere, hairCount]);
+    }
     return { cloth, hair, kernels };
 }
 
-/** The skirt, drawn over the cloth: two splats a cell, facing the way the cloth does there. */
+/** Light for a surface seen from either side: turned to face the viewer, so its back isn't black. */
+const towardViewer = (normal: TslNode, at: TslNode): TslNode =>
+    dot(normal, eye.sub(at)).lessThan(0).select(normal.negate(), normal);
+
+/** The dress, drawn over the cloth: two splats a cell, lit by the cloth's own normal, its lining inside. */
 function skirt(sim: Sim): SplatObject {
     const cells = CLOTH.around * (CLOTH.rows - 1);
     return generated(
@@ -1667,23 +1685,27 @@ function skirt(sim: Sim): SplatObject {
             const center = mix(top, bottom, v).toVar();
             const across = mix(p10.sub(p00), p11.sub(p01), v);
             const down = bottom.sub(top);
-            // Facing out of the skirt, whichever way round the cross product comes.
+            // Out of the dress: away from the kid's middle.
             const middle = kidPose().toWorld(vec3(0, center.y.sub(you.y), 0));
             const n = normalize(cross(down, across)).toVar();
-            const normal = dot(n, center.sub(middle)).lessThan(0).select(n.negate(), n);
-            const size = max(length(across), length(down).mul(0.5)).mul(0.62);
+            const outward = dot(n, center.sub(middle)).lessThan(0).select(n.negate(), n).toVar();
+            const inside = dot(outward, eye.sub(center)).lessThan(0);
+            const size = max(length(across), length(down).mul(0.5)).mul(0.7);
 
-            const pleat = float(i).mod(2).lessThan(0.5).select(float(CLOTH.pleats[1]), float(CLOTH.pleats[0]));
+            const pleat = cos(float(i).mul((Math.PI * 2 * 10) / CLOTH.around))
+                .mul(0.5)
+                .add(0.5);
+            const fabric = v3(KID.dress).mul(mix(CLOTH.pleats[0], CLOTH.pleats[1], pleat));
             const hem = r.equal(uint(CLOTH.rows - 2)).and(half.greaterThan(0.5));
-            const colour = hem.select(v3(CLOTH.trim), v3(KID.dress).mul(pleat));
-            const rgb = cartoon(center, normal, colour);
+            const colour = inside.select(v3(CLOTH.lining), hem.select(v3(CLOTH.trim), fabric));
+            const rgb = cartoon(center, towardViewer(outward, center), colour);
             const finish = distance(center, float(0), rgb);
             return GpuSplats.Splat(
                 center,
                 vec3(size, 0.004, size),
-                alignY(normal),
+                alignY(outward),
                 finish.rgb.min(0.97),
-                finish.opacity.mul(1.4),
+                finish.opacity.mul(1.3),
                 uint(index),
             );
         },
@@ -1692,57 +1714,51 @@ function skirt(sim: Sim): SplatObject {
 }
 
 /**
- * The hair, drawn: each lock a shell of splats round a tube along its chain (a
- * cubic Bézier through the joints), flattened to a ribbon or round for a
- * pigtail, tapering to a point. Solid and opaque, so it reads as hair, not wisps.
+ * The hair, drawn: each lock a flat ribbon of splats along a Catmull-Rom curve
+ * through its joints, overlapping its neighbours into a sheet, rounded at the tip,
+ * with a sheen (Kajiya-Kay: bright where the hair runs across the light) that
+ * slides along it as it moves.
  */
 function hairLocks(sim: Sim): SplatObject {
     const { around, rings, points: joints } = HAIR;
     return generated(
-        LOCKS * rings * around,
+        HAIR.locks * rings * around,
         (index) => {
             const s = index.div(uint(rings * around));
             const j = float(index.div(uint(around)).mod(uint(rings)));
             const a = float(index.mod(uint(around)));
-            const l = lock(float(s));
-            const at = (k: number) => sim.hair.now.element(s.mul(uint(joints)).add(uint(k))).xyz;
-            const [p0, p1, p2, p3] = [at(0), at(1), at(2), at(3)];
-
             const t = j.add(0.5).div(rings).toVar();
-            const u = t.oneMinus();
-            const spine = p0
-                .mul(u.mul(u).mul(u))
-                .add(p1.mul(u.mul(u).mul(t).mul(3)))
-                .add(p2.mul(u.mul(t).mul(t).mul(3)))
-                .add(p3.mul(t.mul(t).mul(t)))
+            const along = t.mul(joints - 1);
+            const seg = along.floor().clamp(0, joints - 2);
+            const f = along.sub(seg).toVar();
+            const joint = (dk: number) =>
+                sim.hair.now.element(s.mul(uint(joints)).add(uint(seg.add(dk).clamp(0, joints - 1)))).xyz;
+            const [p0, p1, p2, p3] = [joint(-1), joint(0), joint(1), joint(2)];
+            const f2 = f.mul(f);
+            const f3 = f2.mul(f);
+            const spine = p1
+                .mul(2)
+                .add(p2.sub(p0).mul(f))
+                .add(p0.mul(2).sub(p1.mul(5)).add(p2.mul(4)).sub(p3).mul(f2))
+                .add(p1.mul(3).sub(p0).sub(p2.mul(3)).add(p3).mul(f3))
+                .mul(0.5)
                 .toVar();
             const tangent = normalize(
-                p1
+                p2
                     .sub(p0)
-                    .mul(u.mul(u).mul(3))
-                    .add(p2.sub(p1).mul(u.mul(t).mul(6)))
-                    .add(p3.sub(p2).mul(t.mul(t).mul(3))),
+                    .add(p0.mul(2).sub(p1.mul(5)).add(p2.mul(4)).sub(p3).mul(f.mul(2)))
+                    .add(p1.mul(3).sub(p0).sub(p2.mul(3)).add(p3).mul(f2.mul(3))),
             ).toVar();
 
-            // Its frame: across the lock (round the head) and out from the head.
+            // Its frame: across the ribbon (round the head) and out from the kid's middle.
             const pose = kidPose();
-            const headAt = pose.toWorld(pose.neck.add(GpuSplatMath.quatRotate(pose.head, vec3(0, 0.15, 0))));
-            const away = normalize(spine.sub(headAt));
+            const axis = pose.toWorld(vec3(0, 0.6, 0));
+            const away = normalize(vec3(spine.x.sub(axis.x), 0, spine.z.sub(axis.z)).add(vec3(0, 1e-4, 0)));
             const across = normalize(cross(tangent, away)).toVar();
             const outward = normalize(cross(across, tangent)).toVar();
 
-            // Its profile: full near the root, tapering to a point; a pigtail bunched.
-            const taper = pow(t, 2.4)
-                .oneMinus()
-                .mul(smoothstep(0, 0.25, t).mul(0.25).add(0.75));
-            const bunch = l.pigtail.select(
-                sin(t.mul(Math.PI * 3))
-                    .mul(0.12)
-                    .add(1),
-                float(1),
-            );
-            const width = l.width.mul(taper).mul(bunch).max(0.002);
-            const depth = l.depth.mul(taper).mul(bunch).max(0.002);
+            const width = float(HAIR.width).mul(pow(t, 3).mul(-0.55).add(1));
+            const depth = float(HAIR.depth);
             const angle = a
                 .add(j.mod(2).mul(0.5))
                 .div(around)
@@ -1752,24 +1768,22 @@ function hairLocks(sim: Sim): SplatObject {
                 .add(outward.mul(sin(angle).mul(depth)))
                 .toVar();
             const normal = normalize(across.mul(cos(angle).div(width)).add(outward.mul(sin(angle).div(depth))));
+            const size = max(width.mul(4 / around), float(HAIR.length / rings)).mul(0.85);
 
-            const round = width.add(depth).mul(Math.PI / around);
-            const step = l.length.div(rings);
-            const size = max(round, step).mul(0.75);
-
-            // Cartoon light, and the highlight ring across the top of the hair.
-            const shade = cartoon(center, normal, v3(KID.hair));
-            const ring = smoothstep(0.1, 0, t.sub(0.22).abs())
-                .mul(max(dot(normal, vec3(0, 1, 0)).add(0.3), 0))
-                .mul(sunlight(center));
-            const rgb = shade.add(v3(HAIR.highlight).mul(ring));
+            // Cartoon light, and the sheen sliding along the hair.
+            const facing = towardViewer(normal, center);
+            const shade = cartoon(center, facing, v3(KID.hair));
+            const half = normalize(sun.add(normalize(eye.sub(center))));
+            const runs = dot(tangent, half);
+            const sheen = pow(runs.mul(runs).oneMinus().max(0).sqrt(), 40).mul(sunlight(center));
+            const rgb = shade.add(v3(HAIR.sheen).mul(sheen));
             const finish = distance(center, float(0), rgb);
             return GpuSplats.Splat(
                 center,
                 vec3(size, 0.003, size),
                 alignY(normal),
                 finish.rgb.min(0.97),
-                finish.opacity.mul(1.5),
+                finish.opacity.mul(1.4),
                 uint(index),
             );
         },
@@ -1815,7 +1829,8 @@ function ground(): SplatObject {
 export type Field = { objects: SplatObject[] };
 
 /** `clouds` is the cloud picture, already loaded: dark cloud on white. */
-export function initField(renderer: WebGPURenderer, clouds: THREE.Texture): Field {
+/** `kidOnly`: just the ground and the kid, for looking at the dress and hair without the meadow's cost. */
+export function initField(renderer: WebGPURenderer, clouds: THREE.Texture, kidOnly = false): Field {
     clouds.wrapS = clouds.wrapT = THREE.RepeatWrapping;
     clouds.colorSpace = THREE.NoColorSpace;
     cloudMap = clouds;
@@ -1824,7 +1839,8 @@ export function initField(renderer: WebGPURenderer, clouds: THREE.Texture): Fiel
     trampleState = compute ? initTrample(renderer) : null;
     simState = compute ? initSim(renderer) : null;
     const dressAndHair = simState ? [skirt(simState), hairLocks(simState)] : [];
-    return { objects: [ground(), blades(), flowers(), butterflies(), kid(simState !== null), ...dressAndHair] };
+    const you = [kid(simState !== null), ...dressAndHair];
+    return { objects: kidOnly ? [ground(), ...you] : [ground(), blades(), flowers(), butterflies(), ...you] };
 }
 
 /** Where you are and how you're moving, for the meadow round you. */
@@ -1849,14 +1865,16 @@ export function updateField(elapsed: number, dt: number, camera: THREE.Camera, w
     stride.value = walker.stride;
     facing.value = walker.facing;
     skipping.value = walker.skipping;
+    // Settle the dress and hair at rest for the first few frames, then simulate.
+    settle.value = frames++ < 3 ? 1 : 0;
+    subDt.value = Math.min(Math.max(dt, 1e-4), 1 / 30) / SUBSTEPS;
     if (trampleState) {
         const { batch } = trampleState;
         batch.add(trampleState.kernel, TRAMPLE.cells ** 2);
         if (simState) for (const [kernel, count] of simState.kernels) batch.add(kernel, count);
         batch.submit();
     }
-    // Settle the dress and hair at rest for the first few frames, then simulate.
-    settle.value = frames++ < 3 ? 1 : 0;
+
     // The wind veers on two slow sines, and carries the gusts and clouds along it.
     const angle = WIND.angle + WIND.veer * (0.7 * Math.sin(elapsed * 0.031) + 0.3 * Math.sin(elapsed * 0.083 + 1.7));
     windDir.value.set(Math.cos(angle), Math.sin(angle));

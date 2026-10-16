@@ -36,31 +36,31 @@ fill and a rim.
 
 ## The dress and the hair, simulated
 
-The skirt is cloth: 28 points round the waist and eight rows of them to the hem,
-pinned at the waist and simulated in compute kernels every frame. A Verlet step
-carries each point on under gravity, the meadow's wind and your own motion, so the
-skirt lags and swings as you skip. Then eight rounds of distance constraints
-between neighbours keep it fabric, a gentle pull towards a flared rest shape keeps
-it a skirt rather than a heap, and it's pushed out of the legs and hips so it
-drapes over them. It's drawn as two splats a cloth cell, each facing the way the
-cloth does there, so folds catch the light; pleats and a white hem trim finish it.
+The highlight: a sundress and long hair that flow. Both are position-based
+simulations in compute kernels, four substeps a frame: predict each point from its
+velocity and the forces on it, then rounds of constraints (stretch between
+neighbours, bending across two, a little memory of the rest shape, collisions with
+the legs, hips, back, shoulders and head).
 
-The hair is sculpted locks, the way stylised game characters have it, rather than
-strands. Strand hair is how photoreal methods do it, with tens of thousands of
-strands; with a few dozen it's just stringy. Here each lock is a shell of splats
-round a tapered, curving tube, opaque and solid, driven by a four-joint spring-bone
-chain in the same simulation: stiff shape springs, so a lock swings and bounces as
-one piece. A bob of twelve wide flat locks round the back and sides, their tips
-curling in, a lock in front of each ear, and two pigtails as thick ropes, bunched a
-little and tapering to a point, from red ties; a fringe on the forehead is part of
-the head. Shaded like the kid, plus the bright highlight ring stylised hair has
-across its crown.
+What makes them flow is the air. The wind is turbulent, varying in space and time,
+and the force on a bit of fabric is along its surface normal, in proportion to how
+fast the air crosses it relative to the fabric's own motion. So a gust billows the
+skirt, and running into still air streams the dress and hair out behind. Hair
+takes drag the same way along its whole length. Points live in world space, so
+inertia is free: what's pinned to you moves with you, and the rest has to catch up,
+overshoot and settle.
 
-All of it lives in world space, so inertia comes free: the pinned ends move with
-you and the rest have to catch up. The kid's pose is a function rather than
-values, so the kid's splats and both simulations each build their own copy of it
-into their own shader. Without compute (WebGL2) the kid keeps a solid skirt and
+The dress is a mid-calf skirt of 40 by 16 points, fitted at the waist and free
+below, drawn as two splats a cloth cell lit by the cloth's own normal, with pleat
+shading, a white hem and a darker lining when you see inside it. The hair is
+eighteen long ribbon locks of ten joints each, the first two held by the head so it
+leaves at the right angle under the hat brim, drawn along a Catmull-Rom curve
+through the joints, overlapping into a sheet, with a Kajiya-Kay sheen that slides
+along it as it moves. Without compute (WebGL2) the kid keeps a solid skirt and
 pigtails.
+
+`?kid=1` shows just the kid on the ground, walking, skipping and standing round a
+circle on its own: a cheap way to look at the dress and hair.
 
 ## Trampling, on the GPU
 
