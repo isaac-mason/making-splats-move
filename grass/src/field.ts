@@ -1449,14 +1449,22 @@ const HAIR = {
     bend: 0.8,
     /** Constraint rounds a substep for the hair (odd). */
     rounds: 5,
-    /** Strands drawn, splats along each, and a strand's thickness (a splat's half-width), metres. */
-    strands: 2400,
+    /**
+     * Strands drawn, splats along each, and a strand's thickness (a splat's
+     * half-width), metres. Never thinner than about a pixel from the camera
+     * (`pixel`, metres per metre away): thinner, it flickers in and out of the
+     * pixels as it moves, and the hair shimmers.
+     */
+    strands: 1600,
     segments: 12,
-    thickness: 0.0024,
+    thickness: 0.0034,
+    pixel: 0.0011,
+    /** Each strand's opacity: soft, so where thousands overlap they average rather than pop in the sort. */
+    opacity: 0.6,
     /** How far strands spread out in depth from their guides, metres. */
     volume: 0.014,
     /** The sheen along the hair (Kajiya-Kay). */
-    sheen: [0.22, 0.19, 0.15],
+    sheen: [0.12, 0.1, 0.08],
 };
 
 const SUBSTEPS = 4;
@@ -1804,7 +1812,7 @@ function hairStrands(sim: Sim): SplatObject {
         const l = max(length(along), 1e-4);
         const tangent = along.div(l).toVar();
         const t = t0.add(t1).mul(0.5);
-        const width = float(HAIR.thickness).mul(t.mul(-0.5).add(1));
+        const width = max(float(HAIR.thickness).mul(t.mul(-0.5).add(1)), length(center.sub(eye)).mul(HAIR.pixel));
 
         // Kajiya-Kay: lit by how much the strand runs across the light, with a sheen.
         const lit = sunlight(center);
@@ -1812,7 +1820,7 @@ function hairStrands(sim: Sim): SplatObject {
         const diffuse = across.mul(across).oneMinus().max(0).sqrt();
         const half = normalize(sun.add(normalize(eye.sub(center))));
         const runs = dot(tangent, half);
-        const sheen = pow(runs.mul(runs).oneMinus().max(0).sqrt(), 30).mul(lit);
+        const sheen = pow(runs.mul(runs).oneMinus().max(0).sqrt(), 8).mul(lit);
         const tone = v3(KID.hair)
             .mul(h.w.mul(0.24).add(0.88))
             .mul(smoothstep(0, 0.3, t).mul(0.3).add(0.7))
@@ -1824,7 +1832,7 @@ function hairStrands(sim: Sim): SplatObject {
             vec3(width, l.mul(0.6), width),
             alignY(tangent),
             finish.rgb.min(0.97),
-            finish.opacity.mul(0.9),
+            finish.opacity.mul(HAIR.opacity),
             uint(index),
         );
     });
