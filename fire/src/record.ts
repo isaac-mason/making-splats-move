@@ -123,14 +123,14 @@ export function scriptedMouse({ sweep, rise, period, seed, warmup }: Recording):
             duration: between(0.7, 1.4) * period,
             sharp: between(1.6, 2.6),
             over: between(0, 0.1),
-            rest: (home ? between(0.3, 0.9) : between(0, 0.2)) * period,
+            rest: (home ? between(0.2, 0.6) : between(0.1, 0.4)) * period,
         };
     };
     let move = stroke(0, 0, between(-HOME, HOME) * sweep, -warmup);
     const next = (from: Move): Move => {
         const wasHome = Math.abs(from.x1) <= HOME * sweep;
-        // Out from home more often than not; back home from out nearly always.
-        const goHome = wasHome ? random() < 0.3 : random() < 0.8;
+        // Out from home most of the time; back home from out more often than not.
+        const goHome = wasHome ? random() < 0.15 : random() < 0.65;
         const side = wasHome ? (random() < 0.5 ? -1 : 1) : -Math.sign(from.x1);
         const x1 = goHome ? between(-HOME, HOME) * sweep : side * between(0.6, 1) * sweep;
         return stroke(from.x1, from.y1, x1, from.start + from.duration + from.rest);
