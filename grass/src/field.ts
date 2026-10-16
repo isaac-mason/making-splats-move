@@ -1435,18 +1435,24 @@ const AIR = {
 const CLOTH = {
     around: 40,
     rows: 16,
-    /** Waist and hem: height above the feet and radius, metres. Mid-calf, flared. */
+    /**
+     * Waist and hem: height above the feet and radius, metres. Mid-calf, a soft
+     * A-line that hangs close round the legs, so they push it about as they step.
+     */
     waist: [0.56, 0.115],
-    hem: [0.1, 0.3],
-    /** Rows near the waist held to their fitted shape, and how firmly; the rest barely. */
-    fitted: 3,
-    fit: 0.12,
-    shape: 0.015,
-    /** Velocity kept each substep, and how hard the air pushes the fabric. */
-    damping: 0.99,
-    aero: 1.4,
-    /** Bending stiffness, against stretch's 1. */
-    bend: 0.6,
+    hem: [0.1, 0.22],
+    /** Rows near the waist held to their fitted shape, and how firmly; below, barely at all. */
+    fitted: 2,
+    fit: 0.1,
+    shape: 0.004,
+    /** Velocity kept each substep, and how hard the air pushes the fabric: light, so it follows through. */
+    damping: 0.995,
+    aero: 1.8,
+    /** Bending stiffness, against stretch's 1: soft, so it ripples. */
+    bend: 0.35,
+    /** The legs and hips, as the fabric meets them: radii, metres. */
+    legs: 0.08,
+    hips: 0.12,
     /** Constraint rounds a substep (odd). */
     rounds: 5,
     pleats: [0.93, 1.0],
@@ -1645,9 +1651,9 @@ function initSim(renderer: WebGPURenderer): Sim {
                         const leg = aboutX((side < 0 ? pose.leftLeg : pose.rightLeg).negate());
                         const top = pose.hip(side);
                         const foot = top.add(GpuSplatMath.quatRotate(leg, vec3(0, -0.33, 0)));
-                        out = outOf(out, pose.toWorld(top), pose.toWorld(foot), 0.07);
+                        out = outOf(out, pose.toWorld(top), pose.toWorld(foot), CLOTH.legs);
                     }
-                    out = outOf(out, pose.toWorld(vec3(0, 0.3, 0)), pose.toWorld(vec3(0, 0.62, 0)), 0.115);
+                    out = outOf(out, pose.toWorld(vec3(0, 0.3, 0)), pose.toWorld(vec3(0, 0.62, 0)), CLOTH.hips);
                     to.element(index).assign(vec4(settling.or(pinned).select(rest, out), 1));
                 });
             },
