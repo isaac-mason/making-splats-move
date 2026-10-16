@@ -12,15 +12,15 @@ stand back.
 ## A meadow without end
 
 You're a little cartoon kid walking it in third person, seen mostly from above
-(see below): the camera follows high, looking down at 35 to 60 degrees, so the
-meadow's waves, the cloud shadows and the trail you trample read best. Everything in the meadow,
-grass, ground, flowers and butterflies, lives in one 80 metre tile, and each thing
+(see below): the camera follows high and well back (10 to 24 metres), looking down
+at 35 to 60 degrees, so the meadow's waves, the cloud shadows and the trail you trample read best. Everything in the meadow,
+grass, ground, flowers and butterflies, lives in one 112 metre tile, and each thing
 is drawn at whichever copy of its place is nearest you. So it holds still in the
 world until you've gone far enough that it wraps round to the far side, out in
 the haze ahead. That's all on the GPU, per splat, so it costs nothing to run as
 far and as fast as you like. The hills, the flower drifts, the dry patches, the
 wind and the clouds are all world-space fields, so the land itself never repeats;
-only the scatter of blades does, 80 metres apart, where the haze hides it.
+only the scatter of blades does, 112 metres apart, where the haze hides it.
 
 ## You
 
@@ -111,9 +111,10 @@ circle on its own: a cheap way to look at the dress and hair.
 
 Under the grass is earth, mottled dark and light with the odd pale pebble, fading
 to turf colour far off where gaps should read as more grass. Boulders are
-scattered on a 14 metre world grid, each cell maybe holding one, from about a
-metre across to over four, fading in with distance rather than popping in: a lumpy, noise-shaped, partly buried stone, granite with darker
-creases, lichen in patches and moss on top. A boulder sits wholly inside its cell,
+scattered on an 18 metre world grid, each cell maybe holding one, from about two
+metres across to six, fading in with distance rather than popping in: a lumpy, noise-shaped, partly buried stone of 8,000 small splats, lit by
+its own lumps (the normal tilted by how the surface rises and falls) so faces and
+ridges catch the light, granite with darker creases, lichen in patches and moss on top. A boulder sits wholly inside its cell,
 so any point only has to ask its own cell about it: grass and flowers don't grow
 through one, and the same integer hash on the CPU keeps you from walking through
 one.

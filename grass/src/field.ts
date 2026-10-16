@@ -83,7 +83,7 @@ const FIELD = {
      * drawn at whichever copy of its place is nearest you, so the meadow never
      * ends: what you leave behind comes round again out in the haze ahead.
      */
-    reach: 40,
+    reach: 56,
     /**
      * The grass's level of detail: nested tiles round you, each wider and sparser
      * than the last, its blades thicker, each fading out at its edge (a clipmap).
@@ -95,12 +95,12 @@ const FIELD = {
         { reach: 7, blades: 25_000, girth: 1, edge: 0.65 },
         { reach: 15, blades: 50_000, girth: 1.1, edge: 0.7 },
         { reach: 30, blades: 90_000, girth: 1.25, edge: 0.75 },
-        { reach: 44, blades: 140_000, girth: 1.45, edge: 0.88 },
+        { reach: 58, blades: 220_000, girth: 1.45, edge: 0.88 },
     ],
     segments: 5,
-    ground: 120_000,
+    ground: 220_000,
     /** Where the fade into haze starts and is complete, metres from the camera. */
-    fog: [14, 40],
+    fog: [22, 56],
 };
 
 /**
@@ -215,17 +215,18 @@ const GROUND = {
  */
 export const BOULDERS = {
     /** The grid's cell, metres, and the chance a cell has a boulder. */
-    cell: 14,
+    cell: 18,
     chance: 0.35,
     /** Radius, smallest to biggest, metres; how much is buried; how flattened. */
-    radius: [0.6, 2.2],
+    radius: [1, 3],
     buried: 0.35,
     squat: 0.72,
     /** Cells drawn round you, each way, and splats on each boulder. */
-    around: 4,
+    around: 3,
     /** Where they fade in, metres from you: well inside the cells drawn, so none pops in. */
-    fade: [36, 48],
-    splats: 1500,
+    fade: [42, 52],
+    /** Splats on each: enough that each is small and the stone reads crisp, not soft, even close. */
+    splats: 8000,
     granite: [0.5, 0.48, 0.45],
     dark: [0.32, 0.31, 0.3],
     lichen: [0.66, 0.63, 0.38],
@@ -1196,7 +1197,7 @@ const KID = {
         [0.97, 0.96, 0.92],
     ],
     /** Splats per square metre of surface, at least a few a part. */
-    density: 16000,
+    density: 6000,
 };
 
 /** How hard you're skipping, 0 walking to 1 running; and the way you face, radians. */
@@ -1647,8 +1648,8 @@ const HAIR = {
      * (`pixel`, metres per metre away): thinner, it flickers in and out of the
      * pixels as it moves, and the hair shimmers.
      */
-    strands: 1600,
-    segments: 12,
+    strands: 900,
+    segments: 8,
     thickness: 0.0034,
     pixel: 0.0011,
     /** Each strand's opacity: soft enough that where thousands overlap they don't pop in the sort. */
@@ -2189,18 +2190,35 @@ function boulders(): SplatObject {
             const r = y.mul(y).oneMinus().max(0).sqrt();
             const angle = k.mul(2.399963);
             const dir = vec3(cos(angle).mul(r), y, sin(angle).mul(r)).toVar();
-            const seed = hash4(b.seed, 41);
-            const lump = mx_noise_float(dir.mul(1.6).add(seed.xyz.mul(40)))
-                .mul(0.22)
-                .add(mx_noise_float(dir.mul(4.2).add(seed.yzx.mul(40))).mul(0.07))
-                .add(1);
+            const seed = hash4(b.seed, 41).toVar();
+            const lumpAt = (d: TslNode) =>
+                mx_noise_float(d.mul(1.6).add(seed.xyz.mul(40)))
+                    .mul(0.22)
+                    .add(mx_noise_float(d.mul(4.2).add(seed.yzx.mul(40))).mul(0.07))
+                    .add(mx_noise_float(d.mul(9).add(seed.zxy.mul(40))).mul(0.02))
+                    .add(1);
+            const lump = lumpAt(dir).toVar();
             const shape = vec3(1, BOULDERS.squat, mix(0.8, 1.15, seed.w));
             const base = terrain(b.center).height.sub(b.radius.mul(BOULDERS.buried));
             const center = vec3(b.center.x, base, b.center.y).add(dir.mul(shape).mul(lump).mul(b.radius)).toVar();
-            const normal = normalize(dir.div(shape));
+            // Lit by its own lumps: the normal tilted by how the surface rises and falls
+            // round this point, so faces, ridges and creases catch the light.
+            const t1 = normalize(cross(dir, vec3(0, 1, 0)).add(vec3(1e-4, 0, 0)));
+            const t2 = cross(dir, t1);
+            const eps = 0.04;
+            const rise1 = lumpAt(normalize(dir.add(t1.mul(eps))))
+                .sub(lump)
+                .div(eps);
+            const rise2 = lumpAt(normalize(dir.add(t2.mul(eps))))
+                .sub(lump)
+                .div(eps);
+            const normal = normalize(dir.div(shape).sub(t1.mul(rise1)).sub(t2.mul(rise2))).toVar();
 
             // Granite, dark in its creases, lichen in patches, moss on top.
-            const grain = mx_noise_float(center.mul(3.1)).mul(0.5).add(0.5);
+            const grain = mx_noise_float(center.mul(3.1))
+                .mul(0.35)
+                .add(mx_noise_float(center.mul(11)).mul(0.15))
+                .add(0.5);
             const crease = smoothstep(0.98, 0.9, lump);
             const lichen = smoothstep(0.62, 0.7, mx_noise_float(center.mul(1.7).add(9)).mul(0.5).add(0.5));
             const moss = smoothstep(0.45, 0.8, normal.y).mul(
@@ -2218,7 +2236,7 @@ function boulders(): SplatObject {
                     .add(v3(SKYLIGHT).mul(0.55).mul(below)),
             );
 
-            const size = b.radius.mul(Math.sqrt((4 * Math.PI) / splats)).mul(0.95);
+            const size = b.radius.mul(Math.sqrt((4 * Math.PI) / splats)).mul(0.7);
             const finish = distance(center, float(0), rgb);
             // None where there's no boulder, nor below the ground.
             const shows = b.there.mul(center.y.greaterThan(terrain(center.xz).height.sub(0.05)).select(float(1), float(0)));

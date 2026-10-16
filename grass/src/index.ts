@@ -49,8 +49,8 @@ const WALK = {
     /** Which way you face at the start, radians in xz: up the long rise to the crest. */
     facing: (140 * Math.PI) / 180,
     /** The camera: how far back and above to start, and how close to the grass it may get. */
-    back: 5,
-    above: 4.2,
+    back: 10,
+    above: 8.4,
     clearance: 0.6,
     /** Your radius, for keeping out of boulders. */
     body: 0.25,
@@ -294,8 +294,8 @@ async function start() {
     // where the hat would hide the dress and hair.
     controls.minPolarAngle = 0.6;
     controls.maxPolarAngle = 1.05;
-    controls.minDistance = 4;
-    controls.maxDistance = 12;
+    controls.minDistance = 10;
+    controls.maxDistance = 24;
     controls.update();
 
     const field = initField(renderer, await new THREE.TextureLoader().loadAsync(cloudUrl), PREVIEW);
