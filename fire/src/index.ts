@@ -86,7 +86,9 @@ async function init() {
     controls.target.set(...CAMERA_TARGET);
     controls.update();
 
-    const drift = createCameraDrift(camera, controls, renderer.domElement);
+    // `?lean=parallax` for the slide instead of the swing, to compare.
+    const lean = new URLSearchParams(location.search).get('lean') === 'parallax' ? 'parallax' : 'orbit';
+    const drift = createCameraDrift(camera, controls, renderer.domElement, lean);
     const perf = initPerformance();
 
     const debug = createDebugOverlay(

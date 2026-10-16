@@ -61,8 +61,8 @@ export function recordingFromUrl(): Recording | null {
         mbps: num('mbps', 60),
         stokes,
         warmup: params.has('warmup') ? Math.max(0, Number(params.get('warmup')) || 0) : 4,
-        sweep: unit('sweep', 1.4),
-        rise: unit('rise', 0.4),
+        sweep: unit('sweep', 1.2),
+        rise: unit('rise', 0.35),
         period: num('period', 7),
     };
 }
