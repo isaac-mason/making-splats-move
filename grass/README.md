@@ -41,7 +41,8 @@ field, not noise boiling in place, and blades with a little weight to them.
 
 - **Gusts**: one broad pattern in the wind's own frame, stretched across it,
   sliding downwind and barely changing shape as it goes, so a gust is a band you
-  can follow over the hill.
+  can follow over the hill. A finer octave slides along with it, and the two map
+  gently, so gusts roll rather than switching patches on and off.
 - **Weight**: a blade answers the gust that reached it a moment ago and whips back
   past it as the gust lets go. That needs no state: since the pattern only slides,
   what reached a blade a moment ago is the pattern a little downwind of it, and
@@ -50,7 +51,9 @@ field, not noise boiling in place, and blades with a little weight to them.
   each blade only a touch off their rate and phase, so you see ripples pass rather
   than a buzz of separate blades.
 - **Lulls and gusts**: how hard it blows rises and falls over tens of seconds, and
-  the wind veers a little. Taller blades catch more of it.
+  that travels too: a lull rolls across the field with the wind rather than the
+  whole field calming at once. The wind veers a little, and taller blades catch
+  more of it.
 
 Bent blades show more of their lighter face, so a gust reads as a brighter wave
 rolling through the grass.

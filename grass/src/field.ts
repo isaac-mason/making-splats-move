@@ -123,15 +123,18 @@ const WIND = {
      * past where the gust left it as one lets go. This is the blade's weight.
      */
     respond: 0.35,
-    whip: 0.8,
+    whip: 0.4,
     /**
      * A gentle sway that ripples through the grass as a travelling wave: its
      * angle, rate (Hz), and wavelength along the wind (metres). Neighbours sway
      * together, so you see the ripples pass.
      */
-    sway: 0.07,
-    swayRate: 0.8,
-    swayLength: 3.5,
+    sway: 0.05,
+    swayRate: 0.6,
+    swayLength: 5,
+    /** A finer octave of gust riding the broad one, at this scale and weight. */
+    detail: 0.36,
+    detailWeight: 0.35,
     /** How much lighter a fully bent blade shows. */
     sheen: 0.2,
 };
@@ -140,7 +143,7 @@ const CLOUDS = {
     /** Height of the cloud layer, metres. */
     height: 160,
     /** How fast they drift with the wind, m/s. */
-    speed: 4,
+    speed: 1.5,
     /**
      * Two layers of the one cloud picture, tiled: each a tile size (metres), an
      * angle, a speed against the drift, and an offset, so they never line up into
@@ -172,8 +175,6 @@ const windDir = uniform(new THREE.Vector2(1, 0));
 /** How far the wind has carried the gusts and the clouds: integrated, so veering never jumps them. */
 const gustTravel = uniform(new THREE.Vector2());
 const cloudTravel = uniform(new THREE.Vector2());
-/** How hard it's blowing now: lulls near 0.45, gusts past 1. */
-const strength = uniform(1);
 
 /** The cloud picture: one cloud on white, from the grass sketch this grew out of. Set in initField. */
 let cloudMap: THREE.Texture;
@@ -330,17 +331,29 @@ function blades(): SplatObject {
         const p = xz.sub(gustTravel);
         const along = dot(p, windDir);
         const across = dot(p, vec2(windDir.y.negate(), windDir.x));
-        const gustAt = (ago: number) =>
-            smoothstep(
-                -0.25,
-                0.55,
-                mx_noise_float(
-                    vec3(along.add(WIND.speed * WIND.respond * ago).div(WIND.depth), across.div(WIND.length), time.mul(0.02)),
-                ),
+        // Rolling, not on-or-off: the broad pattern mapped gently, with a finer
+        // octave sliding along with it.
+        const gustAt = (ago: number) => {
+            const a = along.add(WIND.speed * WIND.respond * ago);
+            const broad = mx_noise_float(vec3(a.div(WIND.depth), across.div(WIND.length), time.mul(0.02)));
+            const fine = mx_noise_float(
+                vec3(a.div(WIND.depth * WIND.detail), across.div(WIND.length * WIND.detail), time.mul(0.03).add(17)),
             );
+            return clamp(broad.add(fine.mul(WIND.detailWeight)).mul(0.8).add(0.45), 0, 1);
+        };
         const felt = gustAt(1).toVar();
-        const gust = clamp(felt.add(felt.sub(gustAt(2)).mul(WIND.whip)), -0.25, 1.2)
-            .mul(strength)
+        // Lulls travel too: how hard it blows here is how hard it blew upwind, earlier.
+        const local = time.sub(along.div(WIND.speed));
+        const blowing = clamp(
+            sin(local.mul(0.11).add(0.4))
+                .mul(0.2)
+                .add(sin(local.mul(0.047).add(2.1)).mul(0.15))
+                .add(0.75),
+            0.45,
+            1.1,
+        );
+        const gust = clamp(felt.add(felt.sub(gustAt(2)).mul(WIND.whip)), 0, 1.15)
+            .mul(blowing)
             .toVar();
 
         // The sway: a ripple running through the grass downwind, each blade a
@@ -357,7 +370,7 @@ function blades(): SplatObject {
         const reach = clamp(height.div(BLADE.height[1]), 0.5, 1.3);
         const leanAngle = b.z.mul(Math.PI * 2);
         const lean = vec2(cos(leanAngle), sin(leanAngle)).mul(b.w.mul(BLADE.restLean));
-        const push = gust.mul(WIND.gust).add(strength.mul(0.5).add(0.5).mul(WIND.breeze)).add(sway).mul(reach);
+        const push = gust.mul(WIND.gust).add(blowing.mul(0.5).add(0.5).mul(WIND.breeze)).add(sway).mul(reach);
         const bend = lean.add(windDir.mul(push)).toVar();
         const angle = min(length(bend), 1.35).toVar();
         const bendDir = bend.div(max(length(bend), 1e-4)).toVar();
@@ -468,9 +481,6 @@ export function updateField(elapsed: number, dt: number, camera: THREE.Camera): 
     // The wind veers on two slow sines, and carries the gusts and clouds along it.
     const angle = WIND.angle + WIND.veer * (0.7 * Math.sin(elapsed * 0.031) + 0.3 * Math.sin(elapsed * 0.083 + 1.7));
     windDir.value.set(Math.cos(angle), Math.sin(angle));
-    // Lulls and gusts: how hard it blows rises and falls over tens of seconds.
-    const blowing = 0.75 + 0.2 * Math.sin(elapsed * 0.11 + 0.4) + 0.15 * Math.sin(elapsed * 0.047 + 2.1);
-    strength.value = Math.min(Math.max(blowing, 0.45), 1.1);
     gustTravel.value.addScaledVector(windDir.value, WIND.speed * dt);
     cloudTravel.value.addScaledVector(windDir.value, CLOUDS.speed * dt);
 }
