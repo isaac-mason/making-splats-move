@@ -109,30 +109,29 @@ const BLADE = {
 const WIND = {
     /** The way it blows, radians in xz, and how far it veers either side. */
     angle: -0.45,
-    veer: 0.3,
-    /** How fast fronts travel at full strength, m/s. They slow in a lull. */
-    speed: 6,
-    /** A front's depth along the wind and its length across it, metres. */
-    depth: 9,
-    length: 34,
-    /** Bend everyone has all the time, and the extra in a front, radians, at full strength. */
-    breeze: 0.14,
-    gust: 1.0,
+    veer: 0.2,
+    /** How fast gusts travel, m/s. */
+    speed: 4.5,
+    /** A gust's depth along the wind and its length across it, metres. */
+    depth: 8,
+    length: 22,
+    /** Bend everyone has all the time, and the extra in a gust, radians. */
+    breeze: 0.12,
+    gust: 0.75,
     /**
-     * Cat's paws: small quick patches darting across the grass at an angle to the
-     * wind. Their size in metres, speed against the fronts', angle off the wind,
-     * and bend.
+     * How long a blade takes to answer a gust, seconds, and how far it whips back
+     * past where the gust left it as one lets go. This is the blade's weight.
      */
-    pawSize: 5,
-    pawSpeed: 1.7,
-    pawAngle: 0.5,
-    paw: 0.35,
-    /** How far the wind's direction wanders across the field, radians, and over what size. */
-    swirl: 0.6,
-    swirlSize: 16,
-    /** A quick per-blade shiver, radians, and its rate in Hz. */
-    flutter: 0.08,
-    flutterRate: 2.4,
+    respond: 0.35,
+    whip: 0.8,
+    /**
+     * A gentle sway that ripples through the grass as a travelling wave: its
+     * angle, rate (Hz), and wavelength along the wind (metres). Neighbours sway
+     * together, so you see the ripples pass.
+     */
+    sway: 0.07,
+    swayRate: 0.8,
+    swayLength: 3.5,
     /** How much lighter a fully bent blade shows. */
     sheen: 0.2,
 };
@@ -172,9 +171,8 @@ export const eye = uniform(new THREE.Vector3());
 const windDir = uniform(new THREE.Vector2(1, 0));
 /** How far the wind has carried the gusts and the clouds: integrated, so veering never jumps them. */
 const gustTravel = uniform(new THREE.Vector2());
-const pawTravel = uniform(new THREE.Vector2());
 const cloudTravel = uniform(new THREE.Vector2());
-/** How hard it's blowing now: lulls near 0.15, gusts past 1. */
+/** How hard it's blowing now: lulls near 0.45, gusts past 1. */
 const strength = uniform(1);
 
 /** The cloud picture: one cloud on white, from the grass sketch this grew out of. Set in initField. */
@@ -324,36 +322,43 @@ function blades(): SplatObject {
         // Blade-to-blade variety, calmed with distance: far off it only reads as grain.
         const variety = mix(1, 0.2, smoothstep(5, 22, length(root.sub(eye))));
 
-        // Fronts: noise in the wind's own frame, stretched across it, sliding
-        // downwind, with a sharp leading edge so a gust arrives rather than swells.
+        // Gusts: one broad pattern in the wind's own frame, stretched across it,
+        // sliding downwind and barely changing shape as it goes. Because it only
+        // slides, what reached a blade a moment ago is the pattern a little
+        // downwind of it: so a blade answers the gust of `respond` seconds ago, and
+        // whips back past it by how fast that gust was letting go.
         const p = xz.sub(gustTravel);
         const along = dot(p, windDir);
         const across = dot(p, vec2(windDir.y.negate(), windDir.x));
-        const front = mx_noise_float(vec3(along.div(WIND.depth), across.div(WIND.length), time.mul(0.07)));
-        const frontGust = pow(smoothstep(-0.2, 0.6, front), 1.6).mul(strength);
-        // Cat's paws: small quick patches, skittering across at an angle.
-        const paw = smoothstep(0.2, 0.7, mx_noise_float(vec3(xz.sub(pawTravel).div(WIND.pawSize), time.mul(0.35)))).mul(
-            strength.mul(0.7).add(0.3),
-        );
-        const gust = frontGust.add(paw.mul(WIND.paw / WIND.gust)).toVar();
-        // The wind's direction wanders across the field, so waves curl.
-        const turn = mx_noise_float(vec3(xz.div(WIND.swirlSize), time.mul(0.05))).mul(WIND.swirl);
-        const blow = vec2(
-            windDir.x.mul(cos(turn)).sub(windDir.y.mul(sin(turn))),
-            windDir.x.mul(sin(turn)).add(windDir.y.mul(cos(turn))),
-        );
-        const shiver = sin(
-            time
-                .mul(Math.PI * 2 * WIND.flutterRate)
-                .mul(c.x.mul(0.5).add(0.75))
-                .add(c.y.mul(Math.PI * 2)),
-        )
-            .mul(WIND.flutter)
-            .mul(gust.add(0.3));
+        const gustAt = (ago: number) =>
+            smoothstep(
+                -0.25,
+                0.55,
+                mx_noise_float(
+                    vec3(along.add(WIND.speed * WIND.respond * ago).div(WIND.depth), across.div(WIND.length), time.mul(0.02)),
+                ),
+            );
+        const felt = gustAt(1).toVar();
+        const gust = clamp(felt.add(felt.sub(gustAt(2)).mul(WIND.whip)), -0.25, 1.2)
+            .mul(strength)
+            .toVar();
+
+        // The sway: a ripple running through the grass downwind, each blade a
+        // touch off its neighbours' rate and phase so it isn't a sheet.
+        const downwind = dot(xz, windDir).div(WIND.swayLength);
+        const sway = sin(
+            downwind
+                .sub(time.mul(WIND.swayRate).mul(c.x.sub(0.5).mul(0.25).add(1)))
+                .add(c.y.mul(0.15))
+                .mul(Math.PI * 2),
+        ).mul(gust.mul(0.8).add(0.35).mul(WIND.sway));
+
+        // Taller blades catch more of it.
+        const reach = clamp(height.div(BLADE.height[1]), 0.5, 1.3);
         const leanAngle = b.z.mul(Math.PI * 2);
         const lean = vec2(cos(leanAngle), sin(leanAngle)).mul(b.w.mul(BLADE.restLean));
-        const breeze = strength.mul(0.6).add(0.4).mul(WIND.breeze);
-        const bend = lean.add(blow.mul(gust.mul(WIND.gust).add(breeze).add(shiver))).toVar();
+        const push = gust.mul(WIND.gust).add(strength.mul(0.5).add(0.5).mul(WIND.breeze)).add(sway).mul(reach);
+        const bend = lean.add(windDir.mul(push)).toVar();
         const angle = min(length(bend), 1.35).toVar();
         const bendDir = bend.div(max(length(bend), 1e-4)).toVar();
 
@@ -405,7 +410,7 @@ function blades(): SplatObject {
         const rgb = body
             .mul(shade)
             .mul(direct.mul(0.95).add(v3(SKYLIGHT).mul(0.55)))
-            .add(gust.mul(WIND.sheen).mul(s).mul(lit.mul(0.7).add(0.3)));
+            .add(max(gust, 0).mul(WIND.sheen).mul(s).mul(lit.mul(0.7).add(0.3)));
 
         const finish = distance(center, out, rgb);
         return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity, uint(index));
@@ -464,13 +469,8 @@ export function updateField(elapsed: number, dt: number, camera: THREE.Camera): 
     const angle = WIND.angle + WIND.veer * (0.7 * Math.sin(elapsed * 0.031) + 0.3 * Math.sin(elapsed * 0.083 + 1.7));
     windDir.value.set(Math.cos(angle), Math.sin(angle));
     // Lulls and gusts: how hard it blows rises and falls over tens of seconds.
-    const blowing =
-        0.55 + 0.35 * Math.sin(elapsed * 0.13 + 0.4) + 0.25 * Math.sin(elapsed * 0.051 + 2.1) + 0.15 * Math.sin(elapsed * 0.37);
-    strength.value = Math.min(Math.max(blowing, 0.15), 1.3);
-    const pace = WIND.speed * (0.4 + 0.6 * strength.value) * dt;
-    gustTravel.value.addScaledVector(windDir.value, pace);
-    const pawAngle = angle + WIND.pawAngle;
-    pawTravel.value.x += Math.cos(pawAngle) * pace * WIND.pawSpeed;
-    pawTravel.value.y += Math.sin(pawAngle) * pace * WIND.pawSpeed;
+    const blowing = 0.75 + 0.2 * Math.sin(elapsed * 0.11 + 0.4) + 0.15 * Math.sin(elapsed * 0.047 + 2.1);
+    strength.value = Math.min(Math.max(blowing, 0.45), 1.1);
+    gustTravel.value.addScaledVector(windDir.value, WIND.speed * dt);
     cloudTravel.value.addScaledVector(windDir.value, CLOUDS.speed * dt);
 }

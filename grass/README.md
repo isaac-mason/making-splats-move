@@ -36,21 +36,23 @@ sun, which is what makes the hills read.
 
 ## The wind
 
-The wind has weather. How hard it blows rises and falls over tens of seconds,
-from a lull where the grass barely stirs to gusts that lay it over, and in it:
+Good grass wind is coherent and travelling: patterns you can watch cross the
+field, not noise boiling in place, and blades with a little weight to them.
 
-- **Fronts**: noise in the wind's own frame, stretched across it and sliding
-  downwind with a sharp leading edge, so a gust arrives as a band combing over the
-  hills. They travel faster when it's blowing hard.
-- **Cat's paws**: small quick patches skittering across the grass at an angle to
-  the wind, the ripples between gusts.
-- **Swirl**: the wind's direction wanders across the field, so waves curl rather
-  than all leaning one way.
-- **A shiver** per blade, quick and small, stronger in a gust.
-- **It veers**, slowly. Everything moving with it is carried by the integrated
-  wind, so a change of direction or strength never makes anything jump.
+- **Gusts**: one broad pattern in the wind's own frame, stretched across it,
+  sliding downwind and barely changing shape as it goes, so a gust is a band you
+  can follow over the hill.
+- **Weight**: a blade answers the gust that reached it a moment ago and whips back
+  past it as the gust lets go. That needs no state: since the pattern only slides,
+  what reached a blade a moment ago is the pattern a little downwind of it, and
+  how fast it was letting go is the difference between two such samples.
+- **Sway**: a gentle ripple running through the grass downwind, neighbours in step,
+  each blade only a touch off their rate and phase, so you see ripples pass rather
+  than a buzz of separate blades.
+- **Lulls and gusts**: how hard it blows rises and falls over tens of seconds, and
+  the wind veers a little. Taller blades catch more of it.
 
-Bent blades show more of their lighter face, so a front reads as a brighter wave
+Bent blades show more of their lighter face, so a gust reads as a brighter wave
 rolling through the grass.
 
 ## The clouds' shadows
