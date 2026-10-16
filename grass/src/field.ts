@@ -146,14 +146,11 @@ const GROUND = {
 export const time = uniform(0);
 /** Where the camera is, for distance fog and backlight. */
 export const eye = uniform(new THREE.Vector3());
-// These are xz vectors, but held as vec3 uniforms (y unused): radix's generator
-// shaders bind a vec2 uniform as a u32, which doesn't compile.
-/** The way the wind blows now, a unit vector in x and z. */
-const wind = uniform(new THREE.Vector3(1, 0, 0));
-const windDir = wind.xz;
+/** The way the wind blows now, a unit xz vector. */
+const windDir = uniform(new THREE.Vector2(1, 0));
 /** How far the wind has carried the gusts and the clouds: integrated, so veering never jumps them. */
-const gustTravel = uniform(new THREE.Vector3());
-const cloudTravel = uniform(new THREE.Vector3());
+const gustTravel = uniform(new THREE.Vector2());
+const cloudTravel = uniform(new THREE.Vector2());
 
 /* the hills, on both sides */
 
@@ -187,12 +184,17 @@ function terrain(xz: TslNode): { height: TslNode; normal: TslNode } {
 
 /* clouds */
 
-/** Cloud cover at an xz point on the cloud layer, 0 clear to 1 solid. */
-export const cloudCover = Fn(([xz]: TslNode[]) => {
-    const p = xz.sub(cloudTravel.xz).mul(CLOUDS.scale);
+/**
+ * Cloud cover at an xz point on the cloud layer, 0 clear to 1 solid. Inline, not
+ * a laid-out `Fn`: a laid-out function is emitted once and its uniforms named by
+ * whichever shader built it first, so one shared by the sky and the splats reads
+ * the wrong uniforms in one of them.
+ */
+export function cloudCover(xz: TslNode): TslNode {
+    const p = xz.sub(cloudTravel).mul(CLOUDS.scale);
     const n = mx_fractal_noise_float(vec3(p, time.mul(0.015)), 3, 2.1, 0.5);
     return smoothstep(CLOUDS.cover[0], CLOUDS.cover[1], n);
-}).setLayout({ name: 'grassCloudCover', type: 'float', inputs: [{ name: 'xz', type: 'vec2' }] });
+}
 
 const sun = vec3(SUN_DIRECTION.x, SUN_DIRECTION.y, SUN_DIRECTION.z);
 
@@ -278,7 +280,7 @@ function blades(): SplatObject {
         const dry = smoothstep(0.88, 1, c.z.add(dryPatch.mul(0.5)));
 
         // Fronts: noise in the wind's own frame, stretched across it, sliding downwind.
-        const p = xz.sub(gustTravel.xz);
+        const p = xz.sub(gustTravel);
         const along = dot(p, windDir);
         const across = dot(p, vec2(windDir.y.negate(), windDir.x));
         const front = mx_noise_float(vec3(along.div(WIND.depth), across.div(WIND.length), time.mul(0.07)));
@@ -396,7 +398,7 @@ export function updateField(elapsed: number, dt: number, camera: THREE.Camera): 
     eye.value.copy(camera.position);
     // The wind veers on two slow sines, and carries the gusts and clouds along it.
     const angle = WIND.angle + WIND.veer * (0.7 * Math.sin(elapsed * 0.031) + 0.3 * Math.sin(elapsed * 0.083 + 1.7));
-    wind.value.set(Math.cos(angle), 0, Math.sin(angle));
-    gustTravel.value.addScaledVector(wind.value, WIND.speed * dt);
-    cloudTravel.value.addScaledVector(wind.value, CLOUDS.speed * dt);
+    windDir.value.set(Math.cos(angle), Math.sin(angle));
+    gustTravel.value.addScaledVector(windDir.value, WIND.speed * dt);
+    cloudTravel.value.addScaledVector(windDir.value, CLOUDS.speed * dt);
 }
