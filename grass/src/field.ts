@@ -248,27 +248,31 @@ export const TREES = {
     chance: 0.5,
     /** The trunk: height to the canopy and radius, metres. */
     trunk: [3.4, 4.6],
-    girth: 0.2,
+    girth: 0.15,
     /** The canopy's radius, metres, and its leaf clumps, spread over a dome. */
     canopy: [2.6, 3.6],
     puffs: 18,
     /** Splats in the trunk and in the canopy. */
     bark: 500,
-    /** Dark splats filling each clump's heart, so gaps between leaves show shade, not grass. */
-    core: 180,
+    /** No dark cores: they showed through as big dark balls. Dense leaves close the gaps instead. */
+    core: 0,
+    /** Of the bark, how many go into branches reaching up into the canopy, and how many branches. */
+    branchBark: 200,
+    branches: 5,
     /** Leaves: each a small, crisp, leaf-shaped splat (length, width, metres). */
     leaves: 24000,
-    leaf: [0.032, 0.015],
+    leaf: [0.04, 0.019],
     /** Cells drawn round you, each way; where they fade in, metres. */
     around: 2,
     fade: [40, 50],
     /** How hard the wind sways them, and how dark their shadow is. */
     sway: 0.09,
     shade: 0.6,
-    trunkColour: [0.36, 0.27, 0.19],
+    trunkColour: [0.44, 0.34, 0.25],
     /** Painted greens: shadowed teal, sunlit yellow-green, and the highlight on the sunniest tops. */
-    deep: [0.07, 0.2, 0.15],
-    light: [0.4, 0.6, 0.19],
+    /** The shadow side a cool mid-tone, as painted, not near black. */
+    deep: [0.2, 0.37, 0.32],
+    light: [0.46, 0.65, 0.24],
     tip: [0.16, 0.15, 0.05],
 };
 
@@ -2613,15 +2617,48 @@ function trees(): SplatObject {
             const swayAt = (height: TslNode) =>
                 vec3(windDir.x, 0, windDir.y).mul(gust.mul(TREES.sway).mul(height.div(tree.height.add(tree.radius)).pow(1.5)));
 
-            // The trunk: a tapering cylinder of bark, up into the canopy.
-            const up = h.x.mul(tree.height.add(tree.radius.mul(0.4)));
-            const around = h.y.mul(Math.PI * 2);
-            const taper = up.div(tree.height).mul(-0.35).add(1).max(0.5);
-            const radial = vec3(cos(around), 0, sin(around));
-            const barkAt = base
-                .add(radial.mul(taper.mul(TREES.girth)))
-                .add(vec3(0, up, 0))
-                .add(swayAt(up));
+            // The trunk: splats in neat rings up a tapering cylinder, not scattered (that
+            // left a lumpy, ragged log); then a few branches reaching up into the canopy.
+            const perRing = 18;
+            const trunkBark = TREES.bark - TREES.branchBark;
+            const isBranch = k.greaterThanEqual(trunkBark).and(k.lessThan(TREES.bark));
+            const level = k.div(perRing).floor();
+            const rings = Math.floor(trunkBark / perRing);
+            const trunkUp = level
+                .add(h.x.mul(0.3))
+                .div(rings)
+                .mul(tree.height.add(tree.radius.mul(0.2)));
+            const around = k
+                .mod(perRing)
+                .add(level.mul(0.5))
+                .div(perRing)
+                .mul(Math.PI * 2);
+            const taper = trunkUp.div(tree.height).mul(-0.4).add(1).max(0.45);
+            // A branch: from up the trunk out to a clump, thinning as it goes.
+            const b = k.sub(trunkBark);
+            const perBranch = Math.floor(TREES.branchBark / TREES.branches);
+            const which = b.div(perBranch).floor();
+            const along = b.mod(perBranch).div(perBranch).toVar();
+            const reachAngle = which
+                .div(TREES.branches)
+                .mul(Math.PI * 2)
+                .add(seed.z.mul(6.283));
+            const branchFrom = vec3(0, tree.height.mul(mix(0.55, 0.8, hash4(uint(which.add(seed.x.mul(500))), 50).x)), 0);
+            const branchTo = vec3(
+                cos(reachAngle).mul(tree.radius.mul(0.55)),
+                tree.height.add(tree.radius.mul(0.35)),
+                sin(reachAngle).mul(tree.radius.mul(0.55)),
+            );
+            const branchUp = mix(branchFrom, branchTo, along);
+            const branchAround = h.y.mul(Math.PI * 2);
+            const radial = isBranch.select(vec3(cos(branchAround), 0, sin(branchAround)), vec3(cos(around), 0, sin(around)));
+            const thick = isBranch.select(mix(0.07, 0.025, along), taper.mul(TREES.girth));
+            const upAt = isBranch.select(branchUp, vec3(0, trunkUp, 0));
+            const barkAt = base.add(radial.mul(thick)).add(upAt).add(swayAt(upAt.y));
+            // Bark streaks running up the trunk.
+            const streak = sin(around.mul(7).add(trunkUp.mul(1.3)))
+                .mul(0.12)
+                .add(0.9);
 
             // The canopy: many leaf clumps spread over a dome, more of them up top; this
             // fleck on the shell of one of them.
@@ -2635,15 +2672,13 @@ function trees(): SplatObject {
             const clumpCentre = vec3(cos(turnAround).mul(flat), rise.mul(0.72), sin(turnAround).mul(flat))
                 .add(nudge)
                 .mul(tree.radius.mul(mix(0.62, 0.82, cr.w)));
-            const clumpRadius = tree.radius
-                .mul(mix(0.24, 0.48, cr.x.mul(cr.x)))
-                .mul(smoothstep(-0.35, 1, rise).mul(0.25).add(0.85));
+            const clumpRadius = tree.radius.mul(mix(0.36, 0.54, cr.x)).mul(smoothstep(-0.35, 1, rise).mul(0.25).add(0.85));
             const z = h.z.mul(2).sub(1);
             const ring = z.mul(z).oneMinus().max(0).sqrt();
             const dir = vec3(cos(h.w.mul(6.283)).mul(ring), z.mul(0.85), sin(h.w.mul(6.283)).mul(ring)).toVar();
             // Leaves on the clump's shell, a little in and out of it; core splats deep inside.
             const local = clumpCentre.add(
-                dir.mul(clumpRadius.mul(isCore.select(h.x.mul(0.3).add(0.25), h.x.mul(0.16).add(0.88)))),
+                dir.mul(clumpRadius.mul(isCore.select(h.x.mul(0.3).add(0.25), h.x.mul(0.3).add(0.72)))),
             );
             const centreHeight = tree.height.add(tree.radius.mul(0.45));
             const canopyCentre = base.add(vec3(0, centreHeight, 0));
@@ -2680,8 +2715,8 @@ function trees(): SplatObject {
             // Deeper under and inside the canopy, and in the creases where a clump turns in
             // towards the rest: that's what separates the clumps into shapes.
             const outward = normalize(clumpCentre.add(vec3(0, tree.radius.mul(0.25), 0)));
-            const crease = smoothstep(-0.35, 0.45, dot(dir, outward)).mul(0.5).add(0.5);
-            const inside = smoothstep(-0.5, 0.5, canopyNormal.y).mul(0.35).add(0.65).mul(crease);
+            const crease = smoothstep(-0.35, 0.45, dot(dir, outward)).mul(0.15).add(0.85);
+            const inside = smoothstep(-0.5, 0.5, canopyNormal.y).mul(0.2).add(0.8).mul(crease);
             // Leafy speckle within each clump.
             const speckle = mx_noise_float(local.mul(7).add(seed.xyz.mul(30)))
                 .mul(0.12)
@@ -2696,7 +2731,8 @@ function trees(): SplatObject {
                 .mul(cr.y.mul(0.14).add(0.93))
                 .mul(speckle);
             const bark = v3(TREES.trunkColour)
-                .mul(h.z.mul(0.25).add(0.8))
+                .mul(h.z.mul(0.15).add(0.88))
+                .mul(streak)
                 .mul(
                     v3(SUN)
                         .mul(max(dot(normal, sun), 0).mul(0.7))
@@ -2708,7 +2744,7 @@ function trees(): SplatObject {
             const size = h.y.mul(0.5).add(0.75);
             const leafScales = vec3(TREES.leaf[0], 0.004, TREES.leaf[1]).mul(size);
             const coreScales = vec3(clumpRadius.mul(0.5));
-            const scales = isBark.select(vec3(0.07, 0.14, 0.02), isCore.select(coreScales, leafScales));
+            const scales = isBark.select(vec3(thick.mul(0.55), 0.09, 0.01), isCore.select(coreScales, leafScales));
             const turn = GpuSplatMath.quatMul(alignY(normal), yaw(h.w.mul(Math.PI)));
             const finish = distance(center, float(0), rgb);
             const fade = smoothstep(TREES.fade[1], TREES.fade[0], length(tree.xz.sub(you.xz)));

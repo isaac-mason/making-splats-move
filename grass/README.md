@@ -135,19 +135,19 @@ there, rare clearings: soft patches where the grass grows a little shorter and s
 
 ## Trees
 
-Painted, the Ghibli way, and made of leaves you can see. A tall trunk lifts a
-canopy of eighteen clumps, unevenly sized and spaced over a dome, each covered in
-small, crisp, leaf-shaped splats (24,000 a tree) lying mostly in layers facing up
-and out, each tilted a little its own way so each catches the light on its own,
-over a dark core so the gaps between leaves show deep shade. Each clump is shaded
-on its own roundness in two tones with a crisp edge (sunlit yellow-green, shadowed
-teal), with a pale highlight on the sunniest tops, deeper shade under and inside
-the canopy, and darker creases where clumps meet; leaves vary from yellow-green to
-blue-green, now and then a bright one. (Big soft splats only ever made a smooth
-green blob, and big crisp ones read as scales.) The tree sways in the wind, each
-clump stirring on its own, and casts dappled shadows the way the clouds do.
-Scattered on a world grid like the boulders, never on the path or in a boulder,
-and mirrored on the CPU so you walk round the trunks.
+Painted, the Ghibli way, and made of leaves you can see. A slim trunk, its bark
+splats in neat rings with streaks running up it, lifts a canopy on a few branches;
+the canopy is eighteen big, overlapping clumps, unevenly sized and spaced, merging
+into one lumpy mass, covered in small, crisp, leaf-shaped splats (24,000 a tree)
+lying mostly in layers facing up and out, each tilted a little its own way so it
+catches the light on its own. Shading is two-tone with a crisp edge (sunlit
+yellow-green, and a cool mid-tone blue-green on the shaded side, as painted, not
+near black), with a pale highlight on the sunniest tops; leaves vary from yellow-
+to blue-green. (Earlier tries made a smooth green blob from big soft splats, scales
+from big crisp ones, and dark balls from dark clump cores and heavy creases.) The
+tree sways in the wind, each clump stirring on its own, and casts dappled shadows
+the way the clouds do. Scattered on a world grid like the boulders, never on the
+path or in a boulder, and mirrored on the CPU so you walk round the trunks.
 
 ## Trampling, on the GPU
 
