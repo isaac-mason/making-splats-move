@@ -1122,6 +1122,8 @@ type Part = {
     colour: readonly number[];
     /** A ring (the basket's handle) rather than a shell. */
     ring?: boolean;
+    /** A sunhat brim: a ring from `inner` to `outer` radius, drooping `droop` at the edge, a little wavy. */
+    brim?: { inner: number; outer: number; droop: number };
     /** Unlit: eyes stay dark whatever the light. */
     flat?: boolean;
 };
@@ -1194,6 +1196,8 @@ function kidPose() {
 function kid(simulated: boolean): SplatObject {
     const { leftLeg, rightLeg, hatLag, neck, head, hip, shoulder, leftArm, rightArm, hand, basket, none, toWorld, turnToWorld } =
         kidPose();
+    // The hat sits tipped back on the head, so the brim frames the face rather than lying flat.
+    const hatTurn = GpuSplatMath.quatMul(head, aboutX(float(-0.16)));
 
     const parts: Part[] = [
         // legs and shoes
@@ -1254,20 +1258,27 @@ function kid(simulated: boolean): SplatObject {
         { pivot: neck, turn: head, offset: [0.06, 0.16, 0.155], radii: [0.02, 0.027, 0.008], colour: KID.eyes, flat: true },
         { pivot: neck, turn: head, offset: [-0.105, 0.105, 0.135], radii: [0.032, 0.02, 0.008], colour: KID.cheeks },
         { pivot: neck, turn: head, offset: [0.105, 0.105, 0.135], radii: [0.032, 0.02, 0.008], colour: KID.cheeks },
-        // the sunhat: brim, crown and ribbon, bouncing a beat late
-        { pivot: neck.add(vec3(0, hatLag, 0)), turn: head, offset: [0, 0.28, 0], radii: [0.44, 0.014, 0.44], colour: KID.straw },
+        // the sunhat, tipped back a little: a floppy brim, a round crown and a ribbon, bouncing a beat late
         {
             pivot: neck.add(vec3(0, hatLag, 0)),
-            turn: head,
-            offset: [0, 0.32, -0.005],
-            radii: [0.18, 0.1, 0.18],
+            turn: hatTurn,
+            offset: [0, 0.255, -0.01],
+            radii: [0, 0, 0],
+            colour: KID.straw,
+            brim: { inner: 0.15, outer: 0.43, droop: 0.075 },
+        },
+        {
+            pivot: neck.add(vec3(0, hatLag, 0)),
+            turn: hatTurn,
+            offset: [0, 0.3, -0.01],
+            radii: [0.17, 0.12, 0.17],
             colour: KID.straw,
         },
         {
             pivot: neck.add(vec3(0, hatLag, 0)),
-            turn: head,
-            offset: [0, 0.3, -0.005],
-            radii: [0.185, 0.03, 0.185],
+            turn: hatTurn,
+            offset: [0, 0.27, -0.01],
+            radii: [0.178, 0.032, 0.178],
             colour: KID.ribbon,
         },
         // the basket on the right hand, swinging: bowl, rim, handle, posies
@@ -1282,7 +1293,11 @@ function kid(simulated: boolean): SplatObject {
     // Splats per part, by its area (a ring by its length).
     const counts = parts.map((part) => {
         const [a, b, c] = part.radii;
-        const area = part.ring ? Math.PI * (a + b) * 0.02 : 4 * Math.PI * ((a * b + b * c + c * a) / 3);
+        const area = part.brim
+            ? Math.PI * (part.brim.outer ** 2 - part.brim.inner ** 2)
+            : part.ring
+              ? Math.PI * (a + b) * 0.02
+              : 4 * Math.PI * ((a * b + b * c + c * a) / 3);
         return Math.max(10, Math.round(area * KID.density));
     });
     const total = counts.reduce((sum, n) => sum + n, 0);
@@ -1312,14 +1327,31 @@ function kid(simulated: boolean): SplatObject {
                     dir = vec3(cos(angle).mul(r), y, sin(angle).mul(r));
                 }
                 const [rx, ry, rz] = part.radii;
-                const local = vec3(part.offset[0], part.offset[1], part.offset[2]).add(dir.mul(vec3(rx, ry, rz)));
+                let local = vec3(part.offset[0], part.offset[1], part.offset[2]).add(dir.mul(vec3(rx, ry, rz)));
+                let surface = normalize(dir.div(vec3(Math.max(rx, 0.01), Math.max(ry, 0.01), Math.max(rz, 0.01))));
+                if (part.brim) {
+                    // Evenly over the ring, drooping more towards the edge, gently wavy.
+                    const { inner, outer, droop } = part.brim;
+                    const r = mix(inner * inner, outer * outer, k.add(0.5).div(count)).sqrt();
+                    const e = r.sub(inner).div(outer - inner);
+                    const fall = e
+                        .mul(e)
+                        .mul(droop)
+                        .add(sin(angle.mul(5).add(1)).mul(e).mul(0.012));
+                    local = vec3(part.offset[0], part.offset[1], part.offset[2]).add(
+                        vec3(cos(angle).mul(r), fall.negate(), sin(angle).mul(r)),
+                    );
+                    const slope = e.mul((2 * droop) / (outer - inner));
+                    surface = normalize(vec3(cos(angle).mul(slope), 1, sin(angle).mul(slope)));
+                }
                 const at = part.pivot.add(GpuSplatMath.quatRotate(part.turn, local));
-                const facingOut = GpuSplatMath.quatRotate(
-                    part.turn,
-                    normalize(dir.div(vec3(Math.max(rx, 0.01), Math.max(ry, 0.01), Math.max(rz, 0.01)))),
-                );
+                const facingOut = GpuSplatMath.quatRotate(part.turn, surface);
                 const [a, b, c] = part.radii;
-                const area = part.ring ? Math.PI * (a + b) * 0.02 : 4 * Math.PI * ((a * b + b * c + c * a) / 3);
+                const area = part.brim
+                    ? Math.PI * (part.brim.outer ** 2 - part.brim.inner ** 2)
+                    : part.ring
+                      ? Math.PI * (a + b) * 0.02
+                      : 4 * Math.PI * ((a * b + b * c + c * a) / 3);
                 const here = i.greaterThanEqual(start).and(i.lessThan(start + count));
                 center = here.select(at, center);
                 normal = here.select(facingOut, normal);
@@ -1401,13 +1433,13 @@ const CLOTH = {
 };
 
 const HAIR = {
-    /** Locks, round the back and sides under the brim, and joints along each. */
-    locks: 18,
+    /**
+     * Guide strands, simulated, round the back and sides under the brim, and joints
+     * along each. The hair you see is thousands of strands drawn between them.
+     */
+    locks: 24,
     points: 10,
     length: 0.44,
-    /** A lock's half-width and half-depth: a ribbon, overlapping its neighbours. */
-    width: 0.034,
-    depth: 0.01,
     /** Joints held by the head: they set the angle the hair leaves it at. */
     held: 2,
     shape: 0.02,
@@ -1415,13 +1447,16 @@ const HAIR = {
     /** Air drag on hair, 1/s, and bending stiffness. */
     drag: 1.2,
     bend: 0.8,
-    /** Splats across a lock's ribbon, and along it. */
-    across: 5,
-    rings: 26,
-    /** The sheen: a soft band of highlight that slides along the hair as it moves. */
-    sheen: [0.18, 0.15, 0.12],
-    /** Constraint rounds a substep for the hair (odd). Exact corrections, so more of them. */
+    /** Constraint rounds a substep for the hair (odd). */
     rounds: 5,
+    /** Strands drawn, splats along each, and a strand's thickness (a splat's half-width), metres. */
+    strands: 2400,
+    segments: 12,
+    thickness: 0.0024,
+    /** How far strands spread out in depth from their guides, metres. */
+    volume: 0.014,
+    /** The sheen along the hair (Kajiya-Kay). */
+    sheen: [0.22, 0.19, 0.15],
 };
 
 const SUBSTEPS = 4;
@@ -1715,78 +1750,84 @@ function skirt(sim: Sim): SplatObject {
     );
 }
 
+/** A point `t` (0 root, 1 tip) along guide `g`: a Catmull-Rom curve through its simulated joints. */
+function guideAt(sim: Sim, g: TslNode, t: TslNode): TslNode {
+    const joints = HAIR.points;
+    const along = t.mul(joints - 1);
+    const seg = along.floor().clamp(0, joints - 2);
+    const f = along.sub(seg);
+    const joint = (dk: number) => sim.hair.now.element(g.mul(uint(joints)).add(uint(seg.add(dk).clamp(0, joints - 1)))).xyz;
+    const [p0, p1, p2, p3] = [joint(-1), joint(0), joint(1), joint(2)];
+    const f2 = f.mul(f);
+    return p1
+        .mul(2)
+        .add(p2.sub(p0).mul(f))
+        .add(p0.mul(2).sub(p1.mul(5)).add(p2.mul(4)).sub(p3).mul(f2))
+        .add(p1.mul(3).sub(p0).sub(p2.mul(3)).add(p3).mul(f2.mul(f)))
+        .mul(0.5);
+}
+
 /**
- * The hair, drawn: each lock a flat ribbon of splats along a Catmull-Rom curve
- * through its joints, overlapping its neighbours into a sheet, rounded at the tip,
- * with a sheen (Kajiya-Kay: bright where the hair runs across the light) that
- * slides along it as it moves.
+ * The hair, drawn: thousands of thin strands, each a chain of long, thin splats,
+ * the way Gaussian hair is rendered (and the way the grass is). A strand lies
+ * between two neighbouring guides, at its own place between them, its own length
+ * and a little depth of its own, so together they make a soft, full mass with
+ * wispy ends; guides plus followers is how games do hair. Lit along each strand
+ * (Kajiya-Kay), darker at the roots, lighter at the ends.
  */
-function hairLocks(sim: Sim): SplatObject {
-    const { across: wide, rings, points: joints } = HAIR;
-    return generated(
-        HAIR.locks * rings * wide,
-        (index) => {
-            const s = index.div(uint(rings * wide));
-            const j = float(index.div(uint(wide)).mod(uint(rings)));
-            const a = float(index.mod(uint(wide)));
-            const t = j.add(0.5).div(rings).toVar();
-            const along = t.mul(joints - 1);
-            const seg = along.floor().clamp(0, joints - 2);
-            const f = along.sub(seg).toVar();
-            const joint = (dk: number) =>
-                sim.hair.now.element(s.mul(uint(joints)).add(uint(seg.add(dk).clamp(0, joints - 1)))).xyz;
-            const [p0, p1, p2, p3] = [joint(-1), joint(0), joint(1), joint(2)];
-            const f2 = f.mul(f);
-            const f3 = f2.mul(f);
-            const spine = p1
-                .mul(2)
-                .add(p2.sub(p0).mul(f))
-                .add(p0.mul(2).sub(p1.mul(5)).add(p2.mul(4)).sub(p3).mul(f2))
-                .add(p1.mul(3).sub(p0).sub(p2.mul(3)).add(p3).mul(f3))
-                .mul(0.5)
-                .toVar();
-            const tangent = normalize(
-                p2
-                    .sub(p0)
-                    .add(p0.mul(2).sub(p1.mul(5)).add(p2.mul(4)).sub(p3).mul(f.mul(2)))
-                    .add(p1.mul(3).sub(p0).sub(p2.mul(3)).add(p3).mul(f2.mul(3))),
-            ).toVar();
+function hairStrands(sim: Sim): SplatObject {
+    const { strands, segments } = HAIR;
+    return generated(strands * segments, (index) => {
+        const strand = index.div(uint(segments));
+        const k = float(index.mod(uint(segments)));
+        const h = hash4(strand, 20).toVar();
 
-            // Its frame: across the ribbon (round the head) and out from the kid's middle.
-            const pose = kidPose();
-            const axis = pose.toWorld(vec3(0, 0.6, 0));
-            const away = normalize(vec3(spine.x.sub(axis.x), 0, spine.z.sub(axis.z)).add(vec3(0, 1e-4, 0)));
-            const across = normalize(cross(tangent, away)).toVar();
-            const outward = normalize(cross(across, tangent)).toVar();
+        // Between which two guides, how far between, how long, how deep.
+        const between = h.x.mul(HAIR.locks - 1);
+        const g0 = uint(between.floor());
+        const g1 = g0.add(uint(1)).min(uint(HAIR.locks - 1));
+        const w = between.fract();
+        const reach = mix(0.8, 1.04, h.y);
+        const pose = kidPose();
+        const axis = pose.toWorld(vec3(0, 0.6, 0));
+        const strandAt = (t: TslNode) => {
+            const p = mix(guideAt(sim, g0, t), guideAt(sim, g1, t), w);
+            const out = normalize(vec3(p.x.sub(axis.x), 0, p.z.sub(axis.z)).add(vec3(0, 1e-4, 0)));
+            return p.add(out.mul(h.z.mul(HAIR.volume).mul(t.mul(-0.4).add(1))));
+        };
+        const t0 = k.div(segments).mul(reach);
+        const t1 = k.add(1).div(segments).mul(reach);
+        const a = strandAt(t0);
+        const b = strandAt(t1);
+        const center = mix(a, b, 0.5).toVar();
+        const along = b.sub(a);
+        const l = max(length(along), 1e-4);
+        const tangent = along.div(l).toVar();
+        const t = t0.add(t1).mul(0.5);
+        const width = float(HAIR.thickness).mul(t.mul(-0.5).add(1));
 
-            const width = float(HAIR.width).mul(pow(t, 3).mul(-0.55).add(1));
-            // One layer, across the ribbon, facing out: no back face to fight it in the sort.
-            const offset = a
-                .div(wide - 1)
-                .mul(2)
-                .sub(1);
-            const center = spine.add(across.mul(offset.mul(width))).toVar();
-            const normal = outward;
-            const size = max(width.mul(2 / (wide - 1)), float(HAIR.length / rings)).mul(0.8);
-
-            // Cartoon light, and the sheen sliding along the hair.
-            const shade = cartoon(center, towardViewer(normal, center), v3(KID.hair));
-            const half = normalize(sun.add(normalize(eye.sub(center))));
-            const runs = dot(tangent, half);
-            const sheen = pow(runs.mul(runs).oneMinus().max(0).sqrt(), 10).mul(sunlight(center));
-            const rgb = shade.add(v3(HAIR.sheen).mul(sheen));
-            const finish = distance(center, float(0), rgb);
-            return GpuSplats.Splat(
-                center,
-                vec3(size, 0.003, size),
-                alignY(normal),
-                finish.rgb.min(0.97),
-                finish.opacity.mul(0.95),
-                uint(index),
-            );
-        },
-        false,
-    );
+        // Kajiya-Kay: lit by how much the strand runs across the light, with a sheen.
+        const lit = sunlight(center);
+        const across = dot(tangent, sun);
+        const diffuse = across.mul(across).oneMinus().max(0).sqrt();
+        const half = normalize(sun.add(normalize(eye.sub(center))));
+        const runs = dot(tangent, half);
+        const sheen = pow(runs.mul(runs).oneMinus().max(0).sqrt(), 30).mul(lit);
+        const tone = v3(KID.hair)
+            .mul(h.w.mul(0.24).add(0.88))
+            .mul(smoothstep(0, 0.3, t).mul(0.3).add(0.7))
+            .add(t.mul(0.06));
+        const rgb = tone.mul(v3(SUN).mul(diffuse.mul(0.65)).mul(lit).add(v3(SKYLIGHT).mul(0.6))).add(v3(HAIR.sheen).mul(sheen));
+        const finish = distance(center, float(0), rgb);
+        return GpuSplats.Splat(
+            center,
+            vec3(width, l.mul(0.6), width),
+            alignY(tangent),
+            finish.rgb.min(0.97),
+            finish.opacity.mul(0.9),
+            uint(index),
+        );
+    });
 }
 
 /* the ground */
@@ -1836,7 +1877,7 @@ export function initField(renderer: WebGPURenderer, clouds: THREE.Texture, kidOn
     const compute = getGpuCaps(renderer).compute;
     trampleState = compute ? initTrample(renderer) : null;
     simState = compute ? initSim(renderer) : null;
-    const dressAndHair = simState ? [skirt(simState), hairLocks(simState)] : [];
+    const dressAndHair = simState ? [skirt(simState), hairStrands(simState)] : [];
     const you = [kid(simState !== null), ...dressAndHair];
     return { objects: kidOnly ? [ground(), ...you] : [ground(), blades(), flowers(), butterflies(), ...you] };
 }

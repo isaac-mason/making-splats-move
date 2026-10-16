@@ -55,10 +55,21 @@ you and the rest catches up and settles.
 The dress is a mid-calf skirt of 40 by 16 points, fitted at the waist and free
 below, drawn as two splats a cloth cell lit by the cloth's own normal, with pleat
 shading, a white hem and a darker lining when you see inside it. The hair is
-eighteen long ribbon locks of ten joints each, the first two held by the head so it
-leaves at the right angle under the hat brim, drawn as single-layer ribbons along a Catmull-Rom curve through the joints,
-overlapping softly into a sheet, with a gentle Kajiya-Kay sheen that slides along
-it as it moves. Without compute (WebGL2) the kid keeps a solid skirt and
+done the way splats are good at, and the way the grass is: thin strands of long,
+thin Gaussians, which is how Gaussian hair is rendered. Twenty-four guide strands of
+ten joints are simulated (the first two held by the head, so the hair leaves it at
+the right angle under the brim); 2,400 strands are drawn between neighbouring
+guides, each at its own place between them, with its own length and a little depth
+of its own, so they make a soft, full mass with wispy ends. Guides plus followers
+is how games do hair. Each strand is twelve splats along a Catmull-Rom curve
+through its guides, lit along its length (Kajiya-Kay), darker at the roots and
+lighter at the ends. An earlier try built it from a few sculpted ribbons, and
+soft round splats can't make a clean ribbon edge: it always looked scuffed.
+
+The sunhat sits tipped back, its brim a floppy ring drooping towards the edge
+with a gentle wave, over a round crown and a ribbon.
+
+Without compute (WebGL2) the kid keeps a solid skirt and
 pigtails.
 
 `?kid=1` shows just the kid on the ground, walking, skipping and standing round a
