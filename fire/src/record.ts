@@ -63,7 +63,7 @@ export function recordingFromUrl(): Recording | null {
         warmup: params.has('warmup') ? Math.max(0, Number(params.get('warmup')) || 0) : 4,
         sweep: unit('sweep', 1),
         rise: Math.abs(unit('rise', 0.3)),
-        period: num('period', 4),
+        period: num('period', 6),
     };
 }
 
