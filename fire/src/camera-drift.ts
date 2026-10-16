@@ -27,6 +27,11 @@ export type CameraDrift = {
     apply(dt: number, lean?: boolean): void;
     /** Forget the lean WITHOUT moving the camera — only for a caller about to set the position itself. */
     clear(): void;
+    /**
+     * A scripted pointer in place of the real one: window coordinates, -1..1 each
+     * way. For recordings. `snap` puts the lean there at once, for a take's first frame.
+     */
+    drive(x: number, y: number, snap?: boolean): void;
 };
 
 export function createCameraDrift(
@@ -45,18 +50,21 @@ export function createCameraDrift(
     let hovering = false;
     const mouse = (event: PointerEvent) => event.pointerType === 'mouse';
 
+    /** Where the pointer is, in window coordinates, to where the lean is heading. */
+    const aim = (x: number, y: number) => {
+        // Ramp up from the deadzone's edge, so there's no jump leaving centre.
+        const length = Math.hypot(x, y);
+        const scale = length <= DEADZONE ? 0 : (length - DEADZONE) / (1 - DEADZONE) / length;
+        target.set(x * scale, y * scale);
+    };
+
     domElement.addEventListener('pointermove', (event) => {
         if (!mouse(event)) return;
         // A held button is an orbit drag, and that owns the camera.
         hovering = event.buttons === 0;
         if (!hovering) return;
         const rect = domElement.getBoundingClientRect();
-        const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        const y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
-        // Ramp up from the deadzone's edge, so there's no jump leaving centre.
-        const length = Math.hypot(x, y);
-        const scale = length <= DEADZONE ? 0 : (length - DEADZONE) / (1 - DEADZONE) / length;
-        target.set(x * scale, y * scale);
+        aim(((event.clientX - rect.left) / rect.width) * 2 - 1, -(((event.clientY - rect.top) / rect.height) * 2 - 1));
     });
     domElement.addEventListener('pointerdown', (event) => {
         if (mouse(event)) hovering = false;
@@ -90,6 +98,12 @@ export function createCameraDrift(
             target.set(0, 0);
             current.set(0, 0);
             applied.set(0, 0, 0);
+        },
+
+        drive(x, y, snap = false) {
+            hovering = true;
+            aim(x, y);
+            if (snap) current.copy(target);
         },
     };
 }

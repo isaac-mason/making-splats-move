@@ -35,6 +35,7 @@ import { initLighting, NIGHT_BRIGHTNESS, updateLighting } from './lighting';
 import { applyPerformance, initPerformance } from './performance';
 import { BLOOM_STRENGTH, initPost } from './post';
 import { createSplatPicker, type SplatPicker } from './raycast';
+import { download, type Recording, record, recordingFromUrl } from './record';
 import { CAMERA_POSITION, CAMERA_TARGET, SPLAT_URL } from './scene';
 import { initFireSim } from './sim';
 import { initSmoke, updateSmoke } from './smoke';
@@ -43,6 +44,8 @@ import './style.css';
 
 /** So a stall or a tab switch can't jump the animation forward. */
 const MAX_DT = 0.1;
+/** `?record`: render a take on a fixed clock into an MP4 instead of running live (record.ts). */
+const RECORDING = recordingFromUrl();
 
 async function init() {
     const scene = new THREE.Scene();
@@ -127,6 +130,7 @@ async function init() {
     });
 
     window.addEventListener('resize', () => {
+        if (RECORDING) return;
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -220,7 +224,7 @@ function update(state: State, elapsed: number, dt: number) {
         state.camera,
     );
     updateHeat(state.heat, fire);
-    applyPerformance(state.perf, state.renderer);
+    if (!RECORDING) applyPerformance(state.perf, state.renderer);
     updateDebugOverlay(debug, state.camera, state.controls, fire, state.splats.collection.count, state.perf);
 
     // The GPU sort sees the particles move every frame. The WebGL2 backend's CPU
@@ -237,8 +241,55 @@ function hideLoading() {
     setTimeout(() => el.remove(), 700); // after the CSS fade
 }
 
+/** The take: the canvas at the recording's size, frames on its clock, stokes on cue, then the download. */
+async function recordTake(state: State, recording: Recording) {
+    const { renderer, camera } = state;
+    renderer.setPixelRatio(1);
+    renderer.setSize(recording.width, recording.height, false);
+    Object.assign(renderer.domElement.style, { objectFit: 'contain', background: '#000' });
+    camera.aspect = recording.width / recording.height;
+    camera.updateProjectionMatrix();
+    hideLoading();
+
+    const progress = document.createElement('div');
+    progress.style.cssText =
+        'position:fixed;left:8px;bottom:8px;font:12px monospace;color:#fff;background:rgba(0,0,0,.6);padding:4px 8px';
+    document.body.append(progress);
+
+    const stokes = [...recording.stokes];
+    try {
+        const blob = await record(
+            renderer.domElement,
+            recording,
+            (index, time, dt) => {
+                while (stokes.length && stokes[0] <= time) {
+                    stokeFire(state.fire);
+                    stokes.shift();
+                }
+                // The scripted mouse: one eased pass across the window over the take.
+                const u = time / recording.seconds;
+                const eased = u * u * (3 - 2 * u);
+                state.drift.drive((eased * 2 - 1) * recording.sweep, 0, index === 0);
+                update(state, time, dt);
+            },
+            (done, total) => {
+                progress.textContent = `recording ${done} / ${total}`;
+            },
+        );
+        download(blob, `fire-${recording.width}x${recording.height}-${recording.fps}fps.mp4`);
+        progress.textContent = `done: ${(blob.size / 1e6).toFixed(1)} MB`;
+    } catch (error) {
+        progress.textContent = `recording failed: ${error}`;
+        throw error;
+    }
+}
+
 async function start() {
     const state = await init();
+    if (RECORDING) {
+        await recordTake(state, RECORDING);
+        return;
+    }
 
     let lastTime = performance.now();
     let elapsed = 0;
