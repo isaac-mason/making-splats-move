@@ -201,14 +201,16 @@ const GROUND = {
  */
 export const BOULDERS = {
     /** The grid's cell, metres, and the chance a cell has a boulder. */
-    cell: 9,
-    chance: 0.3,
+    cell: 14,
+    chance: 0.35,
     /** Radius, smallest to biggest, metres; how much is buried; how flattened. */
-    radius: [0.3, 1.25],
+    radius: [0.6, 2.2],
     buried: 0.35,
     squat: 0.72,
     /** Cells drawn round you, each way, and splats on each boulder. */
-    around: 5,
+    around: 4,
+    /** Where they fade in, metres from you: well inside the cells drawn, so none pops in. */
+    fade: [36, 48],
     splats: 1500,
     granite: [0.5, 0.48, 0.45],
     dark: [0.32, 0.31, 0.3],
@@ -331,7 +333,7 @@ function boulderOf(cx: TslNode, cz: TslNode): { center: TslNode; radius: TslNode
         .bitXor(uint(int(cz)).mul(uint(19349663)));
     const h = hash4(id, 40);
     const [small, big] = BOULDERS.radius;
-    const radius = mix(small, big, h.y.mul(h.y));
+    const radius = mix(small, big, pow(h.y, 1.5));
     const room = float(BOULDERS.cell).sub(radius.mul(2)).max(0);
     const center = vec2(cx, cz).mul(BOULDERS.cell).add(radius).add(vec2(h.z, h.w).mul(room));
     return { center, radius, there: h.x.lessThan(BOULDERS.chance).select(float(1), float(0)), seed: id };
@@ -1159,7 +1161,7 @@ const bank = uniform(0);
 
 /** Cartoon light for the kid, its dress and its hair: banded sun unless a cloud's in the way, sky fill and a rim. */
 function cartoon(world: TslNode, normal: TslNode, colour: TslNode): TslNode {
-    const band = smoothstep(-0.05, 0.2, dot(normal, sun));
+    const band = smoothstep(-0.3, 0.45, dot(normal, sun));
     const rim = pow(
         dot(normalize(eye.sub(world)), normal)
             .oneMinus()
@@ -1306,7 +1308,7 @@ function kid(simulated: boolean): SplatObject {
         }),
         // the head, hair, pigtails, face
         { pivot: neck, turn: head, offset: [0, 0.15, 0], radii: [0.17, 0.165, 0.165], colour: KID.skin },
-        { pivot: neck, turn: head, offset: [0, 0.14, -0.03], radii: [0.182, 0.182, 0.178], colour: KID.hair },
+        { pivot: neck, turn: head, offset: [0, 0.19, -0.05], radii: [0.178, 0.15, 0.168], colour: KID.hair },
         // Without the simulation, solid pigtails stand in for the flowing hair.
         ...(simulated
             ? []
@@ -1447,11 +1449,11 @@ function kid(simulated: boolean): SplatObject {
                 vec3(size, size.mul(0.35), size),
                 alignY(outward),
                 finish.rgb.min(0.97),
-                finish.opacity.mul(1.5),
+                finish.opacity,
                 uint(index),
             );
         },
-        true,
+        false,
     );
 }
 
@@ -1546,8 +1548,19 @@ const HAIR = {
     segments: 12,
     thickness: 0.0034,
     pixel: 0.0011,
-    /** Each strand's opacity: soft, so where thousands overlap they average rather than pop in the sort. */
-    opacity: 0.6,
+    /** Each strand's opacity: soft enough that where thousands overlap they don't pop in the sort. */
+    opacity: 0.8,
+    /**
+     * Clumps: strands gather into locks that taper together towards their tips,
+     * each at its own depth and shade, with gaps between; that, not evenly spread
+     * strands, is what reads as hair rather than a sheet. How many, how tightly
+     * the tips gather (0..1), a clump's width at the root (in guide spacings), and
+     * the share of stray strands.
+     */
+    clumps: 40,
+    gather: 0.85,
+    spread: 0.9,
+    strays: 0.03,
     /** How far strands spread out in depth from their guides, metres. */
     volume: 0.014,
     /** The sheen along the hair (Kajiya-Kay). */
@@ -1609,7 +1622,7 @@ function clothRest(i: TslNode, r: TslNode): TslNode {
 
 /** Joint `k` of lock `s` at rest, in the head's frame (from the neck): out from under the brim, then straight down. */
 function hairRest(s: TslNode, k: TslNode): TslNode {
-    const round = s.add(0.5).div(HAIR.locks).mul(3.4).sub(1.7);
+    const round = s.add(0.5).div(HAIR.locks).mul(2.9).sub(1.45);
     const out = vec3(sin(round), 0, cos(round).negate());
     const root = out.mul(vec3(0.165, 0, 0.155)).add(vec3(0, 0.17, -0.015));
     const f = k.div(HAIR.points - 1);
@@ -1890,18 +1903,31 @@ function hairStrands(sim: Sim): SplatObject {
         const k = float(index.mod(uint(segments)));
         const h = hash4(strand, 20).toVar();
 
-        // Between which two guides, how far between, how long, how deep.
-        const between = h.x.mul(HAIR.locks - 1);
-        const g0 = uint(between.floor());
-        const g1 = g0.add(uint(1)).min(uint(HAIR.locks - 1));
-        const w = between.fract();
-        const reach = mix(0.8, 1.04, h.y);
+        const h2 = hash4(strand, 22).toVar();
+
+        // Its clump, and its own place in it at the root, gathering in towards the clump's middle at the tip.
+        const clump = h.x.mul(HAIR.clumps).floor();
+        const c = hash4(uint(clump), 21).toVar();
+        const middle = clump
+            .add(0.5)
+            .div(HAIR.clumps)
+            .mul(HAIR.locks - 1)
+            .add(c.x.sub(0.5).mul(0.3));
+        const own = middle.add(h.y.sub(0.5).mul(HAIR.spread));
+        const reach = mix(0.82, 1.04, h.z);
+        const stray = h2.y.lessThan(HAIR.strays).select(float(1), float(0));
+        const strayDir = normalize(vec3(h2.z.sub(0.5), 0.15, h2.w.sub(0.5)));
         const pose = kidPose();
         const axis = pose.toWorld(vec3(0, 0.6, 0));
         const strandAt = (t: TslNode) => {
-            const p = mix(guideAt(sim, g0, t), guideAt(sim, g1, t), w);
+            const u = clamp(mix(own, middle, pow(t, 1.2).mul(HAIR.gather)), 0, HAIR.locks - 1.001);
+            const g0 = uint(u.floor());
+            const g1 = g0.add(uint(1)).min(uint(HAIR.locks - 1));
+            const p = mix(guideAt(sim, g0, t), guideAt(sim, g1, t), u.fract());
             const out = normalize(vec3(p.x.sub(axis.x), 0, p.z.sub(axis.z)).add(vec3(0, 1e-4, 0)));
-            return p.add(out.mul(h.z.mul(HAIR.volume).mul(t.mul(-0.4).add(1))));
+            // Each clump at its own depth; a stray wandering off.
+            const depth = c.y.mul(HAIR.volume).add(h2.x.mul(0.004)).mul(t.mul(-0.4).add(1));
+            return p.add(out.mul(depth)).add(strayDir.mul(t.mul(t).mul(0.06).mul(stray)));
         };
         const t0 = k.div(segments).mul(reach);
         const t1 = k.add(1).div(segments).mul(reach);
@@ -1921,8 +1947,12 @@ function hairStrands(sim: Sim): SplatObject {
         const half = normalize(sun.add(normalize(eye.sub(center))));
         const runs = dot(tangent, half);
         const sheen = pow(runs.mul(runs).oneMinus().max(0).sqrt(), 8).mul(lit);
+        // Each clump its own shade, a little darker towards its edges, where it meets the next.
+        const edge = h.y.sub(0.5).abs().mul(2).mul(t.oneMinus()).mul(0.22).oneMinus();
         const tone = v3(KID.hair)
-            .mul(h.w.mul(0.24).add(0.88))
+            .mul(c.z.mul(0.22).add(0.88))
+            .mul(h.w.mul(0.1).add(0.95))
+            .mul(edge)
             .mul(smoothstep(0, 0.3, t).mul(0.3).add(0.7))
             .add(t.mul(0.06));
         const rgb = tone.mul(v3(SUN).mul(diffuse.mul(0.65)).mul(lit).add(v3(SKYLIGHT).mul(0.6))).add(v3(HAIR.sheen).mul(sheen));
@@ -2032,7 +2062,10 @@ function boulders(): SplatObject {
                 vec3(size, size.mul(0.3), size),
                 alignY(normal),
                 finish.rgb.min(0.95),
-                finish.opacity.mul(shows).mul(1.3),
+                finish.opacity
+                    .mul(shows)
+                    .mul(smoothstep(BOULDERS.fade[1], BOULDERS.fade[0], length(b.center.sub(you.xz))))
+                    .mul(1.3),
                 uint(index),
             );
         },
@@ -2057,7 +2090,7 @@ export function boulderAt(x: number, z: number): { x: number; z: number; radius:
     const h = [0, 1, 2, 3].map((k) => pcg((base + k) >>> 0) / 4294967296);
     if (h[0] >= BOULDERS.chance) return null;
     const [small, big] = BOULDERS.radius;
-    const radius = small + (big - small) * h[1] * h[1];
+    const radius = small + (big - small) * h[1] ** 1.5;
     const room = Math.max(BOULDERS.cell - radius * 2, 0);
     return { x: cx * BOULDERS.cell + radius + h[2] * room, z: cz * BOULDERS.cell + radius + h[3] * room, radius };
 }

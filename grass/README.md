@@ -78,7 +78,10 @@ ten joints are simulated (the first two held by the head, so the hair leaves it 
 the right angle under the brim); 1,600 strands are drawn between neighbouring
 guides, each at its own place between them, with its own length and a little depth
 of its own, so they make a soft, full mass with wispy ends. Guides plus followers
-is how games do hair. Each strand is twelve splats along a Catmull-Rom curve
+is how games do hair. Strands gather into forty clumps that taper together towards their tips, each at
+its own depth and shade and darker at its edges, with gaps between and the odd
+stray: clumping, not evenly spread strands, is what reads as hair rather than a
+sheet. Each strand is twelve splats along a Catmull-Rom curve
 through its guides, lit along its length (Kajiya-Kay), darker at the roots and
 lighter at the ends. An earlier try built it from a few sculpted ribbons, and
 soft round splats can't make a clean ribbon edge: it always looked scuffed.
@@ -99,8 +102,8 @@ circle on its own: a cheap way to look at the dress and hair.
 
 Under the grass is earth, mottled dark and light with the odd pale pebble, fading
 to turf colour far off where gaps should read as more grass. Boulders are
-scattered on a 9 metre world grid, each cell maybe holding one, mostly small, now
-and then big: a lumpy, noise-shaped, partly buried stone, granite with darker
+scattered on a 14 metre world grid, each cell maybe holding one, from about a
+metre across to over four, fading in with distance rather than popping in: a lumpy, noise-shaped, partly buried stone, granite with darker
 creases, lichen in patches and moss on top. A boulder sits wholly inside its cell,
 so any point only has to ask its own cell about it: grass and flowers don't grow
 through one, and the same integer hash on the CPU keeps you from walking through
