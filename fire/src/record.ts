@@ -29,8 +29,12 @@ export type Recording = {
     stokes: number[];
     /** Seconds simulated before the first frame, so the fire is already going. */
     warmup: number;
-    /** How far the scripted mouse crosses the window, -1..1; its sign is the direction. */
+    /** The scripted mouse's half-width, -1..1; its sign is the direction round. */
     sweep: number;
+    /** Its half-height, 0..1. */
+    rise: number;
+    /** Seconds per lap. */
+    period: number;
 };
 
 export function recordingFromUrl(): Recording | null {
@@ -40,7 +44,10 @@ export function recordingFromUrl(): Recording | null {
         const value = Number(params.get(name));
         return params.has(name) && Number.isFinite(value) && value > 0 ? value : fallback;
     };
-    const sweep = Number(params.get('sweep') ?? 0.8);
+    const unit = (name: string, fallback: number) => {
+        const value = Number(params.get(name));
+        return params.has(name) && Number.isFinite(value) ? Math.max(-1, Math.min(1, value)) : fallback;
+    };
     const stokes = (params.get('stokes') ?? '')
         .split(',')
         .map(Number)
@@ -54,7 +61,9 @@ export function recordingFromUrl(): Recording | null {
         mbps: num('mbps', 60),
         stokes,
         warmup: params.has('warmup') ? Math.max(0, Number(params.get('warmup')) || 0) : 4,
-        sweep: Number.isFinite(sweep) ? Math.max(-1, Math.min(1, sweep)) : 0.8,
+        sweep: unit('sweep', 1),
+        rise: Math.abs(unit('rise', 0.3)),
+        period: num('period', 4),
     };
 }
 

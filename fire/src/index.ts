@@ -257,6 +257,7 @@ async function recordTake(state: State, recording: Recording) {
     document.body.append(progress);
 
     const stokes = [...recording.stokes];
+    let first = true;
     try {
         const blob = await record(
             renderer.domElement,
@@ -267,10 +268,11 @@ async function recordTake(state: State, recording: Recording) {
                     stokeFire(state.fire);
                     stokes.shift();
                 }
-                // The scripted mouse: one eased pass across the window over the take.
-                const u = Math.max(0, time / recording.seconds);
-                const eased = u * u * (3 - 2 * u);
-                state.drift.drive((eased * 2 - 1) * recording.sweep, 0, index <= 0);
+                // The scripted mouse laps the window, through the warmup too, so the
+                // lean is already moving on the first frame.
+                const phase = (2 * Math.PI * time) / recording.period;
+                state.drift.drive(Math.sin(phase) * recording.sweep, Math.cos(phase) * recording.rise, first);
+                first = false;
                 update(state, recording.warmup + time, dt, index >= 0);
             },
             (done, total) => {
