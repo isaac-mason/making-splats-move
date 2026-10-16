@@ -88,7 +88,7 @@ Cabbage whites, fritillaries, common blues and brimstones over the flowers in
 front of you. Each wanders on two loops at unrelated rates, faces the way it flies
 (the path's velocity, worked out analytically), and bobs, hitching up on its
 wingbeats. A body and four wings hinged on it, beating four or five times a second
-(faster aliases into a buzz at 60 frames a second), often gliding with the wings
+(faster aliases into a buzz at 60 frames a second), now and then gliding briefly with the wings
 held up in a V. Wings are crisp, like the petals, and thin enough to glow with the
 sun behind them.
 
