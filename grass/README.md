@@ -111,7 +111,11 @@ tip leans by the blade's own rest lean plus the wind, so it bends from the root 
 curls most at the tip. Each blade is turned about its own length at random, so the
 field catches the light at every angle.
 
-The blades are scattered at random. Random on purpose: it clumps a little, as grass does, where any evenly
+The blades are scattered at random. Right round you there's a second, denser
+layer, about 300 blades a square metre on its own 20 metre tile, fading out at its
+edge into the meadow, so looking down into the grass from above you see grass, not
+the ground between blades; and the ground under it is mostly turf-coloured, so
+any gap still reads as grass. Random on purpose: it clumps a little, as grass does, where any evenly
 spread scheme shows its pattern as a lattice across a field. The randomness is
 three's PCG integer hash, since a cheap float hash of neighbouring indices
 correlates in just the same way.

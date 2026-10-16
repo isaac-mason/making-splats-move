@@ -84,7 +84,14 @@ const FIELD = {
      * ends: what you leave behind comes round again out in the haze ahead.
      */
     reach: 40,
-    blades: 340_000,
+    blades: 260_000,
+    /**
+     * A dense layer of grass right round you, on its own smaller tile (half-size
+     * `nearReach`), fading out at its edge into the meadow: looking down into the
+     * grass from above, the meadow's own density shows the ground through it.
+     */
+    nearBlades: 120_000,
+    nearReach: 10,
     segments: 5,
     ground: 120_000,
     /** Where the fade into haze starts and is complete, metres from the camera. */
@@ -302,17 +309,17 @@ const yaw = (half: TslNode): TslNode => vec4(0, sin(half), 0, cos(half));
  * evenly spread scheme shows its pattern across a field. Returns the xz point and
  * how far out it is, 0..1, for the fade at the edge.
  */
-function place(random: TslNode): { xz: TslNode; out: TslNode } {
-    const size = FIELD.reach * 2;
+function place(random: TslNode, reach: number = FIELD.reach): { xz: TslNode; out: TslNode } {
+    const size = reach * 2;
     const local = random.xy.mul(size);
     const xz = local.add(you.xz.sub(local).div(size).round().mul(size)).toVar();
-    return { xz, out: length(xz.sub(you.xz)).div(FIELD.reach) };
+    return { xz, out: length(xz.sub(you.xz)).div(reach) };
 }
 
 /** The far field's finish: fade towards the haze with distance, and out at the edge. */
-function distance(center: TslNode, out: TslNode, rgb: TslNode): { rgb: TslNode; opacity: TslNode } {
+function distance(center: TslNode, out: TslNode, rgb: TslNode, edge = 0.88): { rgb: TslNode; opacity: TslNode } {
     const fog = smoothstep(FIELD.fog[0], FIELD.fog[1], length(center.sub(eye)));
-    return { rgb: mix(rgb, v3(HAZE), fog.mul(0.85)), opacity: smoothstep(1, 0.88, out) };
+    return { rgb: mix(rgb, v3(HAZE), fog.mul(0.85)), opacity: smoothstep(1, edge, out) };
 }
 
 /** How much wider far splats draw, so a distant blade isn't thinner than a pixel. */
@@ -508,21 +515,22 @@ function stem(root: TslNode, height: TslNode, bend: TslNode, s: TslNode): { cent
 
 /* the blades */
 
-function blades(): SplatObject {
+/** Grass: `count` blades on a tile of half-size `reach`, from random stream `stream`, fading out from `edge` of the way out. */
+function blades(count: number = FIELD.blades, reach: number = FIELD.reach, stream = 0, edge = 0.88): SplatObject {
     const { segments } = FIELD;
 
-    return generated(FIELD.blades * segments, (index) => {
+    return generated(count * segments, (index) => {
         const blade = index.div(uint(segments));
         const s = float(index.mod(uint(segments)))
             .add(0.5)
             .div(segments)
             .toVar();
 
-        const a = hash4(blade, 0).toVar();
-        const b = hash4(blade, 1).toVar();
-        const c = hash4(blade, 2).toVar();
+        const a = hash4(blade, stream).toVar();
+        const b = hash4(blade, stream + 1).toVar();
+        const c = hash4(blade, stream + 2).toVar();
 
-        const { xz, out } = place(a);
+        const { xz, out } = place(a, reach);
         const ground = terrain(xz);
         const root = vec3(xz.x, ground.height, xz.y).toVar();
 
@@ -575,7 +583,7 @@ function blades(): SplatObject {
             .mul(direct.mul(0.95).add(v3(SKYLIGHT).mul(0.55)))
             .add(max(gust, 0).mul(WIND.sheen).mul(s).mul(lit.mul(0.7).add(0.3)));
 
-        const finish = distance(center, out, rgb);
+        const finish = distance(center, out, rgb, edge);
         return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity, uint(index));
     });
 }
@@ -1907,7 +1915,15 @@ function ground(): SplatObject {
         const soil = mix(v3(GROUND.moss), v3(GROUND.thatch), mottle).mul(a.w.mul(0.3).add(0.85));
         // Far off, the gaps between blades should read as more grass, not as ground.
         const turf = mix(v3(BLADE.deep), v3(BLADE.fresh), 0.55);
-        const body = mix(soil, turf, smoothstep(4, 18, length(center.sub(eye))));
+        // The gaps between blades should read as more grass, not as a hole to the soil: mostly
+        // turf even close up, all turf further off.
+        const body = mix(
+            soil,
+            turf,
+            smoothstep(4, 18, length(center.sub(eye)))
+                .mul(0.35)
+                .add(0.65),
+        );
         const direct = v3(SUN)
             .mul(max(dot(land.normal, sun), 0))
             .mul(sunlight(center));
@@ -1934,7 +1950,11 @@ export function initField(renderer: WebGPURenderer, clouds: THREE.Texture, kidOn
     simState = compute ? initSim(renderer) : null;
     const dressAndHair = simState ? [skirt(simState), hairStrands(simState)] : [];
     const you = [kid(simState !== null), ...dressAndHair];
-    return { objects: kidOnly ? [ground(), ...you] : [ground(), blades(), flowers(), butterflies(), ...you] };
+    return {
+        objects: kidOnly
+            ? [ground(), ...you]
+            : [ground(), blades(), blades(FIELD.nearBlades, FIELD.nearReach, 30, 0.6), flowers(), butterflies(), ...you],
+    };
 }
 
 /** Where you are and how you're moving, for the meadow round you. */
