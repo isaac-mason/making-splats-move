@@ -135,7 +135,8 @@ curls most at the tip. Each blade is turned about its own length at random, so t
 field catches the light at every angle.
 
 The blades are scattered at random, in nested layers round you, the grass's level
-of detail: four tiles, each wider and sparser than the last, its blades thicker,
+of detail: four tiles, each wider and sparser than the last, its blades a little thicker (not much: they
+also widen with distance, and the two together turn the grass to soft strokes),
 each fading out at its edge, so they stack into about 220 blades a square metre at
 your feet, 95 at ten metres and 40 at twenty, thinning to thick, sparse blades out
 in the haze. Every blade still holds still in the world: each layer wraps round you

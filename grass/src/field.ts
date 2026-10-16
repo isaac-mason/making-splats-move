@@ -93,9 +93,9 @@ const FIELD = {
      */
     layers: [
         { reach: 7, blades: 25_000, girth: 1, edge: 0.65 },
-        { reach: 15, blades: 50_000, girth: 1.3, edge: 0.7 },
-        { reach: 30, blades: 90_000, girth: 1.8, edge: 0.75 },
-        { reach: 44, blades: 140_000, girth: 2.5, edge: 0.88 },
+        { reach: 15, blades: 50_000, girth: 1.1, edge: 0.7 },
+        { reach: 30, blades: 90_000, girth: 1.25, edge: 0.75 },
+        { reach: 44, blades: 140_000, girth: 1.45, edge: 0.88 },
     ],
     segments: 5,
     ground: 120_000,
@@ -126,8 +126,8 @@ const BLADE = {
      * Blades widen with distance from `farFrom` metres, up to `farGrowth` times, so
      * far ones overlap into turf instead of a grain of separate threads.
      */
-    farFrom: 3,
-    farGrowth: 10,
+    farFrom: 5,
+    farGrowth: 5,
     /** The darkest a blade's root gets, down in the thatch. */
     rootShade: 0.3,
     deep: [0.08, 0.27, 0.05],
