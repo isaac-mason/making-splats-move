@@ -38,6 +38,9 @@ const WALK = {
     skip: 3.2,
     /** How quickly you turn to face the way you're going. */
     turn: 10,
+    /** Jumping (space): take-off speed, m/s, and gravity, floaty: about half a metre up. */
+    jump: 3.8,
+    gravity: 14,
     /**
      * How far round from behind the kid the camera may go, radians each way: never
      * round to the face. It follows the kid's facing.
@@ -64,9 +67,15 @@ const KEYS: Record<string, [number, number]> = {
     ArrowRight: [1, 0],
 };
 
+/** Jumps asked for and not yet taken: space, once a press. */
+let jumps = 0;
+
 function initKeys() {
     const held = new Set<string>();
-    window.addEventListener('keydown', (event) => held.add(event.code));
+    window.addEventListener('keydown', (event) => {
+        held.add(event.code);
+        if (event.code === 'Space' && !event.repeat) jumps++;
+    });
     window.addEventListener('keyup', (event) => held.delete(event.code));
     window.addEventListener('blur', () => held.clear());
     return held;
@@ -79,7 +88,7 @@ const before = new THREE.Vector3();
 
 /**
  * `?kid=1`: just the kid on the ground, walking and skipping round a circle on its
- * own (walk, skip, stand, again), so the dress and hair can be looked at closely
+ * own (walk, skip, stand, again, jumping now and then), so the dress and hair can be looked at closely
  * and cheaply. Drag to look round; the camera follows.
  */
 const PREVIEW = new URLSearchParams(location.search).has('kid');
@@ -87,6 +96,9 @@ const PREVIEW = new URLSearchParams(location.search).has('kid');
 /** Where the preview kid wants to go: round a circle, walking, then skipping, then standing. */
 function previewSteer(elapsed: number, walker: Walker, out: THREE.Vector3): THREE.Vector3 {
     const phase = elapsed % 15;
+    // A jump now and then: walking, skipping, and standing.
+    const before = phase - 1 / 60;
+    for (const at of [3, 8.5, 13]) if (before < at && phase >= at) jumps++;
     const speed = phase < 6 ? WALK.speed : phase < 12 ? WALK.run * 0.6 : 0;
     const angle = Math.atan2(walker.position.z, walker.position.x) + 0.6;
     const radius = 3;
@@ -121,12 +133,25 @@ function walk(
 
     before.copy(walker.position);
     walker.position.addScaledVector(walker.velocity, dt);
-    walker.position.y = terrainHeight(walker.position.x, walker.position.z);
+    // Jumping: up at take-off speed, down under gravity, a jolt on landing.
+    if (jumps > 0 && walker.lift === 0) walker.rise = WALK.jump;
+    jumps = 0;
+    if (walker.lift > 0 || walker.rise > 0) {
+        walker.rise -= WALK.gravity * dt;
+        walker.lift += walker.rise * dt;
+        if (walker.lift <= 0) {
+            walker.landed = Math.min(-walker.rise / WALK.jump, 1);
+            walker.lift = 0;
+            walker.rise = 0;
+        }
+    }
+    walker.landed *= Math.exp(-7 * dt);
+    walker.position.y = terrainHeight(walker.position.x, walker.position.z) + walker.lift;
     // Faster than a walk is skipping; turn to face the way you're going.
     const speed = Math.hypot(walker.velocity.x, walker.velocity.z);
     const skipping = THREE.MathUtils.clamp((speed - WALK.speed) / (WALK.run - WALK.speed), 0, 1);
     walker.skipping += (skipping - walker.skipping) * (1 - Math.exp(-6 * dt));
-    walker.stride += (speed * dt) / THREE.MathUtils.lerp(WALK.stride, WALK.skip, walker.skipping);
+    if (walker.lift === 0) walker.stride += (speed * dt) / THREE.MathUtils.lerp(WALK.stride, WALK.skip, walker.skipping);
     // Turn to face the way you're going, unless that's back towards the camera:
     // then back-pedal, or the kid would turn to face the camera, the camera would
     // swing round behind, and round and round.
@@ -216,6 +241,9 @@ async function start() {
         stride: 0,
         facing: Math.atan2(Math.cos(WALK.facing), Math.sin(WALK.facing)),
         skipping: 0,
+        lift: 0,
+        rise: 0,
+        landed: 0,
     };
     const target = walker.position.clone();
     target.y += WALK.chest;

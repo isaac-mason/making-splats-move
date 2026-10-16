@@ -6,7 +6,8 @@ index and the time, so the wind costs nothing extra: each frame makes every blad
 afresh, already bent. Cloud shadows sweep across the hills.
 
 Drawn by [spark-radix][radix] on three.js's `WebGPURenderer`. **WASD** to walk,
-**shift** to run, drag to look round, scroll to come closer or stand back.
+**shift** to skip, **space** to jump, drag to look round, scroll to come closer or
+stand back.
 
 ## A meadow without end
 
@@ -32,7 +33,10 @@ fast.
 Walking is a light bounce on alternating legs. Running is skipping: big and small
 hops in turn, the leading knee up, the free arm swinging up, a squash on landing
 and a stretch in the air. The hat bounces a beat late, the basket swings, the head
-nods, and standing still, the kid breathes. Lit like a cartoon: banded sun, sky
+nods, and standing still, the kid breathes. A jump is a floaty half-metre arc: knees tucked, the free
+arm flung up and out, the body stretched, and a squash on landing as hard as the
+fall; the skirt and hair, simulated in world space, lag on the way up and flare and
+lift on the way down, and the grass isn't trampled from the air. Lit like a cartoon: banded sun, sky
 fill and a rim.
 
 ## The dress and the hair, simulated

@@ -391,7 +391,7 @@ function initTrample(renderer: WebGPURenderer): Trample {
                 const push = state.xy.mul(frameDt.div(TRAMPLE.recover).mul(-2.3).exp()).toVar();
                 // You: grass in your way pushed out from you and along your stride.
                 const offset = cell.add(0.5).mul(TRAMPLE.cell).sub(you.xz);
-                const reach = smoothstep(TRAMPLE.radius, TRAMPLE.radius * 0.25, length(offset));
+                const reach = smoothstep(TRAMPLE.radius, TRAMPLE.radius * 0.25, length(offset)).mul(airborne.oneMinus());
                 const moving = yourVelocity.xz;
                 const along = moving.div(max(length(moving), 0.5)).mul(TRAMPLE.drag);
                 const shove = normalize(offset.add(1e-4)).add(along).mul(TRAMPLE.flatten).mul(reach);
@@ -1093,6 +1093,9 @@ const KID = {
 /** How hard you're skipping, 0 walking to 1 running; and the way you face, radians. */
 const skipping = uniform(0);
 const facing = uniform(0);
+/** Jumping: how far off the ground you are (0 on it, 1 well up), and the jolt of the last landing, 0..1. */
+const airborne = uniform(0);
+const landed = uniform(0);
 
 /** Cartoon light for the kid, its dress and its hair: banded sun unless a cloud's in the way, sky fill and a rim. */
 function cartoon(world: TslNode, normal: TslNode, colour: TslNode): TslNode {
@@ -1143,16 +1146,28 @@ function kidPose() {
     const within = step.fract();
     const arc = sin(within.mul(Math.PI));
     const big = wrap(step.floor(), 2).lessThan(0.5).select(float(1), float(0.55));
-    const hop = arc.mul(mix(0.03, big.mul(0.11), skip)).mul(moving);
+    // No stepping hops in the air: the jump itself lifts you.
+    const hop = arc
+        .mul(mix(0.03, big.mul(0.11), skip))
+        .mul(moving)
+        .mul(airborne.oneMinus());
     // Squash on landing, stretch in the air.
-    const squash = pow(arc.oneMinus(), 4).mul(0.07).sub(arc.mul(0.03)).mul(skip);
+    // And for a jump: stretched in the air, squashed by how hard you land.
+    const squash = pow(arc.oneMinus(), 4)
+        .mul(0.07)
+        .sub(arc.mul(0.03))
+        .mul(skip)
+        .mul(airborne.oneMinus())
+        .sub(airborne.mul(0.06))
+        .add(landed.mul(0.16));
     // Legs swing in turn, the leading knee higher when skipping.
     const swing = sin(step.mul(Math.PI))
         .mul(mix(0.5, 0.75, skip))
         .mul(moving);
     const lead = (x: TslNode) => x.greaterThan(0).select(x.mul(mix(1, 1.5, skip)), x.mul(0.7));
-    const leftLeg = lead(swing);
-    const rightLeg = lead(swing.negate());
+    // In the air the knees tuck up, one more than the other.
+    const leftLeg = mix(lead(swing), float(0.75), airborne);
+    const rightLeg = mix(lead(swing.negate()), float(0.35), airborne);
     // The free arm swings against its leg, and up when skipping.
     const freeArm = rightLeg.mul(0.9).negate().sub(skip.mul(arc).mul(0.6));
     const breath = sin(t.mul(1.8)).mul(0.012).mul(moving.oneMinus());
@@ -1165,8 +1180,15 @@ function kidPose() {
     const head = aboutX(nod);
     const hip = (side: number) => vec3(side * 0.07, 0.36, 0);
     const shoulder = (side: number) => vec3(side * 0.15, 0.68, 0);
-    const leftArm = GpuSplatMath.quatMul(aboutZ(float(-0.22)), aboutX(freeArm.negate()));
-    const rightArm = GpuSplatMath.quatMul(aboutZ(float(0.12)), aboutX(float(-0.55).add(arc.mul(0.06))));
+    // In the air the free arm flies up and out, the basket arm lifts.
+    const leftArm = GpuSplatMath.quatMul(
+        aboutZ(airborne.mul(-1.1).sub(0.22)),
+        aboutX(mix(freeArm.negate(), float(-0.5), airborne)),
+    );
+    const rightArm = GpuSplatMath.quatMul(
+        aboutZ(airborne.mul(0.3).add(0.12)),
+        aboutX(float(-0.55).add(arc.mul(0.06)).sub(airborne.mul(0.45))),
+    );
     const hand = shoulder(1).add(GpuSplatMath.quatRotate(rightArm, vec3(0, -0.29, 0)));
     const basket = aboutX(sin(within.mul(Math.PI).sub(0.5)).mul(0.3).mul(moving));
     const none = vec4(0, 0, 0, 1);
@@ -1899,6 +1921,10 @@ export type Walker = {
     /** The way you face, radians, and how hard you're skipping, 0..1. */
     facing: number;
     skipping: number;
+    /** Height off the ground in a jump, metres, how fast it's rising, m/s, and the last landing's jolt, 0..1. */
+    lift: number;
+    rise: number;
+    landed: number;
 };
 
 let frames = 0;
@@ -1912,6 +1938,8 @@ export function updateField(elapsed: number, dt: number, camera: THREE.Camera, w
     stride.value = walker.stride;
     facing.value = walker.facing;
     skipping.value = walker.skipping;
+    airborne.value = Math.min(walker.lift / 0.08, 1);
+    landed.value = walker.landed;
     // Settle the dress and hair at rest for the first few frames, then simulate.
     settle.value = frames++ < 3 ? 1 : 0;
     subDt.value = Math.min(Math.max(dt, 1e-4), 1 / 30) / SUBSTEPS;
