@@ -1191,6 +1191,8 @@ type Part = {
     brim?: { inner: number; outer: number; droop: number };
     /** Unlit: eyes stay dark whatever the light. */
     flat?: boolean;
+    /** Squeezes the part's height (a blink). */
+    squeeze?: TslNode;
 };
 
 /**
@@ -1202,87 +1204,139 @@ type Part = {
 function kidPose() {
     const t = time;
     const step = stride.toVar();
-    const moving = clamp(length(yourVelocity.xz).div(1.2), 0, 1);
-    const skip = skipping.mul(moving);
-    // Physical, not cartoon: the body rises a little over each stride and settles
-    // at each footfall, more running than walking; no squash and stretch.
-    const within = step.fract();
-    const arc = sin(within.mul(Math.PI));
-    const bounce = arc
-        .mul(mix(0.016, 0.04, skip))
-        .mul(moving)
-        .mul(airborne.oneMinus());
-    // A landing is taken in the knees: the body dips by how hard you came down, and rises again.
-    const hop = bounce.sub(landed.mul(0.09));
-    const squash = float(0);
-    // Legs swing in turn, further running; in the air they lift a little, one leading.
-    const swing = sin(step.mul(Math.PI))
-        .mul(mix(0.42, 0.62, skip))
-        .mul(moving);
-    const leftLeg = mix(swing, float(0.35), airborne);
-    const rightLeg = mix(swing.negate(), float(0.12), airborne);
-    // The free arm swings against its leg.
-    const freeArm = rightLeg.mul(0.8).negate();
-    const breath = sin(t.mul(1.8)).mul(0.012).mul(moving.oneMinus());
-    const nod = sin(step.mul(Math.PI * 2))
-        .mul(0.035)
-        .mul(moving);
+    const moving = clamp(length(yourVelocity.xz).div(1.2), 0, 1).toVar();
+    const still = moving.oneMinus();
+    const run = skipping.mul(moving);
+    const ground = airborne.oneMinus();
+    const phase = step.mul(Math.PI);
 
-    const neck = vec3(0, 0.78, 0);
-    const head = aboutX(nod);
+    // The body rises a little over each stride and settles at each footfall; a
+    // landing is taken in the knees, dipping by how hard you came down.
+    const arc = sin(phase).abs();
+    const hop = arc
+        .mul(mix(0.014, 0.035, run))
+        .mul(moving)
+        .mul(ground)
+        .sub(landed.mul(0.09));
+    // Weight shifts onto the standing leg each step, and from foot to foot standing still.
+    const sway = sin(phase)
+        .mul(0.014)
+        .mul(moving)
+        .add(sin(t.mul(0.45)).mul(0.012).mul(still));
+    const breath = sin(t.mul(1.8)).mul(0.01).mul(still);
+
+    // Legs: the thigh swings, and the knee bends as the leg comes through, straight
+    // while it's planted. In the air both lift a little, one leading.
+    const swing = sin(phase)
+        .mul(mix(0.42, 0.6, run))
+        .mul(moving);
+    const through = cos(phase);
+    const thighs = [mix(swing, float(0.45), airborne), mix(swing.negate(), float(0.15), airborne)];
+    const knees = [
+        mix(
+            through
+                .max(0)
+                .mul(mix(0.55, 0.95, run))
+                .mul(moving),
+            float(0.7),
+            airborne,
+        ),
+        mix(
+            through
+                .negate()
+                .max(0)
+                .mul(mix(0.55, 0.95, run))
+                .mul(moving),
+            float(0.4),
+            airborne,
+        ),
+    ];
     const hip = (side: number) => vec3(side * 0.07, 0.36, 0);
-    const shoulder = (side: number) => vec3(side * 0.15, 0.68, 0);
-    // In the air the free arm flies up and out, the basket arm lifts.
-    const leftArm = GpuSplatMath.quatMul(
-        aboutZ(airborne.mul(-0.45).sub(0.22)),
-        aboutX(mix(freeArm.negate(), float(-0.5), airborne)),
+    const leg = (side: number) => {
+        const n = side < 0 ? 0 : 1;
+        const thigh = aboutX(thighs[n].negate());
+        const shin = GpuSplatMath.quatMul(thigh, aboutX(knees[n]));
+        const knee = hip(side).add(GpuSplatMath.quatRotate(thigh, vec3(0, -0.17, 0)));
+        const foot = knee.add(GpuSplatMath.quatRotate(shin, vec3(0, -0.165, 0)));
+        return { thigh, shin, knee, foot };
+    };
+
+    // The chest turns against the hips as the legs swing, and breathes.
+    const twist = swing.mul(-0.22);
+    const chest = yaw(twist.mul(0.5));
+    const waist = vec3(0, 0.48, 0);
+    const upper = (p: TslNode): TslNode => waist.add(GpuSplatMath.quatRotate(chest, p.sub(waist)));
+
+    // Arms: the free arm swings against its leg, the elbow bending as it comes
+    // forward, more running; the basket arm holds it out a little, elbow bent.
+    const shoulder = (side: number) => upper(vec3(side * 0.135, 0.7, 0));
+    const freeSwing = thighs[1].mul(0.8).negate();
+    const leftUpper = GpuSplatMath.quatMul(
+        chest,
+        GpuSplatMath.quatMul(aboutZ(airborne.mul(-0.45).sub(0.2)), aboutX(mix(freeSwing.negate(), float(-0.6), airborne))),
     );
-    const rightArm = GpuSplatMath.quatMul(
-        aboutZ(airborne.mul(0.15).add(0.12)),
-        aboutX(float(-0.55).add(arc.mul(0.06)).sub(airborne.mul(0.2))),
+    const leftElbow = freeSwing.max(0).mul(0.6).add(0.2).add(run.mul(0.5)).add(airborne.mul(0.4));
+    const rightUpper = GpuSplatMath.quatMul(
+        chest,
+        GpuSplatMath.quatMul(aboutZ(airborne.mul(0.15).add(0.1)), aboutX(float(-0.2).sub(airborne.mul(0.2)))),
     );
-    const hand = shoulder(1).add(GpuSplatMath.quatRotate(rightArm, vec3(0, -0.29, 0)));
-    const basket = aboutX(sin(within.mul(Math.PI).sub(0.5)).mul(0.3).mul(moving));
+    const rightElbow = float(1.1).add(arc.mul(0.08).mul(moving));
+    const arm = (side: number) => {
+        const top = side < 0 ? leftUpper : rightUpper;
+        const fore = GpuSplatMath.quatMul(top, aboutX((side < 0 ? leftElbow : rightElbow).negate()));
+        const elbow = shoulder(side).add(GpuSplatMath.quatRotate(top, vec3(0, -0.16, 0)));
+        const wrist = elbow.add(GpuSplatMath.quatRotate(fore, vec3(0, -0.145, 0)));
+        return { top, fore, elbow, wrist };
+    };
+    const hand = arm(1).wrist;
+    const basket = aboutX(sin(phase.sub(0.5)).mul(0.25).mul(moving));
+
+    // The head steadies itself: it undoes most of the chest's twist and the body's
+    // lean, nods a little with the stride, and standing still, looks about.
+    const nod = sin(phase.mul(2)).mul(0.03).mul(moving);
+    const look = sin(t.mul(0.21))
+        .mul(0.45)
+        .add(sin(t.mul(0.53).add(1)).mul(0.15))
+        .mul(still);
+    const neck = upper(vec3(0, 0.78, 0));
+    const head = GpuSplatMath.quatMul(
+        chest,
+        GpuSplatMath.quatMul(
+            yaw(twist.mul(-0.4).add(look.mul(0.5))),
+            GpuSplatMath.quatMul(aboutX(nod.sub(lean.mul(0.6))), aboutZ(look.mul(0.12).sub(bank.mul(0.5)))),
+        ),
+    );
+    // Blinking, every few seconds.
+    const blinkAt = t.div(3.3).fract();
+    const blink = smoothstep(0.035, 0, blinkAt.sub(0.5).abs()).mul(0.9).oneMinus();
     const none = vec4(0, 0, 0, 1);
 
-    // The whole kid: squashed or stretched from the feet, breathing, leaning into
-    // the run, turned to face the way you go, standing on the ground.
-    // Leaning into acceleration and speed, banking into turns, all from the CPU's springs.
+    // The whole kid, swaying, breathing, leaning and banking (from the CPU's
+    // springs), turned to face the way you go, standing on the ground.
     const tilt = GpuSplatMath.quatMul(aboutX(lean), aboutZ(bank));
     const turn = GpuSplatMath.quatMul(yaw(facing.mul(0.5)), tilt);
     const toWorld = (local: TslNode): TslNode =>
-        you
-            .add(vec3(0, hop, 0))
-            .add(
-                GpuSplatMath.quatRotate(
-                    turn,
-                    vec3(
-                        local.x.mul(squash.mul(0.5).add(1)),
-                        local.y.mul(squash.oneMinus().add(breath)),
-                        local.z.mul(squash.mul(0.5).add(1)),
-                    ),
-                ),
-            );
+        you.add(vec3(0, hop, 0)).add(GpuSplatMath.quatRotate(turn, vec3(local.x.add(sway), local.y.mul(breath.add(1)), local.z)));
     const turnToWorld = (dir: TslNode): TslNode => GpuSplatMath.quatRotate(turn, dir);
-    return { leftLeg, rightLeg, neck, head, hip, shoulder, leftArm, rightArm, hand, basket, none, toWorld, turnToWorld };
+    return { leg, arm, chest, upper, neck, head, hip, shoulder, hand, basket, blink, none, toWorld, turnToWorld };
 }
 
 /** `simulated`: the dress and hair are simulations of their own, so leave out the solid skirt and pigtails. */
 function kid(simulated: boolean): SplatObject {
-    const { leftLeg, rightLeg, neck, head, hip, shoulder, leftArm, rightArm, hand, basket, none, toWorld, turnToWorld } =
-        kidPose();
+    const { leg, arm, chest, upper, neck, head, hip, shoulder, hand, basket, blink, none, toWorld, turnToWorld } = kidPose();
     // The hat sits tipped back on the head, so the brim frames the face rather than lying flat.
     // Steady on the head: it rides the body's hop but doesn't nod or bounce on its own, or
     // the wide brim turns the head's little nod into a see-saw at its edge.
-    const hatTurn = aboutX(float(-0.16));
+    const hatTurn = GpuSplatMath.quatMul(head, aboutX(float(-0.16)));
 
     const parts: Part[] = [
-        // legs and shoes
+        // legs: thigh, shin and shoe, bending at the knee
         ...[-1, 1].flatMap((side): Part[] => {
-            const turn = aboutX((side < 0 ? leftLeg : rightLeg).negate());
+            const l = leg(side);
             return [
-                { pivot: hip(side), turn, offset: [0, -0.16, 0], radii: [0.048, 0.16, 0.048], colour: KID.skin },
-                { pivot: hip(side), turn, offset: [0, -0.33, 0.03], radii: [0.055, 0.04, 0.085], colour: KID.shoes },
+                { pivot: hip(side), turn: l.thigh, offset: [0, -0.085, 0], radii: [0.048, 0.095, 0.048], colour: KID.skin },
+                { pivot: l.knee, turn: l.shin, offset: [0, -0.08, 0], radii: [0.042, 0.09, 0.042], colour: KID.skin },
+                { pivot: l.knee, turn: l.shin, offset: [0, -0.16, 0.03], radii: [0.052, 0.038, 0.082], colour: KID.shoes },
             ];
         }),
         // the sundress: a bell of a skirt and a bodice
@@ -1297,13 +1351,16 @@ function kid(simulated: boolean): SplatObject {
                       colour: KID.dress,
                   } as Part,
               ]),
-        { pivot: vec3(0, 0.36, 0), turn: none, offset: [0, 0.31, 0], radii: [0.13, 0.13, 0.11], colour: KID.dress },
-        // arms and hands
+        // the bodice: a torso tapering into the skirt's waist, not a ball on top of it; and a neck
+        { pivot: upper(vec3(0, 0.63, 0)), turn: chest, offset: [0, 0, 0], radii: [0.118, 0.13, 0.092], colour: KID.dress },
+        { pivot: upper(vec3(0, 0.75, 0)), turn: chest, offset: [0, 0, 0], radii: [0.04, 0.05, 0.04], colour: KID.skin },
+        // arms: upper arm, forearm and hand, bending at the elbow
         ...[-1, 1].flatMap((side): Part[] => {
-            const turn = side < 0 ? leftArm : rightArm;
+            const r = arm(side);
             return [
-                { pivot: shoulder(side), turn, offset: [0, -0.14, 0], radii: [0.038, 0.14, 0.038], colour: KID.skin },
-                { pivot: shoulder(side), turn, offset: [0, -0.29, 0], radii: [0.042, 0.042, 0.042], colour: KID.skin },
+                { pivot: shoulder(side), turn: r.top, offset: [0, -0.075, 0], radii: [0.032, 0.088, 0.032], colour: KID.skin },
+                { pivot: r.elbow, turn: r.fore, offset: [0, -0.07, 0], radii: [0.028, 0.08, 0.028], colour: KID.skin },
+                { pivot: r.wrist, turn: r.fore, offset: [0, -0.025, 0], radii: [0.03, 0.035, 0.026], colour: KID.skin },
             ];
         }),
         // the head, hair, pigtails, face
@@ -1332,8 +1389,24 @@ function kid(simulated: boolean): SplatObject {
             }),
         ),
         // a face, just: two small dark eyes, calm
-        { pivot: neck, turn: head, offset: [-0.052, 0.15, 0.159], radii: [0.011, 0.015, 0.004], colour: KID.eyes, flat: true },
-        { pivot: neck, turn: head, offset: [0.052, 0.15, 0.159], radii: [0.011, 0.015, 0.004], colour: KID.eyes, flat: true },
+        {
+            pivot: neck,
+            turn: head,
+            offset: [-0.052, 0.15, 0.159],
+            radii: [0.011, 0.015, 0.004],
+            colour: KID.eyes,
+            flat: true,
+            squeeze: blink,
+        },
+        {
+            pivot: neck,
+            turn: head,
+            offset: [0.052, 0.15, 0.159],
+            radii: [0.011, 0.015, 0.004],
+            colour: KID.eyes,
+            flat: true,
+            squeeze: blink,
+        },
         // the sunhat, tipped back a little: a floppy brim, a round crown and a ribbon, bouncing a beat late
         {
             pivot: neck,
@@ -1403,7 +1476,9 @@ function kid(simulated: boolean): SplatObject {
                     dir = vec3(cos(angle).mul(r), y, sin(angle).mul(r));
                 }
                 const [rx, ry, rz] = part.radii;
-                let local = vec3(part.offset[0], part.offset[1], part.offset[2]).add(dir.mul(vec3(rx, ry, rz)));
+                let local = vec3(part.offset[0], part.offset[1], part.offset[2]).add(
+                    dir.mul(vec3(rx, part.squeeze ? part.squeeze.mul(ry) : ry, rz)),
+                );
                 let surface = normalize(dir.div(vec3(Math.max(rx, 0.01), Math.max(ry, 0.01), Math.max(rz, 0.01))));
                 if (part.brim) {
                     // Evenly over the ring, drooping more towards the edge, gently wavy.
@@ -1488,7 +1563,7 @@ const AIR = {
      * The most air the dress and hair feel against them, m/s, however fast you go:
      * running into still air at a skip would otherwise stream them out like a cape.
      */
-    felt: 1.3,
+    felt: 1.8,
 };
 
 const CLOTH = {
@@ -1531,11 +1606,11 @@ const HAIR = {
     length: 0.44,
     /** Joints held by the head: they set the angle the hair leaves it at. */
     held: 2,
-    shape: 0.02,
-    damping: 0.985,
+    shape: 0.006,
+    damping: 0.992,
     /** Air drag on hair, 1/s, and bending stiffness. */
-    drag: 1.2,
-    bend: 0.8,
+    drag: 1.5,
+    bend: 0.5,
     /** Constraint rounds a substep for the hair (odd). */
     rounds: 5,
     /**
@@ -1561,6 +1636,9 @@ const HAIR = {
     gather: 0.85,
     spread: 0.9,
     strays: 0.03,
+    /** A gentle wave down each clump: how far it swings (metres, at the tip) and how many waves along it. */
+    wave: 0.014,
+    waves: 1.6,
     /** How far strands spread out in depth from their guides, metres. */
     volume: 0.014,
     /** The sheen along the hair (Kajiya-Kay). */
@@ -1726,10 +1804,9 @@ function initSim(renderer: WebGPURenderer): Sim {
                         .select(r.div(CLOTH.fitted).oneMinus().mul(CLOTH.fit), float(CLOTH.shape));
                     let out = mix(moved, rest, keep);
                     for (const side of [-1, 1]) {
-                        const leg = aboutX((side < 0 ? pose.leftLeg : pose.rightLeg).negate());
-                        const top = pose.hip(side);
-                        const foot = top.add(GpuSplatMath.quatRotate(leg, vec3(0, -0.33, 0)));
-                        out = outOf(out, pose.toWorld(top), pose.toWorld(foot), CLOTH.legs);
+                        const l = pose.leg(side);
+                        out = outOf(out, pose.toWorld(pose.hip(side)), pose.toWorld(l.knee), CLOTH.legs);
+                        out = outOf(out, pose.toWorld(l.knee), pose.toWorld(l.foot), CLOTH.legs * 0.85);
                     }
                     out = outOf(out, pose.toWorld(vec3(0, 0.3, 0)), pose.toWorld(vec3(0, 0.62, 0)), CLOTH.hips);
                     // Long-range tether: never further from its spot on the waistband than
@@ -1914,7 +1991,8 @@ function hairStrands(sim: Sim): SplatObject {
             .mul(HAIR.locks - 1)
             .add(c.x.sub(0.5).mul(0.3));
         const own = middle.add(h.y.sub(0.5).mul(HAIR.spread));
-        const reach = mix(0.82, 1.04, h.z);
+        // Ragged ends: each clump its own length, each strand a little its own.
+        const reach = mix(0.68, 1.04, c.w.mul(0.65).add(h.z.mul(0.35)));
         const stray = h2.y.lessThan(HAIR.strays).select(float(1), float(0));
         const strayDir = normalize(vec3(h2.z.sub(0.5), 0.15, h2.w.sub(0.5)));
         const pose = kidPose();
@@ -1927,7 +2005,16 @@ function hairStrands(sim: Sim): SplatObject {
             const out = normalize(vec3(p.x.sub(axis.x), 0, p.z.sub(axis.z)).add(vec3(0, 1e-4, 0)));
             // Each clump at its own depth; a stray wandering off.
             const depth = c.y.mul(HAIR.volume).add(h2.x.mul(0.004)).mul(t.mul(-0.4).add(1));
-            return p.add(out.mul(depth)).add(strayDir.mul(t.mul(t).mul(0.06).mul(stray)));
+            // A gentle wave down each clump, its own phase, growing towards the tip: the
+            // locks part along their length, not only at their ends.
+            const across = normalize(cross(vec3(0, 1, 0), out).add(vec3(1e-4, 0, 0)));
+            const wave = sin(t.mul(HAIR.waves * Math.PI * 2).add(c.w.mul(6.283)))
+                .mul(t)
+                .mul(HAIR.wave);
+            return p
+                .add(out.mul(depth))
+                .add(across.mul(wave))
+                .add(strayDir.mul(t.mul(t).mul(0.06).mul(stray)));
         };
         const t0 = k.div(segments).mul(reach);
         const t1 = k.add(1).div(segments).mul(reach);
@@ -1990,7 +2077,7 @@ function ground(): SplatObject {
         // blades should read as more grass, turf.
         const mottle = mx_noise_float(xz.mul(0.9)).mul(0.5).add(0.5);
         const earth = mix(v3(GROUND.earth), v3(GROUND.loam), mottle).mul(a.w.mul(0.25).add(0.88));
-        const soil = b.x.greaterThan(0.97).select(v3(GROUND.pebble), earth);
+        const soil = b.x.greaterThan(0.995).select(mix(earth, v3(GROUND.pebble), 0.5), earth);
         const turf = mix(v3(BLADE.deep), v3(BLADE.fresh), 0.55);
         const body = mix(soil, turf, smoothstep(6, 22, length(center.sub(eye))));
         const direct = v3(SUN)
@@ -2113,7 +2200,7 @@ export function initField(renderer: WebGPURenderer, clouds: THREE.Texture, kidOn
     const you = [kid(simState !== null), ...dressAndHair];
     return {
         objects: kidOnly
-            ? [ground(), ...you]
+            ? [ground(), blades(FIELD.nearBlades, FIELD.nearReach, 30, 0.6), ...you]
             : [
                   ground(),
                   boulders(),

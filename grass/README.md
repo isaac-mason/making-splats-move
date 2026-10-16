@@ -29,7 +29,12 @@ ring), hinged at hips, shoulders, neck and hand, and posed in the shader from a
 stride clock, so the CPU only says how far you've gone, which way you face and how
 fast.
 
-Motion is physical rather than cartoon: you have momentum, speeding up, slowing
+The body is articulated rather than a doll's: thighs and shins bending at the
+knee as each leg comes through and straightening as it plants, upper arms and
+forearms bending at the elbow, the chest turning against the hips, weight shifting
+onto the standing leg each step and from foot to foot standing still, and a head
+that steadies itself against the body's sway, looks about when you stop, and
+blinks. Motion is physical rather than cartoon: you have momentum, speeding up, slowing
 and turning gradually; the body leans into acceleration and with speed, and banks
 into turns, each on a spring so it settles rather than snaps; it rises a little
 over each stride and settles at each footfall, more running than walking. A jump
@@ -79,8 +84,8 @@ the right angle under the brim); 1,600 strands are drawn between neighbouring
 guides, each at its own place between them, with its own length and a little depth
 of its own, so they make a soft, full mass with wispy ends. Guides plus followers
 is how games do hair. Strands gather into forty clumps that taper together towards their tips, each at
-its own depth and shade and darker at its edges, with gaps between and the odd
-stray: clumping, not evenly spread strands, is what reads as hair rather than a
+its own depth and shade and darker at its edges, with gaps between, a gentle wave of its own,
+ragged ends and the odd stray: clumping, not evenly spread strands, is what reads as hair rather than a
 sheet. Each strand is twelve splats along a Catmull-Rom curve
 through its guides, lit along its length (Kajiya-Kay), darker at the roots and
 lighter at the ends. An earlier try built it from a few sculpted ribbons, and
