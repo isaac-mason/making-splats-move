@@ -58,6 +58,28 @@ field, not noise boiling in place, and blades with a little weight to them.
 Bent blades show more of their lighter face, so a gust reads as a brighter wave
 rolling through the grass.
 
+## Wildflowers
+
+Poppies, cornflowers, daisies, buttercups and knapweed, in drifts: one noise field
+says where flowers gather and another which kind leads each drift, with strays of
+every kind in between. Each is a thin stem and a head, a ring of eight petals
+tipped up to the sky and a little towards the sun, round a centre. They share the
+grass's wind and stem curve, a little stiffer, so they bob in the same gusts.
+
+Petals are separate shapes, so they're drawn crisp: opacity past 1 on an object
+with radix's LoD inflation off, which radix draws as a harder edge. The grass
+can't take that (a blade's splats stack into one, and hard rims show as separate
+leaves), but a petal is one splat, and a crisp one reads as a petal.
+
+## Butterflies
+
+Cabbage whites, fritillaries, common blues and brimstones over the flowers in
+front of you. Each wanders on two loops at unrelated rates, faces the way it flies
+(the path's velocity, worked out analytically), and bobs, hitching up on its
+wingbeats. A body and four wings hinged on it, flapping seven to eleven times a
+second, with a glide now and then, wings held up in a V. The wings are thin
+enough to glow with the sun behind them.
+
 ## The clouds' shadows
 
 The cloud is a picture: one cloud on white (`assets/cloud.jpg`, from the grass
@@ -79,7 +101,7 @@ colour, so the field's edge disappears.
 
 | File | Role |
 | --- | --- |
-| `src/field.ts` | The hills, the blades, the wind and the clouds, with every tunable at the top. |
+| `src/field.ts` | The hills, the grass, the flowers, the butterflies, the wind and the clouds, each with its tunables. |
 | `src/index.ts` | The sky, the shot, the post pass and the loop. |
 
 [radix]: https://github.com/asundqui/radix-test

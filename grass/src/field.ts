@@ -25,6 +25,7 @@ import * as THREE from 'three';
 
 const {
     abs,
+    atan,
     clamp,
     cos,
     cross,
@@ -288,9 +289,101 @@ function distance(center: TslNode, out: TslNode, rgb: TslNode): { rgb: TslNode; 
 /** How much wider far splats draw, so a distant blade isn't thinner than a pixel. */
 const farWidth = (center: TslNode): TslNode => clamp(length(center.sub(eye)).div(BLADE.farFrom), 1, BLADE.farGrowth);
 
-/** One splat object, generated from its index alone. */
-function generated(count: number, body: (index: TslNode) => TslNode): SplatObject {
-    return SplatCollection.object({ count, generator: { generateSplat: body } });
+/**
+ * One splat object, generated from its index alone. `hard` draws opacity past 1 as
+ * a crisper edge rather than a bigger splat (radix's LoD reading of it, turned
+ * off). Good for separate shapes like petals; bad for grass, where a blade's
+ * splats stack into one and hard rims show as separate leaves.
+ */
+function generated(count: number, body: (index: TslNode) => TslNode, hard = false): SplatObject {
+    return SplatCollection.object({
+        count,
+        generator: { generateSplat: body },
+        ...(hard ? { params: { lodInflate: false } } : {}),
+    });
+}
+
+/* the wind and the stem, shared by the grass and the flowers */
+
+/**
+ * The wind on a stem at `xz` of `height`, with its own random numbers `r`: how much
+ * gust it feels (for the sheen) and how far the wind pushes it over, radians.
+ *
+ * Gusts: one broad pattern in the wind's own frame, stretched across it, sliding
+ * downwind and barely changing shape as it goes. Because it only slides, what
+ * reached a stem a moment ago is the pattern a little downwind of it: so a stem
+ * answers the gust of `respond` seconds ago, and whips back past it by how fast
+ * that gust was letting go.
+ */
+function windAt(xz: TslNode, height: TslNode, r: TslNode): { gust: TslNode; push: TslNode } {
+    const p = xz.sub(gustTravel);
+    const along = dot(p, windDir);
+    const across = dot(p, vec2(windDir.y.negate(), windDir.x));
+    // Rolling, not on-or-off: the broad pattern mapped gently, with a finer octave
+    // sliding along with it.
+    const gustAt = (ago: number) => {
+        const a = along.add(WIND.speed * WIND.respond * ago);
+        const broad = mx_noise_float(vec3(a.div(WIND.depth), across.div(WIND.length), time.mul(0.02)));
+        const fine = mx_noise_float(
+            vec3(a.div(WIND.depth * WIND.detail), across.div(WIND.length * WIND.detail), time.mul(0.03).add(17)),
+        );
+        return clamp(broad.add(fine.mul(WIND.detailWeight)).mul(0.8).add(0.45), 0, 1);
+    };
+    const felt = gustAt(1).toVar();
+    // Lulls travel too: how hard it blows here is how hard it blew upwind, earlier.
+    const local = time.sub(along.div(WIND.speed));
+    const blowing = clamp(
+        sin(local.mul(0.11).add(0.4))
+            .mul(0.2)
+            .add(sin(local.mul(0.047).add(2.1)).mul(0.15))
+            .add(0.75),
+        0.45,
+        1.1,
+    );
+    const gust = clamp(felt.add(felt.sub(gustAt(2)).mul(WIND.whip)), 0, 1.15)
+        .mul(blowing)
+        .toVar();
+
+    // The sway: a ripple running through the grass downwind, each stem a touch off
+    // its neighbours' rate and phase so it isn't a sheet.
+    const downwind = dot(xz, windDir).div(WIND.swayLength);
+    const sway = sin(
+        downwind
+            .sub(time.mul(WIND.swayRate).mul(r.x.sub(0.5).mul(0.25).add(1)))
+            .add(r.y.mul(0.15))
+            .mul(Math.PI * 2),
+    ).mul(gust.mul(0.8).add(0.35).mul(WIND.sway));
+
+    // Taller stems catch more of it.
+    const reach = clamp(height.div(BLADE.height[1]), 0.5, 1.3);
+    const push = gust.mul(WIND.gust).add(blowing.mul(0.5).add(0.5).mul(WIND.breeze)).add(sway).mul(reach);
+    return { gust, push };
+}
+
+/**
+ * A point `s` (0 root, 1 tip) along a stem of `height` from `root`, leant over by
+ * `bend` (an xz vector, its length the angle): a Bézier up from the root then over
+ * towards the tip, so it bends from the root and curls most at the tip. Returns
+ * the point and the stem's direction there.
+ */
+function stem(root: TslNode, height: TslNode, bend: TslNode, s: TslNode): { center: TslNode; tangent: TslNode } {
+    const angle = min(length(bend), 1.35).toVar();
+    const bendDir = bend.div(max(length(bend), 1e-4)).toVar();
+    const over = vec3(bendDir.x, 0, bendDir.y);
+    const tip = root.add(
+        over
+            .mul(sin(angle))
+            .add(vec3(0, cos(angle), 0))
+            .mul(height),
+    );
+    const knee = root.add(vec3(0, height.mul(0.6), 0)).add(over.mul(height.mul(sin(angle)).mul(0.25)));
+    const center = root
+        .mul(s.oneMinus().mul(s.oneMinus()))
+        .add(knee.mul(s.oneMinus().mul(s).mul(2)))
+        .add(tip.mul(s.mul(s)))
+        .toVar();
+    const tangent = normalize(knee.sub(root).mul(s.oneMinus()).add(tip.sub(knee).mul(s)));
+    return { center, tangent };
 }
 
 /* the blades */
@@ -323,73 +416,10 @@ function blades(): SplatObject {
         // Blade-to-blade variety, calmed with distance: far off it only reads as grain.
         const variety = mix(1, 0.2, smoothstep(5, 22, length(root.sub(eye))));
 
-        // Gusts: one broad pattern in the wind's own frame, stretched across it,
-        // sliding downwind and barely changing shape as it goes. Because it only
-        // slides, what reached a blade a moment ago is the pattern a little
-        // downwind of it: so a blade answers the gust of `respond` seconds ago, and
-        // whips back past it by how fast that gust was letting go.
-        const p = xz.sub(gustTravel);
-        const along = dot(p, windDir);
-        const across = dot(p, vec2(windDir.y.negate(), windDir.x));
-        // Rolling, not on-or-off: the broad pattern mapped gently, with a finer
-        // octave sliding along with it.
-        const gustAt = (ago: number) => {
-            const a = along.add(WIND.speed * WIND.respond * ago);
-            const broad = mx_noise_float(vec3(a.div(WIND.depth), across.div(WIND.length), time.mul(0.02)));
-            const fine = mx_noise_float(
-                vec3(a.div(WIND.depth * WIND.detail), across.div(WIND.length * WIND.detail), time.mul(0.03).add(17)),
-            );
-            return clamp(broad.add(fine.mul(WIND.detailWeight)).mul(0.8).add(0.45), 0, 1);
-        };
-        const felt = gustAt(1).toVar();
-        // Lulls travel too: how hard it blows here is how hard it blew upwind, earlier.
-        const local = time.sub(along.div(WIND.speed));
-        const blowing = clamp(
-            sin(local.mul(0.11).add(0.4))
-                .mul(0.2)
-                .add(sin(local.mul(0.047).add(2.1)).mul(0.15))
-                .add(0.75),
-            0.45,
-            1.1,
-        );
-        const gust = clamp(felt.add(felt.sub(gustAt(2)).mul(WIND.whip)), 0, 1.15)
-            .mul(blowing)
-            .toVar();
-
-        // The sway: a ripple running through the grass downwind, each blade a
-        // touch off its neighbours' rate and phase so it isn't a sheet.
-        const downwind = dot(xz, windDir).div(WIND.swayLength);
-        const sway = sin(
-            downwind
-                .sub(time.mul(WIND.swayRate).mul(c.x.sub(0.5).mul(0.25).add(1)))
-                .add(c.y.mul(0.15))
-                .mul(Math.PI * 2),
-        ).mul(gust.mul(0.8).add(0.35).mul(WIND.sway));
-
-        // Taller blades catch more of it.
-        const reach = clamp(height.div(BLADE.height[1]), 0.5, 1.3);
+        const { gust, push } = windAt(xz, height, c);
         const leanAngle = b.z.mul(Math.PI * 2);
         const lean = vec2(cos(leanAngle), sin(leanAngle)).mul(b.w.mul(BLADE.restLean));
-        const push = gust.mul(WIND.gust).add(blowing.mul(0.5).add(0.5).mul(WIND.breeze)).add(sway).mul(reach);
-        const bend = lean.add(windDir.mul(push)).toVar();
-        const angle = min(length(bend), 1.35).toVar();
-        const bendDir = bend.div(max(length(bend), 1e-4)).toVar();
-
-        // The stem: a Bézier from the root, up, then over towards the tip.
-        const over = vec3(bendDir.x, 0, bendDir.y);
-        const tip = root.add(
-            over
-                .mul(sin(angle))
-                .add(vec3(0, cos(angle), 0))
-                .mul(height),
-        );
-        const knee = root.add(vec3(0, height.mul(0.6), 0)).add(over.mul(height.mul(sin(angle)).mul(0.25)));
-        const center = root
-            .mul(s.oneMinus().mul(s.oneMinus()))
-            .add(knee.mul(s.oneMinus().mul(s).mul(2)))
-            .add(tip.mul(s.mul(s)))
-            .toVar();
-        const tangent = normalize(knee.sub(root).mul(s.oneMinus()).add(tip.sub(knee).mul(s)));
+        const { center, tangent } = stem(root, height, lean.add(windDir.mul(push)), s);
 
         // Facing turns the blade about its own length; then it's stood along the stem.
         const quaternion = GpuSplatMath.quatMul(alignY(tangent), yaw(b.y.mul(Math.PI))).toVar();
@@ -426,6 +456,270 @@ function blades(): SplatObject {
             .add(max(gust, 0).mul(WIND.sheen).mul(s).mul(lit.mul(0.7).add(0.3)));
 
         const finish = distance(center, out, rgb);
+        return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity, uint(index));
+    });
+}
+
+/* the flowers */
+
+/**
+ * Wildflowers in drifts: a noise field says where they gather, and which kind
+ * leads each drift, with strays of every kind in between. Each is a thin stem and
+ * a head: a ring of petals, tipped up towards the sky and a little towards the
+ * sun, round a centre. They stand just above the grass so the heads show, and
+ * take the same wind, so they bob in the same gusts.
+ */
+const FLOWERS = {
+    count: 14_000,
+    stemSegments: 3,
+    petals: 8,
+    /** Petal opacity past 1, for a crisp petal edge. */
+    crisp: 1.7,
+    /** The size of a drift (one over metres), where one starts and is full, and the strays' share. */
+    drift: 0.07,
+    gather: [0.15, 0.5],
+    strays: 0.05,
+    height: [0.5, 0.9],
+    stem: [0.17, 0.36, 0.08],
+    /** Petals, each kind: colour, centre colour, petal length (metres), and its share of drifts. */
+    kinds: [
+        { name: 'poppy', petal: [0.96, 0.2, 0.07], centre: [0.12, 0.07, 0.08], size: 0.03 },
+        { name: 'cornflower', petal: [0.3, 0.45, 0.96], centre: [0.2, 0.22, 0.6], size: 0.021 },
+        { name: 'daisy', petal: [0.98, 0.97, 0.92], centre: [1.0, 0.78, 0.12], size: 0.024 },
+        { name: 'buttercup', petal: [1.0, 0.84, 0.1], centre: [0.95, 0.68, 0.08], size: 0.017 },
+        { name: 'knapweed', petal: [0.72, 0.32, 0.78], centre: [0.45, 0.18, 0.5], size: 0.019 },
+    ],
+};
+
+/** `values[kind]` for a kind index held as a float. */
+function pick(kind: TslNode, values: TslNode[]): TslNode {
+    let out = values[values.length - 1];
+    for (let i = values.length - 2; i >= 0; i--) out = kind.lessThan(i + 0.5).select(values[i], out);
+    return out;
+}
+
+function flowers(): SplatObject {
+    const { stemSegments, petals, kinds } = FLOWERS;
+    const parts = stemSegments + petals + 1;
+
+    return generated(
+        FLOWERS.count * parts,
+        (index) => {
+            const flower = index.div(uint(parts));
+            const part = float(index.mod(uint(parts))).toVar();
+            const a = hash4(flower, 4).toVar();
+            const b = hash4(flower, 5).toVar();
+            const c = hash4(flower, 6).toVar();
+
+            const { xz, out } = scatter(a);
+            const ground = terrain(xz);
+            const root = vec3(xz.x, ground.height, xz.y);
+
+            // Drifts: flowers only where the drift field gathers them, but for strays.
+            const drift = mx_noise_float(xz.mul(FLOWERS.drift).add(41.7)).mul(0.5).add(0.5);
+            const here = smoothstep(FLOWERS.gather[0], FLOWERS.gather[1], drift.sub(0.25)).max(
+                c.z.lessThan(FLOWERS.strays).select(float(1), float(0)),
+            );
+            // The drift's own kind, or now and then any kind.
+            const driftKind = mx_noise_float(xz.mul(FLOWERS.drift * 0.6).add(5.1))
+                .mul(0.5)
+                .add(0.5)
+                .mul(kinds.length);
+            const kind = c.w.lessThan(0.25).select(c.x.mul(kinds.length), driftKind).floor().toVar();
+
+            const height = mix(FLOWERS.height[0], FLOWERS.height[1], b.x).toVar();
+            const { gust, push } = windAt(xz, height, c);
+            // A little stiffer than grass.
+            const bend = windDir.mul(push.mul(0.75)).add(vec2(cos(b.y.mul(6.283)), sin(b.y.mul(6.283))).mul(0.12));
+
+            const isStem = part.lessThan(stemSegments);
+            const isCentre = part.equal(parts - 1);
+            const s = part.add(0.5).div(stemSegments).min(1);
+            const along = stem(root, height, bend, s);
+            const head = stem(root, height, bend, float(1));
+
+            // The head looks up, a little towards the sun, and leans with the stem.
+            const facing = normalize(head.tangent.add(vec3(0, 1.2, 0)).add(sun.mul(0.35))).toVar();
+            const petal = part.sub(stemSegments);
+            const turn = petal.div(petals).add(b.z).mul(Math.PI);
+            const headTurn = GpuSplatMath.quatMul(alignY(facing), yaw(turn)).toVar();
+            const size = pick(
+                kind,
+                kinds.map((k) => float(k.size)),
+            ).mul(b.w.mul(0.4).add(0.8));
+            const reachOut = isCentre.select(float(0), size.mul(0.62));
+            const headPoint = head.center.add(GpuSplatMath.quatRotate(headTurn, vec3(reachOut, 0, 0)));
+
+            const center = isStem.select(along.center, headPoint).toVar();
+            const quaternion = isStem.select(alignY(along.tangent), headTurn);
+            const far = clamp(length(center.sub(eye)).div(9), 1, 1.8);
+            const scales = isStem.select(
+                vec3(0.0035, height.div(stemSegments).mul(0.6), 0.0035),
+                isCentre
+                    .select(vec3(size.mul(0.26), 0.004, size.mul(0.26)), vec3(size.mul(0.42), 0.0015, size.mul(0.15)))
+                    .mul(far),
+            );
+
+            // Colour, and light as the grass has it: sun unless a cloud's in the way,
+            // the sky always, and through the petals towards the sun.
+            const petalColour = pick(
+                kind,
+                kinds.map((k) => v3(k.petal)),
+            );
+            const centreColour = pick(
+                kind,
+                kinds.map((k) => v3(k.centre)),
+            );
+            const body = isStem.select(v3(FLOWERS.stem), isCentre.select(centreColour, petalColour));
+            const lit = sunlight(center);
+            const view = normalize(center.sub(eye));
+            // Not too much: white petals glowing past the bloom threshold turn to halos.
+            const through = pow(max(dot(view, sun), 0), 4).mul(isStem.select(float(0), float(0.3)));
+            const faceSun = max(dot(facing, sun), 0).mul(0.5).add(0.5);
+            const rgb = body.mul(v3(SUN).mul(faceSun.add(through)).mul(lit).mul(0.95).add(v3(SKYLIGHT).mul(0.5))).add(
+                max(gust, 0)
+                    .mul(0.05)
+                    .mul(isStem.select(float(0), float(1))),
+            );
+
+            const finish = distance(center, out, rgb);
+            const opacity = finish.opacity.mul(here).mul(isStem.select(float(1), float(FLOWERS.crisp)));
+            return GpuSplats.Splat(center, scales, quaternion, finish.rgb.min(0.97), opacity, uint(index));
+        },
+        true,
+    );
+}
+
+/* the butterflies */
+
+/**
+ * Butterflies over the flowers, in front of you. Each wanders on a smooth looping
+ * path, bobbing up on its wingbeats, facing the way it flies. A body and four
+ * wings hinged on it, flapping fast, and every few seconds a glide with the wings
+ * held up in a V. Wings are thin enough to glow with the sun behind them.
+ */
+const BUTTERFLIES = {
+    count: 50,
+    /** Where they gather (xz, metres from the middle, the way the shot looks) and how far they roam. */
+    home: [-6, 5],
+    roam: 9,
+    /** How far each wanders from its own home, metres, and how fast it goes round. */
+    wander: [2, 5],
+    pace: [0.12, 0.3],
+    /** Height over the ground, metres. */
+    height: [0.55, 1.4],
+    /** Wingbeats a second, and a wing's span from the body, metres. */
+    flap: [7, 11],
+    span: [0.026, 0.038],
+    kinds: [
+        { name: 'cabbage white', fore: [0.98, 0.97, 0.9], hind: [0.95, 0.95, 0.85] },
+        { name: 'fritillary', fore: [0.98, 0.52, 0.1], hind: [0.85, 0.42, 0.09] },
+        { name: 'common blue', fore: [0.42, 0.6, 1.0], hind: [0.5, 0.56, 0.92] },
+        { name: 'brimstone', fore: [0.99, 0.93, 0.42], hind: [0.95, 0.88, 0.4] },
+    ],
+    body: [0.1, 0.08, 0.06],
+};
+
+function butterflies(): SplatObject {
+    const parts = 5;
+    const { kinds } = BUTTERFLIES;
+
+    return generated(BUTTERFLIES.count * parts, (index) => {
+        const fly = index.div(uint(parts));
+        const part = float(index.mod(uint(parts))).toVar();
+        const a = hash4(fly, 8).toVar();
+        const b = hash4(fly, 9).toVar();
+        const c = hash4(fly, 10).toVar();
+
+        // Home, somewhere in the patch of meadow in front of you.
+        const homeAngle = a.x.mul(Math.PI * 2);
+        const home = vec2(BUTTERFLIES.home[0], BUTTERFLIES.home[1]).add(
+            vec2(cos(homeAngle), sin(homeAngle)).mul(a.y.sqrt().mul(BUTTERFLIES.roam)),
+        );
+
+        // The path: two loops at unrelated rates, and its velocity, analytically.
+        const r1 = mix(BUTTERFLIES.wander[0], BUTTERFLIES.wander[1], a.z);
+        const r2 = r1.mul(0.45);
+        const w1 = mix(BUTTERFLIES.pace[0], BUTTERFLIES.pace[1], a.w);
+        const w2 = w1.mul(2.3);
+        const p = b.xyzw.mul(Math.PI * 2);
+        const t = time;
+        const xz = home
+            .add(
+                vec2(
+                    sin(t.mul(w1).add(p.x))
+                        .mul(r1)
+                        .add(sin(t.mul(w2).add(p.y)).mul(r2)),
+                    cos(t.mul(w1).add(p.z))
+                        .mul(r1)
+                        .add(cos(t.mul(w2).add(p.w)).mul(r2)),
+                ),
+            )
+            .toVar();
+        const velocity = vec2(
+            cos(t.mul(w1).add(p.x))
+                .mul(r1.mul(w1))
+                .add(cos(t.mul(w2).add(p.y)).mul(r2.mul(w2))),
+            sin(t.mul(w1).add(p.z))
+                .mul(r1.mul(w1).negate())
+                .sub(sin(t.mul(w2).add(p.w)).mul(r2.mul(w2))),
+        );
+        const heading = atan(velocity.x, velocity.y);
+
+        // Wingbeats, and now and then a glide with the wings held up.
+        const rate = mix(BUTTERFLIES.flap[0], BUTTERFLIES.flap[1], c.x);
+        const beat = sin(
+            t
+                .mul(rate)
+                .mul(Math.PI * 2)
+                .add(c.y.mul(6.283)),
+        );
+        const glide = smoothstep(0.55, 0.85, sin(t.mul(0.6).add(c.z.mul(6.283))));
+        const lift = mix(beat, float(0.35), glide);
+        const wing = lift.mul(0.95).add(0.3);
+
+        // Bobbing: a slow rise and fall, and a hitch upwards on each downbeat.
+        const ground = terrain(xz).height;
+        const cruise = mix(BUTTERFLIES.height[0], BUTTERFLIES.height[1], c.w);
+        const bob = sin(t.mul(1.3).add(p.x)).mul(0.18).add(beat.mul(glide.oneMinus()).mul(0.025));
+        const body = vec3(xz.x, ground.add(cruise).add(bob), xz.y).toVar();
+
+        // Parts: 0 the body; 1, 2 the forewings; 3, 4 the hindwings.
+        const isBody = part.equal(0);
+        const side = part.mod(2).equal(1).select(float(1), float(-1));
+        const isFore = part.lessThan(2.5);
+        const span = mix(BUTTERFLIES.span[0], BUTTERFLIES.span[1], b.x).mul(isFore.select(float(1), float(0.8)));
+        const facing = yaw(heading.mul(0.5));
+        const roll = side.mul(wing).mul(0.5);
+        const quaternion = isBody.select(facing, GpuSplatMath.quatMul(facing, vec4(0, 0, sin(roll), cos(roll)))).toVar();
+        const reach = vec3(side.mul(span).mul(0.85), 0, isFore.select(span.mul(0.25), span.mul(-0.45)));
+        const center = isBody.select(body, body.add(GpuSplatMath.quatRotate(quaternion, reach))).toVar();
+        const scales = isBody.select(vec3(0.0035, 0.0035, span.mul(0.75)), vec3(span.mul(0.55), 0.0015, span.mul(0.5)));
+
+        // Colour and light: sun unless a cloud's in the way, the sky, and through
+        // the wings towards the sun.
+        const kind = c.x.add(c.w).fract().mul(kinds.length).floor();
+        const fore = pick(
+            kind,
+            kinds.map((k) => v3(k.fore)),
+        );
+        const hind = pick(
+            kind,
+            kinds.map((k) => v3(k.hind)),
+        );
+        const colour = isBody.select(v3(BUTTERFLIES.body), isFore.select(fore, hind));
+        const normal = GpuSplatMath.quatRotate(quaternion, vec3(0, 1, 0));
+        const view = normalize(center.sub(eye));
+        const through = pow(max(dot(view, sun), 0), 4).mul(isBody.select(float(0), float(0.8)));
+        const lit = sunlight(center);
+        const rgb = colour.mul(
+            v3(SUN)
+                .mul(abs(dot(normal, sun)).mul(0.6).add(0.4).add(through))
+                .mul(lit)
+                .add(v3(SKYLIGHT).mul(0.5)),
+        );
+
+        const finish = distance(center, float(0), rgb);
         return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity, uint(index));
     });
 }
@@ -472,7 +766,7 @@ export function initField(clouds: THREE.Texture): Field {
     clouds.wrapS = clouds.wrapT = THREE.RepeatWrapping;
     clouds.colorSpace = THREE.NoColorSpace;
     cloudMap = clouds;
-    return { objects: [ground(), blades()] };
+    return { objects: [ground(), blades(), flowers(), butterflies()] };
 }
 
 export function updateField(elapsed: number, dt: number, camera: THREE.Camera): void {
