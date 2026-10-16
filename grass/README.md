@@ -5,7 +5,8 @@ The hills and every blade of grass are splats generated on the GPU from their
 index and the time, so the wind costs nothing extra: each frame makes every blade
 afresh, already bent. Cloud shadows sweep across the hills.
 
-Drawn by [spark-radix][radix] on three.js's `WebGPURenderer`. Drag to look around.
+Drawn by [spark-radix][radix] on three.js's `WebGPURenderer`. Drag to look around,
+right-drag to move.
 
 ## A blade
 
@@ -15,8 +16,16 @@ tip leans by the blade's own rest lean plus the wind, so it bends from the root 
 curls most at the tip. Each blade is turned about its own length at random, so the
 field catches the light at every angle.
 
-The blades are laid out on a sunflower spiral, which spreads any number of points
-evenly with no clumps or gaps, crowded a little towards the middle where you stand.
+The blades are scattered at random, crowded a little towards the middle where you
+stand. Random on purpose: it clumps a little, as grass does, where any evenly
+spread scheme shows its pattern as a lattice across a field. The randomness is
+three's PCG integer hash, since a cheap float hash of neighbouring indices
+correlates in just the same way.
+
+Blades are drawn with opacity past 1 on an object with radix's LoD inflation
+turned off, which radix renders as a harder edge rather than a bigger splat, so
+the blades are crisper than Gaussians usually allow.
+
 Far blades draw wider with distance, the ground between them turns grass-coloured,
 and blade-to-blade colour variety calms down, so the far field reads as turf
 rather than a grain of separate threads.

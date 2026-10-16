@@ -24,14 +24,13 @@ import { GpuSplatMath, GpuSplats, SplatCollection, type SplatObject, TSL, type T
 import * as THREE from 'three';
 
 const {
-    Fn,
     abs,
     clamp,
     cos,
     cross,
     dot,
     float,
-    fract,
+    hash,
     length,
     max,
     min,
@@ -99,6 +98,8 @@ const BLADE = {
      */
     farFrom: 3,
     farGrowth: 10,
+    /** Opacity past 1: drawn as a crisper edge, since the blades are a hard object. */
+    edge: 1.8,
     /** The darkest a blade's root gets, down in the thatch. */
     rootShade: 0.3,
     deep: [0.08, 0.27, 0.05],
@@ -158,8 +159,11 @@ const cloudTravel = uniform(new THREE.Vector2());
 
 /* the hills, on both sides */
 
-/** Where the hills are sampled from: puts a hilltop at the field's middle, where you stand. */
-const HILLTOP = [9.5, 1.5];
+/**
+ * Where the hills are sampled from: puts you at the field's middle at the foot of
+ * a long smooth rise to a crest, the way the sketch it came from looks.
+ */
+const HILLTOP = [-78, 80];
 
 const SWELL_VECTORS = SWELLS.map((s) => ({
     x: (Math.cos(s.angle) * Math.PI * 2) / s.wavelength,
@@ -214,14 +218,17 @@ function sunlight(p: TslNode): TslNode {
 
 const v3 = ([x, y, z]: readonly number[]): TslNode => vec3(x, y, z);
 
-/** Four hashes in [0, 1) of a seed. */
-const hash4 = Fn(([i]: TslNode[]) => {
-    const p = fract(vec3(i).mul(vec3(0.1031, 0.103, 0.0973))).toVar();
-    p.addAssign(dot(p, p.yzx.add(33.33)));
-    const a = fract(p.xxy.add(p.yzz).mul(p.zyx));
-    const w = fract(sin(i.mul(78.233)).mul(43758.5453));
-    return vec4(a, w);
-}).setLayout({ name: 'grassHash', type: 'vec4', inputs: [{ name: 'i', type: 'float' }] });
+/**
+ * Four independent numbers in [0, 1) for item `id`, from three's PCG integer hash.
+ * Each `salt` is a separate stream. A float hash of neighbouring indices
+ * correlates, and a field of blades shows it as a lattice; this doesn't.
+ */
+const hash4 = (id: TslNode, salt: number): TslNode => {
+    const base = uint(id)
+        .mul(uint(16))
+        .add(uint(salt * 4));
+    return vec4(hash(base), hash(base.add(uint(1))), hash(base.add(uint(2))), hash(base.add(uint(3))));
+};
 
 /** Shortest-arc rotation taking +Y onto `dir`. */
 const alignY = (dir: TslNode): TslNode => normalize(vec4(cross(vec3(0, 1, 0), dir), dir.y.add(1.0001)));
@@ -230,14 +237,14 @@ const alignY = (dir: TslNode): TslNode => normalize(vec4(cross(vec3(0, 1, 0), di
 const yaw = (half: TslNode): TslNode => vec4(0, sin(half), 0, cos(half));
 
 /**
- * Point `i` of `count` spread evenly over the field: a sunflower spiral, so there
- * are no clumps and no gaps, crowded towards the middle by `spread`. Returns the
- * xz point and how far out it is, 0..1.
+ * A random point on the field from two random numbers, crowded towards the middle
+ * by `spread` (0.5 would be even). Plain random on purpose: it clumps a little,
+ * as grass does, where any evenly spread scheme shows its pattern across a field.
+ * Returns the xz point and how far out it is, 0..1.
  */
-function spiral(i: TslNode, count: number, jitter: TslNode): { xz: TslNode; out: TslNode } {
-    const t = i.add(jitter.x.mul(0.8)).div(count);
-    const out = pow(t, FIELD.spread);
-    const angle = i.mul(2.399963).add(jitter.y.mul(0.5));
+function scatter(random: TslNode): { xz: TslNode; out: TslNode } {
+    const out = pow(random.x, FIELD.spread);
+    const angle = random.y.mul(Math.PI * 2);
     return { xz: vec2(cos(angle), sin(angle)).mul(out.mul(FIELD.radius)), out };
 }
 
@@ -250,9 +257,16 @@ function distance(center: TslNode, out: TslNode, rgb: TslNode): { rgb: TslNode; 
 /** How much wider far splats draw, so a distant blade isn't thinner than a pixel. */
 const farWidth = (center: TslNode): TslNode => clamp(length(center.sub(eye)).div(BLADE.farFrom), 1, BLADE.farGrowth);
 
-/** One splat object, generated from its index alone. */
-function generated(count: number, body: (index: TslNode) => TslNode): SplatObject {
-    return SplatCollection.object({ count, generator: { generateSplat: body } });
+/**
+ * One splat object, generated from its index alone. `hard` draws opacity past 1 as
+ * a harder edge rather than a bigger splat (radix's LoD reading of it, turned off).
+ */
+function generated(count: number, body: (index: TslNode) => TslNode, hard = false): SplatObject {
+    return SplatCollection.object({
+        count,
+        generator: { generateSplat: body },
+        ...(hard ? { params: { lodInflate: false } } : {}),
+    });
 }
 
 /* the blades */
@@ -260,104 +274,108 @@ function generated(count: number, body: (index: TslNode) => TslNode): SplatObjec
 function blades(): SplatObject {
     const { segments } = FIELD;
 
-    return generated(FIELD.blades * segments, (index) => {
-        const blade = float(index.div(uint(segments)));
-        const s = float(index.mod(uint(segments)))
-            .add(0.5)
-            .div(segments)
-            .toVar();
+    return generated(
+        FIELD.blades * segments,
+        (index) => {
+            const blade = index.div(uint(segments));
+            const s = float(index.mod(uint(segments)))
+                .add(0.5)
+                .div(segments)
+                .toVar();
 
-        const a = hash4(blade.mul(1.37).add(0.5)).toVar();
-        const b = hash4(blade.mul(7.13).add(3.1)).toVar();
-        const c = hash4(blade.mul(3.71).add(11.7)).toVar();
+            const a = hash4(blade, 0).toVar();
+            const b = hash4(blade, 1).toVar();
+            const c = hash4(blade, 2).toVar();
 
-        const { xz, out } = spiral(blade, FIELD.blades, a);
-        const ground = terrain(xz);
-        const root = vec3(xz.x, ground.height, xz.y).toVar();
+            const { xz, out } = scatter(a);
+            const ground = terrain(xz);
+            const root = vec3(xz.x, ground.height, xz.y).toVar();
 
-        // Taller in patches, and patches of dry straw among the green.
-        const lush = mx_noise_float(xz.mul(0.09)).mul(0.5).add(0.5);
-        const height = mix(BLADE.height[0], BLADE.height[1], pow(b.x, 0.7))
-            .mul(mix(0.65, 1.3, lush))
-            .toVar();
-        const dryPatch = mx_noise_float(xz.mul(0.05).add(7.3));
-        const dry = smoothstep(0.25, 0.7, dryPatch.add(c.z.sub(0.5).mul(0.3))).mul(0.7);
-        // Blade-to-blade variety, calmed with distance: far off it only reads as grain.
-        const variety = mix(1, 0.2, smoothstep(5, 22, length(root.sub(eye))));
+            // Taller in patches, and patches of dry straw among the green.
+            const lush = mx_noise_float(xz.mul(0.09)).mul(0.5).add(0.5);
+            const height = mix(BLADE.height[0], BLADE.height[1], pow(b.x, 0.7))
+                .mul(mix(0.65, 1.3, lush))
+                .toVar();
+            const dryPatch = mx_noise_float(xz.mul(0.05).add(7.3));
+            const dry = smoothstep(0.25, 0.7, dryPatch.add(c.z.sub(0.5).mul(0.3))).mul(0.7);
+            // Blade-to-blade variety, calmed with distance: far off it only reads as grain.
+            const variety = mix(1, 0.2, smoothstep(5, 22, length(root.sub(eye))));
 
-        // Fronts: noise in the wind's own frame, stretched across it, sliding downwind.
-        const p = xz.sub(gustTravel);
-        const along = dot(p, windDir);
-        const across = dot(p, vec2(windDir.y.negate(), windDir.x));
-        const front = mx_noise_float(vec3(along.div(WIND.depth), across.div(WIND.length), time.mul(0.07)));
-        const gust = smoothstep(-0.2, 0.6, front).toVar();
-        const shiver = sin(
-            time
-                .mul(Math.PI * 2 * WIND.flutterRate)
-                .mul(c.x.mul(0.5).add(0.75))
-                .add(c.y.mul(Math.PI * 2)),
-        )
-            .mul(WIND.flutter)
-            .mul(gust.add(0.3));
-        const leanAngle = b.z.mul(Math.PI * 2);
-        const lean = vec2(cos(leanAngle), sin(leanAngle)).mul(b.w.mul(BLADE.restLean));
-        const bend = lean.add(windDir.mul(gust.mul(WIND.gust).add(WIND.breeze).add(shiver))).toVar();
-        const angle = min(length(bend), 1.35).toVar();
-        const bendDir = bend.div(max(length(bend), 1e-4)).toVar();
+            // Fronts: noise in the wind's own frame, stretched across it, sliding downwind.
+            const p = xz.sub(gustTravel);
+            const along = dot(p, windDir);
+            const across = dot(p, vec2(windDir.y.negate(), windDir.x));
+            const front = mx_noise_float(vec3(along.div(WIND.depth), across.div(WIND.length), time.mul(0.07)));
+            const gust = smoothstep(-0.2, 0.6, front).toVar();
+            const shiver = sin(
+                time
+                    .mul(Math.PI * 2 * WIND.flutterRate)
+                    .mul(c.x.mul(0.5).add(0.75))
+                    .add(c.y.mul(Math.PI * 2)),
+            )
+                .mul(WIND.flutter)
+                .mul(gust.add(0.3));
+            const leanAngle = b.z.mul(Math.PI * 2);
+            const lean = vec2(cos(leanAngle), sin(leanAngle)).mul(b.w.mul(BLADE.restLean));
+            const bend = lean.add(windDir.mul(gust.mul(WIND.gust).add(WIND.breeze).add(shiver))).toVar();
+            const angle = min(length(bend), 1.35).toVar();
+            const bendDir = bend.div(max(length(bend), 1e-4)).toVar();
 
-        // The stem: a Bézier from the root, up, then over towards the tip.
-        const over = vec3(bendDir.x, 0, bendDir.y);
-        const tip = root.add(
-            over
-                .mul(sin(angle))
-                .add(vec3(0, cos(angle), 0))
-                .mul(height),
-        );
-        const knee = root.add(vec3(0, height.mul(0.6), 0)).add(over.mul(height.mul(sin(angle)).mul(0.25)));
-        const center = root
-            .mul(s.oneMinus().mul(s.oneMinus()))
-            .add(knee.mul(s.oneMinus().mul(s).mul(2)))
-            .add(tip.mul(s.mul(s)))
-            .toVar();
-        const tangent = normalize(knee.sub(root).mul(s.oneMinus()).add(tip.sub(knee).mul(s)));
+            // The stem: a Bézier from the root, up, then over towards the tip.
+            const over = vec3(bendDir.x, 0, bendDir.y);
+            const tip = root.add(
+                over
+                    .mul(sin(angle))
+                    .add(vec3(0, cos(angle), 0))
+                    .mul(height),
+            );
+            const knee = root.add(vec3(0, height.mul(0.6), 0)).add(over.mul(height.mul(sin(angle)).mul(0.25)));
+            const center = root
+                .mul(s.oneMinus().mul(s.oneMinus()))
+                .add(knee.mul(s.oneMinus().mul(s).mul(2)))
+                .add(tip.mul(s.mul(s)))
+                .toVar();
+            const tangent = normalize(knee.sub(root).mul(s.oneMinus()).add(tip.sub(knee).mul(s)));
 
-        // Facing turns the blade about its own length; then it's stood along the stem.
-        const quaternion = GpuSplatMath.quatMul(alignY(tangent), yaw(b.y.mul(Math.PI))).toVar();
+            // Facing turns the blade about its own length; then it's stood along the stem.
+            const quaternion = GpuSplatMath.quatMul(alignY(tangent), yaw(b.y.mul(Math.PI))).toVar();
 
-        const widen = farWidth(center);
-        const taper = mix(1, 0.3, pow(s, 1.6));
-        const scales = vec3(
-            float(BLADE.width).mul(taper).mul(widen),
-            height.div(segments).mul(0.62),
-            float(BLADE.thickness).mul(widen),
-        );
+            const widen = farWidth(center);
+            const taper = mix(1, 0.3, pow(s, 1.6));
+            const scales = vec3(
+                float(BLADE.width).mul(taper).mul(widen),
+                height.div(segments).mul(0.62),
+                float(BLADE.thickness).mul(widen),
+            );
 
-        // Colour: dark in the thatch, lighter and yellower towards the tip.
-        const green = mix(v3(BLADE.deep), v3(BLADE.fresh), c.w.sub(0.5).mul(variety).add(0.5));
-        const base = mix(green, v3(BLADE.straw), dry);
-        const body = mix(base, mix(base, v3(BLADE.tip), 0.55), smoothstep(0.3, 1, s));
-        const shade = mix(BLADE.rootShade, 1, smoothstep(0, 0.85, s));
+            // Colour: dark in the thatch, lighter and yellower towards the tip.
+            const green = mix(v3(BLADE.deep), v3(BLADE.fresh), c.w.sub(0.5).mul(variety).add(0.5));
+            const base = mix(green, v3(BLADE.straw), dry);
+            const body = mix(base, mix(base, v3(BLADE.tip), 0.55), smoothstep(0.3, 1, s));
+            const shade = mix(BLADE.rootShade, 1, smoothstep(0, 0.85, s));
 
-        // Light: the sky everywhere; the sun on the blade's face and on the hillside
-        // it grows from, unless a cloud is in the way; through the blade when you
-        // look towards the sun; and a sheen on blades a front has laid over.
-        const lit = sunlight(center).toVar();
-        const normal = GpuSplatMath.quatRotate(quaternion, vec3(0, 0, 1));
-        const facing = abs(dot(normal, sun)).mul(0.5).add(0.5);
-        const hillside = clamp(dot(ground.normal, sun).mul(1.3), 0.25, 1.1);
-        const view = normalize(center.sub(eye));
-        const through = pow(max(dot(view, sun), 0), 5)
-            .mul(smoothstep(0.25, 1, s))
-            .mul(0.6);
-        const direct = v3(SUN).mul(facing.mul(hillside).add(through)).mul(lit);
-        const rgb = body
-            .mul(shade)
-            .mul(direct.mul(0.95).add(v3(SKYLIGHT).mul(0.55)))
-            .add(gust.mul(WIND.sheen).mul(s).mul(lit.mul(0.7).add(0.3)));
+            // Light: the sky everywhere; the sun on the blade's face and on the hillside
+            // it grows from, unless a cloud is in the way; through the blade when you
+            // look towards the sun; and a sheen on blades a front has laid over.
+            const lit = sunlight(center).toVar();
+            const normal = GpuSplatMath.quatRotate(quaternion, vec3(0, 0, 1));
+            const facing = abs(dot(normal, sun)).mul(0.5).add(0.5);
+            const hillside = clamp(dot(ground.normal, sun).mul(1.3), 0.25, 1.1);
+            const view = normalize(center.sub(eye));
+            const through = pow(max(dot(view, sun), 0), 5)
+                .mul(smoothstep(0.25, 1, s))
+                .mul(0.6);
+            const direct = v3(SUN).mul(facing.mul(hillside).add(through)).mul(lit);
+            const rgb = body
+                .mul(shade)
+                .mul(direct.mul(0.95).add(v3(SKYLIGHT).mul(0.55)))
+                .add(gust.mul(WIND.sheen).mul(s).mul(lit.mul(0.7).add(0.3)));
 
-        const finish = distance(center, out, rgb);
-        return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity, uint(index));
-    });
+            const finish = distance(center, out, rgb);
+            return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity.mul(BLADE.edge), uint(index));
+        },
+        true,
+    );
 }
 
 /* the ground */
@@ -367,10 +385,9 @@ function ground(): SplatObject {
     const share = Math.sqrt((Math.PI * FIELD.radius ** 2) / FIELD.ground);
 
     return generated(FIELD.ground, (index) => {
-        const i = float(index);
-        const a = hash4(i.mul(2.17).add(91.3)).toVar();
-        const b = hash4(i.mul(5.31).add(17.9)).toVar();
-        const { xz, out } = spiral(i, FIELD.ground, a);
+        const a = hash4(index, 0).toVar();
+        const b = hash4(index, 1).toVar();
+        const { xz, out } = scatter(a);
         const land = terrain(xz);
         const center = vec3(xz.x, land.height.add(b.x.mul(0.01)), xz.y).toVar();
 

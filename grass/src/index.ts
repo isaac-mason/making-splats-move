@@ -21,11 +21,12 @@ const { dot, max, mix, normalize, pass, positionWorldDirection, pow, screenUV, s
 /* the shot */
 
 /**
- * Standing on a hilltop at eye height, looking out across a valley to the next
- * rise, the sun high to the right. Heights come from the hills themselves.
+ * Low in the grass at the foot of a long smooth rise, looking up it to the crest
+ * against the sky, the way the sketch this came from does. Heights come from the
+ * hills themselves.
  */
-const EYE_HEIGHT = 1.55;
-const LOOK = { angle: (250 * Math.PI) / 180, distance: 20, height: 0.4 };
+const EYE_HEIGHT = 1.3;
+const LOOK = { angle: (140 * Math.PI) / 180, distance: 25, height: 0.3 };
 /** The lowest the camera may get over the grass while you drag it round. */
 const MIN_CLEARANCE = 1.1;
 
@@ -106,12 +107,13 @@ async function start() {
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.copy(target);
     controls.enableDamping = true;
-    controls.enablePan = false;
-    // Always looking down across the field: never up into the sky, never far above it.
+    // Right-drag pans, along the ground rather than up into the sky.
+    controls.screenSpacePanning = false;
+    // Up the slope to the crest at most, never up into the empty sky; never far above.
     controls.minPolarAngle = 1.05;
-    controls.maxPolarAngle = 1.48;
-    controls.minDistance = 10;
-    controls.maxDistance = 24;
+    controls.maxPolarAngle = 1.6;
+    controls.minDistance = 8;
+    controls.maxDistance = 35;
     controls.update();
 
     const field = initField();
