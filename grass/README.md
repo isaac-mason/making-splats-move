@@ -36,23 +36,32 @@ sun, which is what makes the hills read.
 
 ## The wind
 
-- **A breeze** every blade feels all the time.
+The wind has weather. How hard it blows rises and falls over tens of seconds,
+from a lull where the grass barely stirs to gusts that lay it over, and in it:
+
 - **Fronts**: noise in the wind's own frame, stretched across it and sliding
-  downwind, so gusts are long bands combing over the hills rather than blobs.
-- **A shiver** per blade, quick and small, stronger in a front.
-- **It veers**, slowly, a little either side. Gusts and clouds are carried by the
-  integrated wind, so a change of direction never makes them jump.
+  downwind with a sharp leading edge, so a gust arrives as a band combing over the
+  hills. They travel faster when it's blowing hard.
+- **Cat's paws**: small quick patches skittering across the grass at an angle to
+  the wind, the ripples between gusts.
+- **Swirl**: the wind's direction wanders across the field, so waves curl rather
+  than all leaning one way.
+- **A shiver** per blade, quick and small, stronger in a gust.
+- **It veers**, slowly. Everything moving with it is carried by the integrated
+  wind, so a change of direction or strength never makes anything jump.
 
 Bent blades show more of their lighter face, so a front reads as a brighter wave
 rolling through the grass.
 
 ## The clouds' shadows
 
-One cover field at cloud height, drifting with the wind. It's never drawn. Each
-blade looks up from where it stands towards the sun to that layer, and where a
-cloud is in the way it loses its warm sunlight and keeps only the blue skylight.
-So all you see of the clouds is their shadows sweeping over the hills, and the
-camera only ever looks down across the field, never up at an empty sky.
+The cloud is a picture: one cloud on white (`assets/cloud.jpg`, from the grass
+sketch this grew out of), tiled in two layers at different sizes, angles and
+speeds, so the clouds never line up into a grid, with clear sky between them. It
+lies at cloud height and is never drawn. Each blade looks up from where it stands
+towards the sun to that layer, and where a cloud is in the way it loses its warm
+sunlight and keeps only the blue skylight. So all you see of the clouds is their
+shapes sliding over the hills.
 
 ## The light
 

@@ -35,11 +35,11 @@ const {
     max,
     min,
     mix,
-    mx_fractal_noise_float,
     mx_noise_float,
     normalize,
     pow,
     sin,
+    texture,
     smoothstep,
     uint,
     uniform,
@@ -110,14 +110,26 @@ const WIND = {
     /** The way it blows, radians in xz, and how far it veers either side. */
     angle: -0.45,
     veer: 0.3,
-    /** How fast fronts travel, m/s. */
-    speed: 5,
+    /** How fast fronts travel at full strength, m/s. They slow in a lull. */
+    speed: 6,
     /** A front's depth along the wind and its length across it, metres. */
     depth: 9,
     length: 34,
-    /** Bend everyone has all the time, and the extra in a front, radians. */
+    /** Bend everyone has all the time, and the extra in a front, radians, at full strength. */
     breeze: 0.14,
-    gust: 0.95,
+    gust: 1.0,
+    /**
+     * Cat's paws: small quick patches darting across the grass at an angle to the
+     * wind. Their size in metres, speed against the fronts', angle off the wind,
+     * and bend.
+     */
+    pawSize: 5,
+    pawSpeed: 1.7,
+    pawAngle: 0.5,
+    paw: 0.35,
+    /** How far the wind's direction wanders across the field, radians, and over what size. */
+    swirl: 0.6,
+    swirlSize: 16,
     /** A quick per-blade shiver, radians, and its rate in Hz. */
     flutter: 0.08,
     flutterRate: 2.4,
@@ -129,11 +141,18 @@ const CLOUDS = {
     /** Height of the cloud layer, metres. */
     height: 160,
     /** How fast they drift with the wind, m/s. */
-    speed: 7,
-    /** The size of a cloud: one over metres. */
-    scale: 0.011,
-    /** The noise level where cloud starts, and where it's solid. */
-    cover: [0.02, 0.3],
+    speed: 4,
+    /**
+     * Two layers of the one cloud picture, tiled: each a tile size (metres), an
+     * angle, a speed against the drift, and an offset, so they never line up into
+     * a grid. The second is fainter, a thinner cloud.
+     */
+    layers: [
+        { tile: 30, angle: 0, speed: 1, offset: 0, weight: 1 },
+        { tile: 47, angle: 0.9, speed: 1.25, offset: 0.37, weight: 0.8 },
+    ],
+    /** The picture's darkness where shadow starts, and where it's full. */
+    cover: [0.08, 0.6],
     /** The sunlight a cloud's shadow takes away. */
     shade: 0.72,
 };
@@ -153,7 +172,13 @@ export const eye = uniform(new THREE.Vector3());
 const windDir = uniform(new THREE.Vector2(1, 0));
 /** How far the wind has carried the gusts and the clouds: integrated, so veering never jumps them. */
 const gustTravel = uniform(new THREE.Vector2());
+const pawTravel = uniform(new THREE.Vector2());
 const cloudTravel = uniform(new THREE.Vector2());
+/** How hard it's blowing now: lulls near 0.15, gusts past 1. */
+const strength = uniform(1);
+
+/** The cloud picture: one cloud on white, from the grass sketch this grew out of. Set in initField. */
+let cloudMap: THREE.Texture;
 
 /* the hills, on both sides */
 
@@ -197,9 +222,18 @@ function terrain(xz: TslNode): { height: TslNode; normal: TslNode } {
  * the sky) reads the wrong uniforms in all but one.
  */
 function cloudCover(xz: TslNode): TslNode {
-    const p = xz.sub(cloudTravel).mul(CLOUDS.scale);
-    const n = mx_fractal_noise_float(vec3(p, time.mul(0.015)), 3, 2.1, 0.5);
-    return smoothstep(CLOUDS.cover[0], CLOUDS.cover[1], n);
+    let dark: TslNode = float(0);
+    for (const layer of CLOUDS.layers) {
+        const c = Math.cos(layer.angle);
+        const sn = Math.sin(layer.angle);
+        const p = xz.sub(cloudTravel.mul(layer.speed));
+        const turned = vec2(p.x.mul(c).sub(p.y.mul(sn)), p.x.mul(sn).add(p.y.mul(c)));
+        const uv = turned.div(layer.tile).add(layer.offset);
+        // White is clear sky; the picture's darkness is the cloud.
+        const shade = texture(cloudMap, uv).level(0).r.oneMinus().mul(layer.weight);
+        dark = max(dark, shade);
+    }
+    return smoothstep(CLOUDS.cover[0], CLOUDS.cover[1], dark);
 }
 
 const sun = vec3(SUN_DIRECTION.x, SUN_DIRECTION.y, SUN_DIRECTION.z);
@@ -290,12 +324,24 @@ function blades(): SplatObject {
         // Blade-to-blade variety, calmed with distance: far off it only reads as grain.
         const variety = mix(1, 0.2, smoothstep(5, 22, length(root.sub(eye))));
 
-        // Fronts: noise in the wind's own frame, stretched across it, sliding downwind.
+        // Fronts: noise in the wind's own frame, stretched across it, sliding
+        // downwind, with a sharp leading edge so a gust arrives rather than swells.
         const p = xz.sub(gustTravel);
         const along = dot(p, windDir);
         const across = dot(p, vec2(windDir.y.negate(), windDir.x));
         const front = mx_noise_float(vec3(along.div(WIND.depth), across.div(WIND.length), time.mul(0.07)));
-        const gust = smoothstep(-0.2, 0.6, front).toVar();
+        const frontGust = pow(smoothstep(-0.2, 0.6, front), 1.6).mul(strength);
+        // Cat's paws: small quick patches, skittering across at an angle.
+        const paw = smoothstep(0.2, 0.7, mx_noise_float(vec3(xz.sub(pawTravel).div(WIND.pawSize), time.mul(0.35)))).mul(
+            strength.mul(0.7).add(0.3),
+        );
+        const gust = frontGust.add(paw.mul(WIND.paw / WIND.gust)).toVar();
+        // The wind's direction wanders across the field, so waves curl.
+        const turn = mx_noise_float(vec3(xz.div(WIND.swirlSize), time.mul(0.05))).mul(WIND.swirl);
+        const blow = vec2(
+            windDir.x.mul(cos(turn)).sub(windDir.y.mul(sin(turn))),
+            windDir.x.mul(sin(turn)).add(windDir.y.mul(cos(turn))),
+        );
         const shiver = sin(
             time
                 .mul(Math.PI * 2 * WIND.flutterRate)
@@ -306,7 +352,8 @@ function blades(): SplatObject {
             .mul(gust.add(0.3));
         const leanAngle = b.z.mul(Math.PI * 2);
         const lean = vec2(cos(leanAngle), sin(leanAngle)).mul(b.w.mul(BLADE.restLean));
-        const bend = lean.add(windDir.mul(gust.mul(WIND.gust).add(WIND.breeze).add(shiver))).toVar();
+        const breeze = strength.mul(0.6).add(0.4).mul(WIND.breeze);
+        const bend = lean.add(blow.mul(gust.mul(WIND.gust).add(breeze).add(shiver))).toVar();
         const angle = min(length(bend), 1.35).toVar();
         const bendDir = bend.div(max(length(bend), 1e-4)).toVar();
 
@@ -402,7 +449,11 @@ function ground(): SplatObject {
 
 export type Field = { objects: SplatObject[] };
 
-export function initField(): Field {
+/** `clouds` is the cloud picture, already loaded: dark cloud on white. */
+export function initField(clouds: THREE.Texture): Field {
+    clouds.wrapS = clouds.wrapT = THREE.RepeatWrapping;
+    clouds.colorSpace = THREE.NoColorSpace;
+    cloudMap = clouds;
     return { objects: [ground(), blades()] };
 }
 
@@ -412,6 +463,14 @@ export function updateField(elapsed: number, dt: number, camera: THREE.Camera): 
     // The wind veers on two slow sines, and carries the gusts and clouds along it.
     const angle = WIND.angle + WIND.veer * (0.7 * Math.sin(elapsed * 0.031) + 0.3 * Math.sin(elapsed * 0.083 + 1.7));
     windDir.value.set(Math.cos(angle), Math.sin(angle));
-    gustTravel.value.addScaledVector(windDir.value, WIND.speed * dt);
+    // Lulls and gusts: how hard it blows rises and falls over tens of seconds.
+    const blowing =
+        0.55 + 0.35 * Math.sin(elapsed * 0.13 + 0.4) + 0.25 * Math.sin(elapsed * 0.051 + 2.1) + 0.15 * Math.sin(elapsed * 0.37);
+    strength.value = Math.min(Math.max(blowing, 0.15), 1.3);
+    const pace = WIND.speed * (0.4 + 0.6 * strength.value) * dt;
+    gustTravel.value.addScaledVector(windDir.value, pace);
+    const pawAngle = angle + WIND.pawAngle;
+    pawTravel.value.x += Math.cos(pawAngle) * pace * WIND.pawSpeed;
+    pawTravel.value.y += Math.sin(pawAngle) * pace * WIND.pawSpeed;
     cloudTravel.value.addScaledVector(windDir.value, CLOUDS.speed * dt);
 }

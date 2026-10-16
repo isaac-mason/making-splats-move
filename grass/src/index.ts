@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { RenderPipeline, type WebGPURenderer } from 'three/webgpu';
+import cloudUrl from '../assets/cloud.jpg?url';
 import { HAZE, initField, SUN_DIRECTION, terrainHeight, updateField } from './field';
 import './style.css';
 
@@ -116,7 +117,7 @@ async function start() {
     controls.maxDistance = 35;
     controls.update();
 
-    const field = initField();
+    const field = initField(await new THREE.TextureLoader().loadAsync(cloudUrl));
     const splats = new SplatRenderer({ renderer });
     splats.collection = new SplatCollection(field.objects);
     scene.add(splats);
