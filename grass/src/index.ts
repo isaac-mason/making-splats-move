@@ -13,10 +13,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { RenderPipeline, type WebGPURenderer } from 'three/webgpu';
-import { CLOUDS, cloudCover, eye, HAZE, initField, SUN_DIRECTION, terrainHeight, updateField } from './field';
+import { HAZE, initField, SUN_DIRECTION, terrainHeight, updateField } from './field';
 import './style.css';
 
-const { dot, float, max, mix, normalize, pass, positionWorldDirection, pow, screenUV, smoothstep, uniform, vec4 } = TSL;
+const { dot, max, mix, normalize, pass, positionWorldDirection, pow, screenUV, smoothstep, uniform, vec4 } = TSL;
 
 /* the shot */
 
@@ -44,37 +44,25 @@ const SKY = {
     /** Below the horizon, beyond the field: the haze, a little deeper. */
     below: srgb(0.6, 0.66, 0.66),
     sun: srgb(1, 0.95, 0.85),
-    /** A cloud's sunlit top, and its thick grey middle. */
-    cloud: srgb(0.98, 0.97, 0.95),
-    cloudCore: srgb(0.66, 0.7, 0.77),
 };
 
 /**
- * A gradient by elevation, the horizon in the haze colour, the sun's disc and two
- * glows round it, and the clouds: the same cover the ground's shadows come from,
- * found where this ray meets the cloud layer. The disc is far past 1, so the
- * bloom finds it, unless a cloud is over it.
+ * A gradient by elevation, the horizon in the haze colour, and the sun's disc and
+ * two glows round it. The disc is far past 1, so the bloom finds it. The clouds
+ * aren't drawn: they're only ever seen as their shadows on the grass.
  */
 function skyNode() {
     const dir = normalize(positionWorldDirection);
     const up = dir.y;
     const sky = mix(uniform(SKY.horizon), uniform(SKY.zenith), smoothstep(0.0, 0.5, up));
     const below = mix(uniform(SKY.horizon), uniform(SKY.below), smoothstep(0.0, -0.25, up));
-
-    const reach = float(CLOUDS.height).sub(eye.y).div(max(up, 0.02));
-    const cover = cloudCover(eye.xz.add(dir.xz.mul(reach)))
-        .mul(smoothstep(0.02, 0.18, up))
-        .toVar();
-    const cloud = mix(uniform(SKY.cloud), uniform(SKY.cloudCore), smoothstep(0.5, 1, cover).mul(0.8));
-
     const toSun = max(dot(dir, uniform(SUN_DIRECTION)), 0);
-    const disc = smoothstep(0.9994, 0.9997, toSun).mul(14).mul(cover.mul(0.95).oneMinus());
+    const disc = smoothstep(0.9994, 0.9997, toSun).mul(14);
     const glow = pow(toSun, 60).mul(0.9).add(pow(toSun, 6).mul(0.18));
-    const clouded = mix(sky, cloud.mul(glow.mul(0.6).add(1)), cover);
     return up
         .greaterThan(0)
-        .select(clouded, below)
-        .add(uniform(SKY.sun).mul(disc.add(glow.mul(cover.mul(0.5).oneMinus()))));
+        .select(sky, below)
+        .add(uniform(SKY.sun).mul(disc.add(glow)));
 }
 
 /* post */
@@ -119,11 +107,11 @@ async function start() {
     controls.target.copy(target);
     controls.enableDamping = true;
     controls.enablePan = false;
-    // Stay in the field: never under it, never far above it.
-    controls.minPolarAngle = 0.9;
-    controls.maxPolarAngle = 1.62;
+    // Always looking down across the field: never up into the sky, never far above it.
+    controls.minPolarAngle = 1.05;
+    controls.maxPolarAngle = 1.48;
     controls.minDistance = 10;
-    controls.maxDistance = 30;
+    controls.maxDistance = 24;
     controls.update();
 
     const field = initField();

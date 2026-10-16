@@ -15,9 +15,9 @@
  * veers slowly. Bent blades show more of their lighter face to the sky, so a front
  * reads as a brighter wave rolling through.
  *
- * The clouds ride the same wind, as one cover field at cloud height. The sky draws
- * it overhead, and the ground looks up through it towards the sun, so every shadow
- * sweeping over the hills is under its own cloud.
+ * The clouds ride the same wind, as one cover field at cloud height that's never
+ * drawn: the grass looks up through it towards the sun, so all you see of them is
+ * their shadows sweeping over the hills.
  */
 
 import { GpuSplatMath, GpuSplats, SplatCollection, type SplatObject, TSL, type TslNode } from 'spark-radix';
@@ -64,14 +64,14 @@ const SUN: [number, number, number] = [1.0, 0.93, 0.78];
 const SKYLIGHT: [number, number, number] = [0.42, 0.5, 0.62];
 
 const FIELD = {
-    radius: 56,
+    radius: 34,
     blades: 260_000,
     segments: 5,
-    ground: 140_000,
+    ground: 90_000,
     /** Below 1, blades crowd towards the middle, where the camera stands. */
     spread: 0.6,
     /** Where the fade into haze starts and is complete, metres from the camera. */
-    fog: [12, 58],
+    fog: [9, 36],
 };
 
 /**
@@ -79,11 +79,11 @@ const FIELD = {
  * height and a phase. Long ones make the hills, short ones the lumps on them.
  */
 const SWELLS = [
-    { angle: 0.3, wavelength: 61, height: 2.4, phase: 0.7 },
-    { angle: 1.9, wavelength: 43, height: 1.9, phase: 2.1 },
-    { angle: 3.4, wavelength: 27, height: 0.8, phase: 4.0 },
-    { angle: 5.1, wavelength: 13, height: 0.22, phase: 1.3 },
-    { angle: 2.6, wavelength: 89, height: 3.1, phase: 5.2 },
+    { angle: 0.3, wavelength: 61, height: 1.1, phase: 0.7 },
+    { angle: 1.9, wavelength: 43, height: 0.85, phase: 2.1 },
+    { angle: 3.4, wavelength: 27, height: 0.35, phase: 4.0 },
+    { angle: 5.1, wavelength: 13, height: 0.1, phase: 1.3 },
+    { angle: 2.6, wavelength: 89, height: 1.4, phase: 5.2 },
 ];
 
 const BLADE = {
@@ -93,8 +93,12 @@ const BLADE = {
     thickness: 0.0015,
     /** How far a blade leans with no wind, radians. */
     restLean: 0.35,
-    /** Far blades grow wider with distance, up to this, so the far field fills in. */
-    farGrowth: 4,
+    /**
+     * Blades widen with distance from `farFrom` metres, up to `farGrowth` times, so
+     * far ones overlap into turf instead of a grain of separate threads.
+     */
+    farFrom: 3,
+    farGrowth: 10,
     /** The darkest a blade's root gets, down in the thatch. */
     rootShade: 0.3,
     deep: [0.08, 0.27, 0.05],
@@ -122,7 +126,7 @@ const WIND = {
     sheen: 0.2,
 };
 
-export const CLOUDS = {
+const CLOUDS = {
     /** Height of the cloud layer, metres. */
     height: 160,
     /** How fast they drift with the wind, m/s. */
@@ -187,10 +191,10 @@ function terrain(xz: TslNode): { height: TslNode; normal: TslNode } {
 /**
  * Cloud cover at an xz point on the cloud layer, 0 clear to 1 solid. Inline, not
  * a laid-out `Fn`: a laid-out function is emitted once and its uniforms named by
- * whichever shader built it first, so one shared by the sky and the splats reads
- * the wrong uniforms in one of them.
+ * whichever shader built it first, so one shared between shaders (as this was with
+ * the sky) reads the wrong uniforms in all but one.
  */
-export function cloudCover(xz: TslNode): TslNode {
+function cloudCover(xz: TslNode): TslNode {
     const p = xz.sub(cloudTravel).mul(CLOUDS.scale);
     const n = mx_fractal_noise_float(vec3(p, time.mul(0.015)), 3, 2.1, 0.5);
     return smoothstep(CLOUDS.cover[0], CLOUDS.cover[1], n);
@@ -244,7 +248,7 @@ function distance(center: TslNode, out: TslNode, rgb: TslNode): { rgb: TslNode; 
 }
 
 /** How much wider far splats draw, so a distant blade isn't thinner than a pixel. */
-const farWidth = (center: TslNode): TslNode => clamp(length(center.sub(eye)).div(5), 1, BLADE.farGrowth);
+const farWidth = (center: TslNode): TslNode => clamp(length(center.sub(eye)).div(BLADE.farFrom), 1, BLADE.farGrowth);
 
 /** One splat object, generated from its index alone. */
 function generated(count: number, body: (index: TslNode) => TslNode): SplatObject {
@@ -276,8 +280,10 @@ function blades(): SplatObject {
         const height = mix(BLADE.height[0], BLADE.height[1], pow(b.x, 0.7))
             .mul(mix(0.65, 1.3, lush))
             .toVar();
-        const dryPatch = smoothstep(0.1, 0.6, mx_noise_float(xz.mul(0.04).add(7.3)));
-        const dry = smoothstep(0.88, 1, c.z.add(dryPatch.mul(0.5)));
+        const dryPatch = mx_noise_float(xz.mul(0.05).add(7.3));
+        const dry = smoothstep(0.25, 0.7, dryPatch.add(c.z.sub(0.5).mul(0.3))).mul(0.7);
+        // Blade-to-blade variety, calmed with distance: far off it only reads as grain.
+        const variety = mix(1, 0.2, smoothstep(5, 22, length(root.sub(eye))));
 
         // Fronts: noise in the wind's own frame, stretched across it, sliding downwind.
         const p = xz.sub(gustTravel);
@@ -327,7 +333,7 @@ function blades(): SplatObject {
         );
 
         // Colour: dark in the thatch, lighter and yellower towards the tip.
-        const green = mix(v3(BLADE.deep), v3(BLADE.fresh), c.w);
+        const green = mix(v3(BLADE.deep), v3(BLADE.fresh), c.w.sub(0.5).mul(variety).add(0.5));
         const base = mix(green, v3(BLADE.straw), dry);
         const body = mix(base, mix(base, v3(BLADE.tip), 0.55), smoothstep(0.3, 1, s));
         const shade = mix(BLADE.rootShade, 1, smoothstep(0, 0.85, s));
@@ -374,7 +380,10 @@ function ground(): SplatObject {
         const quaternion = GpuSplatMath.quatMul(alignY(land.normal), yaw(b.w.mul(Math.PI)));
 
         const mottle = mx_noise_float(xz.mul(0.7)).mul(0.5).add(0.5);
-        const body = mix(v3(GROUND.moss), v3(GROUND.thatch), mottle).mul(a.w.mul(0.3).add(0.85));
+        const soil = mix(v3(GROUND.moss), v3(GROUND.thatch), mottle).mul(a.w.mul(0.3).add(0.85));
+        // Far off, the gaps between blades should read as more grass, not as ground.
+        const turf = mix(v3(BLADE.deep), v3(BLADE.fresh), 0.55);
+        const body = mix(soil, turf, smoothstep(4, 18, length(center.sub(eye))));
         const direct = v3(SUN)
             .mul(max(dot(land.normal, sun), 0))
             .mul(sunlight(center));

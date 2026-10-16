@@ -3,7 +3,7 @@
 Rolling hills of long grass on a summer afternoon, and nothing in it was captured.
 The hills and every blade of grass are splats generated on the GPU from their
 index and the time, so the wind costs nothing extra: each frame makes every blade
-afresh, already bent. Clouds drift over, and their shadows sweep across the hills.
+afresh, already bent. Cloud shadows sweep across the hills.
 
 Drawn by [spark-radix][radix] on three.js's `WebGPURenderer`. Drag to look around.
 
@@ -17,8 +17,9 @@ field catches the light at every angle.
 
 The blades are laid out on a sunflower spiral, which spreads any number of points
 evenly with no clumps or gaps, crowded a little towards the middle where you stand.
-Far blades draw wider with distance, so the far field fills in rather than thinning
-to sub-pixel threads.
+Far blades draw wider with distance, the ground between them turns grass-coloured,
+and blade-to-blade colour variety calms down, so the far field reads as turf
+rather than a grain of separate threads.
 
 ## The hills
 
@@ -40,13 +41,13 @@ sun, which is what makes the hills read.
 Bent blades show more of their lighter face, so a front reads as a brighter wave
 rolling through the grass.
 
-## The clouds and their shadows
+## The clouds' shadows
 
-One cover field at cloud height, drifting with the wind. The sky draws it where
-each view ray meets the cloud layer. The grass looks up from where it stands
-towards the sun to the same layer, and a cloud there takes away its sunlight,
-leaving the blue skylight. So every shadow sweeping over the hills is cast by a
-cloud you can see, and a cloud over the sun dims its disc.
+One cover field at cloud height, drifting with the wind. It's never drawn. Each
+blade looks up from where it stands towards the sun to that layer, and where a
+cloud is in the way it loses its warm sunlight and keeps only the blue skylight.
+So all you see of the clouds is their shadows sweeping over the hills, and the
+camera only ever looks down across the field, never up at an empty sky.
 
 ## The light
 
@@ -60,6 +61,6 @@ colour, so the field's edge disappears.
 | File | Role |
 | --- | --- |
 | `src/field.ts` | The hills, the blades, the wind and the clouds, with every tunable at the top. |
-| `src/index.ts` | The sky and its clouds, the shot, the post pass and the loop. |
+| `src/index.ts` | The sky, the shot, the post pass and the loop. |
 
 [radix]: https://github.com/asundqui/radix-test
