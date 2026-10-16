@@ -84,13 +84,24 @@ separate leaves), but a petal is one splat, and a crisp one reads as a petal.
 
 ## Butterflies
 
-Cabbage whites, fritillaries, common blues and brimstones over the flowers in
-front of you. Each wanders on two loops at unrelated rates, faces the way it flies
-(the path's velocity, worked out analytically), and bobs, hitching up on its
-wingbeats. A body and four wings hinged on it, beating four or five times a second
-(faster aliases into a buzz at 60 frames a second), now and then gliding briefly with the wings
-held up in a V. Wings are crisp, like the petals, and thin enough to glow with the
-sun behind them.
+Cabbage whites, fritillaries, common blues and brimstones working the flowers in
+front of you. Each goes from flower to flower: it rests on one, wings closed
+upright and opening flat now and then to bask, swaying with the flower in the
+wind; then takes off and flies an eased, curving path with a rise in the middle,
+facing the way it's going, and lands on the next.
+
+The flowers are the real ones. Where a flower grows, how tall it is, whether its
+drift lets it show and how the wind has it bent are one function both share, so
+a butterfly can look at a few flowers at random, take the nearest that shows, and
+sit on its head. All without any state: which flower is visit `k`'s comes from
+hashing the butterfly and `k`, and a visit is just where the clock is in it.
+
+Each is a body, two antennae, and on each side a forewing (a broad inner part and
+a pointed tip swept forward, marked per kind, like a cabbage white's black tips)
+and a rounded hindwing. Wings beat four or five times a second (faster aliases
+into a buzz at 60 frames a second), now and then gliding briefly. Seen from below
+they show their duller underside. They're crisp, like the petals, and thin enough
+to glow with the sun behind them.
 
 ## The clouds' shadows
 
