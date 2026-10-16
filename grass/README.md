@@ -112,7 +112,7 @@ curls most at the tip. Each blade is turned about its own length at random, so t
 field catches the light at every angle.
 
 The blades are scattered at random. Right round you there's a second, denser
-layer, about 300 blades a square metre on its own 20 metre tile, fading out at its
+layer, about 110 blades a square metre on its own 20 metre tile, fading out at its
 edge into the meadow, so looking down into the grass from above you see grass, not
 the ground between blades; and the ground under it is mostly turf-coloured, so
 any gap still reads as grass. Random on purpose: it clumps a little, as grass does, where any evenly

@@ -90,7 +90,7 @@ const FIELD = {
      * `nearReach`), fading out at its edge into the meadow: looking down into the
      * grass from above, the meadow's own density shows the ground through it.
      */
-    nearBlades: 120_000,
+    nearBlades: 45_000,
     nearReach: 10,
     segments: 5,
     ground: 120_000,
