@@ -75,7 +75,9 @@ The dress is a mid-calf skirt of 40 by 16 points, fitted at the waist and free
 below: a soft A-line that hangs close round the legs, light and quick to ripple,
 so each stride and skip pushes the hem and it swings back after the knee, flowing
 round the legs rather than standing off them as a bell. It's drawn as two splats a
-cloth cell lit by the cloth's own normal, with pleat shading, a white hem and a
+cloth cell, each shaped and turned to its cell (long across, short down, capped,
+so stretched or flared cloth stays crisp rather than smearing into big round
+splats), lit by the cloth's own normal, with pleat shading, a white hem and a
 darker lining when you see inside it.
 
 The hair is
@@ -83,7 +85,8 @@ done the way splats are good at, and the way the grass is: thin strands of long,
 thin Gaussians, which is how Gaussian hair is rendered. It moves in clumps, the
 way hair does: forty guide strands of ten joints are simulated, one per clump,
 their roots in two staggered rows under the brim so the clumps layer, each
-catching the air a little differently so they swing out of step, and each keeping
+catching the air a little differently so they swing out of step, each keeping
+under the hat's brim (tested in the hat's own tipped frame), and each keeping
 a little apart from its neighbours, so the hair keeps its volume but parts and
 swings. 1,600 strands are drawn, each following only its own clump's guide, offset
 across and in depth within the clump and gathering in towards the tip, measured

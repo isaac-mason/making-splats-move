@@ -1177,6 +1177,9 @@ function butterflies(): SplatObject {
  * swinging up, a squash on landing and a stretch in the air; the hat bounces a
  * beat late and the basket swings. Standing still, breathing.
  */
+/** The sunhat: how far it tips back (radians, negative), and its brim, as the kid's parts and the hair both need it. */
+const HAT = { tip: -0.16, at: 0.255, inner: 0.15, outer: 0.43, droop: 0.075 };
+
 const KID = {
     skin: [0.98, 0.8, 0.68],
     hair: [0.47, 0.29, 0.15],
@@ -1360,16 +1363,18 @@ function kidPose() {
     const toWorld = (local: TslNode): TslNode =>
         you.add(vec3(0, hop, 0)).add(GpuSplatMath.quatRotate(turn, vec3(local.x.add(sway), local.y.mul(breath.add(1)), local.z)));
     const turnToWorld = (dir: TslNode): TslNode => GpuSplatMath.quatRotate(turn, dir);
-    return { leg, arm, chest, upper, neck, head, hip, shoulder, hand, basket, none, toWorld, turnToWorld };
+    // The hat, tipped back on the head: its turn, shared by the kid and the hair (which keeps under its brim).
+    const hat = GpuSplatMath.quatMul(head, aboutX(float(HAT.tip)));
+    return { leg, arm, chest, upper, neck, head, hat, turn, hip, shoulder, hand, basket, none, toWorld, turnToWorld };
 }
 
 /** `simulated`: the dress and hair are simulations of their own, so leave out the solid skirt and pigtails. */
 function kid(simulated: boolean): SplatObject {
-    const { leg, arm, chest, upper, neck, head, hip, shoulder, hand, basket, none, toWorld, turnToWorld } = kidPose();
+    const { leg, arm, chest, upper, neck, head, hat, hip, shoulder, hand, basket, none, toWorld, turnToWorld } = kidPose();
     // The hat sits tipped back on the head, so the brim frames the face rather than lying flat.
     // Steady on the head: it rides the body's hop but doesn't nod or bounce on its own, or
     // the wide brim turns the head's little nod into a see-saw at its edge.
-    const hatTurn = GpuSplatMath.quatMul(head, aboutX(float(-0.16)));
+    const hatTurn = hat;
 
     const parts: Part[] = [
         // legs: thigh, shin and shoe, bending at the knee
@@ -1434,10 +1439,10 @@ function kid(simulated: boolean): SplatObject {
         {
             pivot: neck,
             turn: hatTurn,
-            offset: [0, 0.255, -0.01],
+            offset: [0, HAT.at, -0.01],
             radii: [0, 0, 0],
             colour: KID.straw,
-            brim: { inner: 0.15, outer: 0.43, droop: 0.075 },
+            brim: { inner: HAT.inner, outer: HAT.outer, droop: HAT.droop },
         },
         {
             pivot: neck,
@@ -1728,7 +1733,7 @@ function hairRest(s: TslNode, k: TslNode): TslNode {
     const i = s.sub(lower.mul(HAIR.row));
     const round = i.add(0.5).add(lower.mul(0.5)).div(HAIR.row).mul(2.9).sub(1.45);
     const out = vec3(sin(round), 0, cos(round).negate());
-    const root = out.mul(vec3(0.165, 0, 0.155).add(lower.mul(0.008))).add(vec3(0, lower.mul(-0.03).add(0.17), -0.015));
+    const root = out.mul(vec3(0.165, 0, 0.155).add(lower.mul(0.008))).add(vec3(0, lower.mul(-0.03).add(0.13), -0.015));
     const f = k.div(HAIR.points - 1);
     const length = hash4(uint(s), 14).x.mul(0.25).add(0.85).mul(HAIR.length);
     return root
@@ -1917,6 +1922,17 @@ function initSim(renderer: WebGPURenderer): Sim {
                         const push = d.div(l).mul(float(HAIR.gap).sub(l).max(0).mul(0.5));
                         out = out.add(inRange.and(sameRow).select(push, vec3(0)));
                     }
+                    // Under the hat's brim: in the hat's own tipped frame, no hair above the
+                    // brim's drooping surface anywhere in its footprint.
+                    const hatTurnWorld = GpuSplatMath.quatMul(pose.turn, pose.hat);
+                    const hatAt = pose.toWorld(pose.neck.add(GpuSplatMath.quatRotate(pose.hat, vec3(0, HAT.at, -0.01))));
+                    const unturn = vec4(hatTurnWorld.xyz.negate(), hatTurnWorld.w);
+                    const inHat = GpuSplatMath.quatRotate(unturn, out.sub(hatAt)).toVar();
+                    const across = length(inHat.xz);
+                    const e = clamp(across.sub(HAT.inner).div(HAT.outer - HAT.inner), 0, 1);
+                    const below = e.mul(e).mul(-HAT.droop).sub(0.012);
+                    const under = across.lessThan(HAT.outer).and(inHat.y.greaterThan(below));
+                    out = under.select(hatAt.add(GpuSplatMath.quatRotate(hatTurnWorld, vec3(inHat.x, below, inHat.z))), out);
                     // Off the head, shoulders and back.
                     const headAt = pose.toWorld(pose.neck.add(GpuSplatMath.quatRotate(pose.head, vec3(0, 0.15, 0))));
                     out = outOf(out, headAt, headAt, 0.175);
@@ -1973,7 +1989,15 @@ function skirt(sim: Sim): SplatObject {
             const n = normalize(cross(down, across)).toVar();
             const outward = dot(n, center.sub(middle)).lessThan(0).select(n.negate(), n).toVar();
             const inside = dot(outward, eye.sub(center)).lessThan(0);
-            const size = max(length(across), length(down).mul(0.5)).mul(0.7);
+            // Shaped to its cell (long across, short down) and turned with the fabric, capped,
+            // so stretched or flared cloth stays crisp rather than smearing into big discs.
+            const wide = length(across).mul(0.62).min(0.035);
+            const tall = length(down).mul(0.36).min(0.03);
+            const flat = alignY(outward).toVar();
+            const xAxis = GpuSplatMath.quatRotate(flat, vec3(1, 0, 0));
+            const zAxis = GpuSplatMath.quatRotate(flat, vec3(0, 0, 1));
+            const spin = atan(dot(across, zAxis), dot(across, xAxis));
+            const facing = GpuSplatMath.quatMul(flat, yaw(spin.mul(-0.5)));
 
             const pleat = cos(float(i).mul((Math.PI * 2 * 10) / CLOTH.around))
                 .mul(0.5)
@@ -1985,8 +2009,8 @@ function skirt(sim: Sim): SplatObject {
             const finish = distance(center, float(0), rgb);
             return GpuSplats.Splat(
                 center,
-                vec3(size, 0.004, size),
-                alignY(outward),
+                vec3(wide, 0.003, tall),
+                facing,
                 finish.rgb.min(0.97),
                 finish.opacity.mul(1.3),
                 uint(index),
