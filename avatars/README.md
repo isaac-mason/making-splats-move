@@ -1,8 +1,16 @@
 # avatars
 
-Procedural rigged characters built out of Gaussian splats, skinned with Spark and
-walking. No scan, no mesh, no asset — the geometry and the skeleton are generated
+Procedural rigged characters built out of Gaussian splats, skinned and walking. No scan, no mesh, no asset — the geometry and the skeleton are generated
 from the same numbers, so every joint is in the right place by construction.
+
+> **Ported to [spark-radix][radix].** Most of this README is the story of building
+> it on Spark, and the traps it describes are Spark's. On radix the design carries
+> over, but the machinery is the example's own: radix has no skinning, so
+> `src/splats.ts` does dual-quaternion skinning in about 150 lines as a splat
+> generator (four bone indices and weights per splat as a bundle beside the splats,
+> the bones uploaded as a small table each frame), face parts are a second bundle,
+> and the stage rebuilds its one `SplatCollection` only when avatars come or go.
+> Radix sorts on the GPU, so the readback stalls described below don't apply.
 
 It started as a spike answering one question: **does Spark's `SplatSkinning`
 actually work?**
@@ -275,6 +283,7 @@ Two scenes share the avatar and nothing else:
 - **`workbench.ts`** — one avatar on a plain stage, behind the URL switches above.
 
 Under both: `avatar.ts` builds a character out of splats and rigs it with `bones.ts`;
+`splats.ts` is the radix layer, the splat builder, the skinning and the stage;
 `avatar-params.ts` holds every field, style and colour that shapes one, and the cast;
 `avatar-editor.ts` is the panel that drives them; `scene.ts` holds everything
 specific to this capture, so swapping in another world is a one-file edit.
@@ -285,8 +294,7 @@ specific to this capture, so swapping in another world is a one-file edit.
 
 The school courtyard is a Gaussian-splat capture (`project-cartoon-school-campus-courtyard.spz`).
 
-- `assets/school-courtyard.spz` — the source splat. Not served: only the LOD file is.
-- `public/school-courtyard-lod.rad` — the LOD-paged build, what the browser loads.
+`assets/school-courtyard.spz` is what the browser loads, flat: radix draws every
+splat every frame and has no level-of-detail paging yet.
 
-Rebuild the `.rad` with `pnpm build:lod` (needs a Rust toolchain; see
-[`dust/README.md`](../dust/README.md#assets) for how the script and the paging work).
+[radix]: https://github.com/asundqui/radix-test

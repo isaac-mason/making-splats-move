@@ -3,6 +3,16 @@
 A 96MB Gaussian-splat city that puts itself together out of a single point the
 moment it finishes downloading.
 
+> **Ported to [spark-radix][radix].** The ripple is now a TSL modifier on the
+> capture's stored-splat generator, the same hook `wind/` uses, and the city loads
+> flat from `wind/assets/anime-city.spz` through radix's worker loader. The sections
+> below on hiding, loading, the first sort and frame time are the Spark build's
+> findings, kept because the reasoning travels; Spark's `SplatEdit`, `SplatMesh`,
+> `GSPLAT_FLAG_ACTIVE` and LoD budget don't exist on radix. Radix sorts on the GPU,
+> and the ripple waits a couple of frames before starting.
+
+[radix]: https://github.com/asundqui/radix-test
+
 A ripple of existence spreads out from one point. The front is a wobbling shell, not
 a sphere, and it travels: splats don't fly anywhere, they appear where the capture put
 them and the wave passing through surges them outward and lets them settle, the way a

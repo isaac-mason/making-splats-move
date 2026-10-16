@@ -3,6 +3,10 @@
 Trees swaying in a Gaussian-splat city street. The splat file is untouched — the
 foliage moves because every splat's centre is displaced on the GPU, every frame.
 
+Drawn by [spark-radix](https://github.com/asundqui/radix-test) on three.js's
+`WebGPURenderer`: WebGPU where there is one, its WebGL2 backend elsewhere (or
+with `?gpu=webgpu-gl` to force it).
+
 ## Which splats sway
 
 A city can't sway as a whole; the road and buildings have to stay put. So foliage
@@ -24,8 +28,9 @@ travels up, a slow `gustiness` swell, and a fast cross-wind `flutter` seeded fro
 
 The model is ported from PlayCanvas's
 [`GsplatTrees`](https://github.com/playcanvas/engine/pull/9022), which is the
-best-looking splat wind going. The kernel lives once, in
-[`src/wind-sway.ts`](src/wind-sway.ts), shared by both render paths below.
+best-looking splat wind going. The kernel lives once, as two TSL functions in
+[`src/wind-sway.ts`](src/wind-sway.ts): how strongly one sphere claims a point,
+and the displacement for a point once its tree is known.
 
 ### Trees, not spheres
 
@@ -47,73 +52,54 @@ Spheres of *different* trees may overlap freely. The seam is real (two trees sho
 move independently) and self-limiting: a slight overlap sits in both spheres'
 feather zones, where sway is low anyway.
 
-## Two ways to move the splats
+## How the splats move
 
-| | default | `?generator=1` |
-| --- | --- | --- |
-| Where | Spark's draw-time splat shader | a dyno `objectModifier` |
-| Splat buffer | never regenerated | regenerated every frame |
-| Sort | stale by one displacement | always correct |
-| File | [`src/wind.ts` (draw-time path)](src/wind.ts) | [`src/wind.ts`](src/wind.ts) |
-
-**The modifier path is the idiomatic one** — it's what most of Spark's own examples
-do, it composes, and its sort is always right. It's kept, one URL flag away, and
-it's the one to reach for first in your own work.
-
-**But it costs far more than it looks**, and that's the interesting part. Moving a
-splat invalidates the sort order it was placed in, so Spark re-sorts — and sorting
-means reading depths back from the GPU via `readRenderTargetPixelsAsync`. That
-readback stalls the pipeline for tens of milliseconds on alternating frames. The
-chain is:
-
-```
-mesh.needsUpdate = true  →  version bump  →  regenerate  →  sortDirty  →  re-sort  →  GPU readback stall
-```
-
-The regeneration itself isn't the problem. The **forced re-sort** is. The draw-time
-path never marks the buffer dirty, so none of that chain fires — which is why it
-wins by much more than "skipping a compute pass" would suggest.
-
-> Beware of averaging when you measure this. A 50 ms stall every other frame hides
-> completely in a rolling mean (~18 ms), which is how it went unnoticed here at
-> first. Look at a frame-time *graph*, or `window.__windStats` in the console.
-
-### What draw-time gives up
-
-- **The sort is computed from undisplaced positions.** Fine at these amplitudes;
-  crank `strength` far up and blending order starts to go wrong.
-- **It's global to the renderer.** One splat shader draws the *whole* accumulated
-  buffer, every visible mesh merged. This scene has exactly one mesh, so everything
-  in the buffer is ours. With more, gate on the splat's index against the
-  `{ base, count }` range for your mesh in `SplatAccumulator.mapping`.
-- **It doesn't compose.** Modifiers stack; a patched shader doesn't.
-
-### How the patch works
-
-Spark supports this directly — `SparkRendererOptions.vertexShader` replaces the
-splat shader and `extraUniforms` merges into its uniform map. But rather than
-vendoring a copy of `splatVertex.glsl` (270 lines of ExtSplats / CovSplats / LOD /
-2DGS handling you'd then own forever), we string-replace the shader on the live
-material and let Spark ship whatever it likes:
+Radix has no vertex-shader hook to patch; what it has instead is a **generator**.
+The capture's splats are stored arrays on the GPU, and the generator is the TSL
+program that makes splat `i` from them, once per splat, every render. It takes a
+list of **modifiers**: TSL functions that receive a splat and return a changed
+one, run in turn after the load. The wind is one such modifier, on the stored
+splats' generator —
 
 ```ts
-spark.material.vertexShader = spark.material.vertexShader.replace(anchor, injected);
-spark.material.needsUpdate = true;  // forces a recompile
+SplatGenerator.fromSplats({ modifiers: [wind.modifier] })
 ```
 
-Three things bit while building this, all worth knowing before you try it:
+— so there is one code path, and it lives in [`src/wind.ts`](src/wind.ts). It
+runs in the capture's object space, and the capture sits at the origin, so that
+is world space: the volumes are authored in the coordinates the modifier sees,
+with nothing to add back.
 
-1. **Anchor on code, not comments.** The published build strips comments out of the
-   GLSL, so a comment anchor silently matches nothing. Assert the replace actually
-   happened, or a Spark upgrade turns the wind off with no error.
-2. **Spark's built-in `time` uniform is frozen here.** It's assigned from
-   `spark.display.time`, which only advances when a generate happens — so on the
-   path whose whole purpose is to avoid generating, it never ticks. Drive your own.
-3. **The accumulated buffer is not in world space.** For float precision Spark
-   offsets it by the camera's position at generation time
-   (`accumToWorld.makeTranslation(display.viewOrigin)`), so world-space volumes
-   miss by however far the camera is from the origin. Add the origin back before
-   testing against anything authored.
+**The spheres are uniforms, not constants.** They live in two 64-slot
+`uniformArray`s — centre and radius in one, each sphere's tree (id, base, top)
+in the other — with a count. The modifier loops over the count, scores every
+sphere against the splat with the kernel, and keeps the best; only then does it
+compute a displacement, from the winning tree's phase and height. Because the
+arrays are uniforms, the editor can drag a sphere and the tint and sway follow
+the same frame, with no shader recompile. The 64 is the only limit, and it's a
+shader array size rather than anything the editor knows about.
+
+**It's cheap, which is new.** In Spark, where this example began, moving a splat
+from a modifier meant regenerating the splat buffer, which marked the sort dirty,
+which forced a re-sort — and the sort read depths back from the GPU, stalling for
+tens of milliseconds on alternating frames. The only way round it was a patched
+draw-time shader whose displacement the sort never saw. Radix projects the whole
+collection every render regardless, so a modifier adds a few instructions to a
+pass that was running anyway, and the sort is a different story:
+
+- **On WebGPU** the sort runs on the GPU in the same frame, from the projected
+  (already swayed) splats, and the draw is indirect. Nothing is read back. The
+  blend order is right every frame, at any `strength`.
+- **On the WebGL2 backend** the sort keys are read back and sorted on a worker,
+  and by default a sort is only triggered by the camera or the collection
+  changing — neither of which a wind does. So while anything moves the app asks
+  for a sort every frame; the order drawn is at most a sort or two behind the
+  sway, which at these amplitudes doesn't show.
+
+> `window.__windStats` is a rolling half-second mean of the frame time, which is
+> the wrong instrument for spikes: a 50 ms stall every other frame hides
+> completely in an ~18 ms average. It's what let the Spark readback go unnoticed
+> at first. For anything spiky, look at a frame-time *graph*.
 
 ## The camera
 
@@ -163,6 +149,9 @@ doesn't. Press **`` ` ``** for the debug panel, tick **wind edit mode**:
   guess. Included splats go **red** (nothing in a daylit street is red, so it can't
   be mistaken for the scene) and the volume you're editing goes **yellow**. Both
   stay strongly tinted; selection changes the hue, not whether you can see the rest.
+  The tint is the same modifier writing the splat's colour as well as its centre,
+  so it can't disagree with the sway about who's in. Untick **highlight leaves**
+  to preview the motion untinted, or **wind** to hold everything still.
 - **A gizmo** on the selected volume: `g` to translate, `r` to scale. The tint
   updates as you drag, because the spheres are uniforms rather than constants.
   (Scale by gizmo is touchy near its centre — three derives the factor from a ratio
@@ -180,14 +169,13 @@ doesn't. Press **`` ` ``** for the debug panel, tick **wind edit mode**:
 | File | Role |
 | --- | --- |
 | `src/wind.json` | The authored volumes and wind parameters — the editor's own format. |
-| `src/wind-sway.ts` | The sway kernel as GLSL, shared by both paths. |
-| `src/wind.ts` (draw-time path) | Default path: patches Spark's splat shader. |
-| `src/wind.ts` | `?generator=1` path: a dyno `objectModifier`. Owns the shared types. |
+| `src/wind-sway.ts` | The sway kernel as TSL: one sphere's claim on a point, and the displacement. |
+| `src/wind.ts` | The modifier: sphere uniforms, best-sphere loop, sway and tint. Owns the types. |
 | `src/wind-editor.ts` | Edit mode: gizmo, volume list, sliders, JSON round-trip. |
-| `src/splat.ts` | SparkRenderer + SplatMesh setup. |
+| `src/splat.ts` | Loads the capture and puts it in a `SplatRenderer`, modifier on its generator. |
 | `src/scene.ts` | Asset URL and camera framing. |
-| `src/performance.ts` | LOD paging + quality budget, tuned per platform. |
-| `src/debug.ts`, `src/stats.ts` | Debug panel and frame-time readout. |
+| `src/performance.ts` | The render-scale knob, pushed onto the renderer each frame. |
+| `src/debug.ts`, `src/stats.ts` | Debug panel and the `window.__windStats` frame-time readout. |
 | `src/camera-drift.ts` | Tilt toward the cursor; free orbiting is behind the panel's toggle. |
 
 ## Assets
@@ -195,23 +183,10 @@ doesn't. Press **`` ` ``** for the debug panel, tick **wind edit mode**:
 The scene came from [Marble](https://marble.worldlabs.ai/) (World Labs' 3D-world
 generator), exported as a `.spz` splat.
 
-- `assets/anime-city.spz` — the source splat. Not served.
-- `public/anime-city-lod.rad` — what the browser loads: an LOD-paged build of the
-  above, so Spark streams detail in instead of downloading it all up front.
+- `assets/anime-city.spz` — the capture, imported by `src/scene.ts` and bundled
+  by Vite. It's loaded flat: decoded on a worker, uploaded as GPU arrays, and
+  every splat draws every frame.
 
-To rebuild the `.rad` after changing the source (needs a [Rust toolchain][rust] —
-`build-lod` ships only in Spark's source repo, so the script shallow-clones it):
-
-```bash
-pnpm build:lod
-```
-
-> `paged: true` on the `SplatMesh` *streams* the `.rad` rather than loading it
-> resident. It isn't needed to read the file — `.rad` is an auto-detected format and
-> the LOD tree is encoded in it, so `new SplatMesh({ url })` alone already gives you
-> LOD. What the flag buys is instant start and the paging budget in
-> `src/performance.ts`: `pagedExtSplats` / `maxPagedSplats` only exist once there's
-> a `SplatPager`. Paging pulls pages with HTTP range requests, so the host must
-> support them.
-
-[rust]: https://rustup.rs/
+> Radix reads `.rad` files but doesn't yet select LoD subsets or page them in, so
+> an LoD-paged build of the capture would have nothing to gain here — which is why
+> this example no longer ships one.

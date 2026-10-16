@@ -1,27 +1,37 @@
 # fire
 
-A campfire burning under a starry sky. The splat itself never changes on disk —
-everything here is done at render time, on top of a static scene:
+A campfire burning under a starry sky, drawn by [spark-radix][radix] on three.js's
+`WebGPURenderer`. The splat itself never changes on disk — everything here is done
+at render time, on top of a static scene:
 
-- **A flame** (`src/flame.ts`), **smoke** (`src/smoke.ts`) and **embers**
-  (`src/embers.ts`). Gaussian-splat generators running on the GPU with nothing
-  stored, all riding one shared curl field so they churn together. See below.
-
-- **Splat-space lighting** (`src/lighting.ts`). Two Spark `SplatEdit` SDFs recolour the
-  splats themselves: a tight additive "hot core" at the fire, and a scene-wide
-  *multiplicative* one that darkens everything toward a warm gloom (multiply rather
-  than add, so it gives the clearing mood without washing out detail). A real
-  `THREE.PointLight` rides along for any standard-material mesh you add.
-- **Heat shimmer** (`src/heat.ts`). A Spark `worldModifier` — a GPU dyno graph — that
-  displaces the scene splats' world positions with scrolling tileable noise in a
-  column of hot air over the fire. The geometry genuinely wobbles like air over a
-  flame, from any angle, rather than being a screen-space filter.
+- **The fire** (`src/sim.ts`). On WebGPU, a small fluid simulation in compute
+  kernels: a 40×96×40 grid of air over the coal bed carries heat, soot and velocity
+  (advection, buoyancy, vorticity confinement, a pressure solve, open sides and
+  top), and the flame, smoke and embers are particles with state of their own that
+  ride it. Flame particles carry a temperature that sets their colour on a
+  blackbody-ish ramp, white through yellow and orange to red and soot.
+- **The stateless fire** (`src/flame.ts`, `src/smoke.ts`, `src/embers.ts`). The
+  same three as TSL generators with nothing stored, all riding one shared curl
+  field. It's what runs where there's no compute (the WebGL2 backend, or
+  `?sim=0`), and the design story below is its story.
+- **Splat-space lighting** (`src/lighting.ts`). A TSL modifier on the capture's own
+  generator recolours the scene's splats: a tight additive hot core at the fire, a
+  scene-wide *multiplicative* darkening toward a warm gloom (multiply rather than
+  add, so it gives the clearing mood without washing out detail), and directional
+  firelight from each splat's normal.
+- **Heat shimmer** (`src/heat.ts`). A second modifier on the capture that displaces
+  the scene's splats with scrolling noise in a column of hot air over the fire. The
+  geometry genuinely wobbles like air over a flame, from any angle, rather than
+  being a screen-space filter.
 - **Embers** are splats too, so they sort with the flame and the scene rather than
   drawing on top of both. They shoot off the coals, coast as they cool, and hand
   themselves to the breeze — dying out over the grass rather than all at one height,
   which is what gives the clearing its scale.
 - **Fireflies** (`src/fireflies.ts`) flash in the dark past the fire: a bright core
   splat and a faint halo each, on a closed-form wander.
+- **Post** (`src/post.ts`). three's `RenderPipeline` with a bloom and a vignette.
+  Radix keeps colour above 1 through the splat encoding, so the flame's white core
+  is genuinely bright and the bloom has something to find.
 
 ## The flame
 
@@ -102,13 +112,14 @@ barely register; without tone mapping the full exponent is too brutal, so it's a
 > has, so an acceleration produces a constant speed. It has to be a fraction of the
 > particle's **full lifetime** (`× age`) to be a clock at all.
 
-A few more things mattered far more than expected while tuning it:
+A few more things mattered far more than expected while tuning it, first on Spark
+and still true on radix:
 
 - **Low alpha, not high.** Fire is emissive: two overlapping tongues should add up.
-  Spark blends premultiplied, so a bright colour at a *small* alpha approximates
+  Splats blend premultiplied, so a bright colour at a *small* alpha approximates
   additive blending. Raise it and the flame stops being fire and becomes an orange
   lozenge, because alpha blending resolves overlap by showing only the nearest splat.
-- **Never premultiply in the generator.** Spark premultiplies in its own shader, so
+- **Never premultiply in the generator.** The renderer premultiplies itself, so
   writing `col * alpha` squares the alpha: smoke turns into a near-black filter tinted
   by whatever's behind it. Write straight colour, and make the smoke darker than the
   sky behind it so it shades rather than glows.
@@ -122,9 +133,9 @@ A few more things mattered far more than expected while tuning it:
   flame exists for well under a second. Short lifetimes plus heavy curl is the
   standard recipe.
 
-> Watch out for two traps here. Naming a variable `sample` is a **GLSL ES 3.00
-> reserved word**, and Spark swallows generator compile errors silently — so the
-> effect vanishes completely with nothing in the console. And raw curl carries the
+> Watch out for two traps here. In the Spark version's GLSL, naming a variable
+> `sample` hit a **GLSL ES 3.00 reserved word**, and Spark swallowed generator
+> compile errors silently, so the effect vanished with nothing in the console. And raw curl carries the
 > wave-vector magnitudes (~4), so normalise it or your turbulence parameter is in
 > mystery units and any sane value flings particles out of the scene.
 
@@ -168,9 +179,10 @@ different from the flame's.
   over a lifetime instead, which is also why the top of the plume is a ragged front
   rather than a ceiling — lifetimes vary per puff.
 
-> The trap that actually ate the smoke's fade, though, is in the renderer. Spark
+> The trap that actually ate the smoke's fade, though, is in the renderer. It
 > **culls a splat outright** once its alpha falls below `minAlpha` — the whole splat,
-> in the vertex stage, not a per-fragment discard — and the default is `0.5/255`. At
+> in the vertex stage, not a per-fragment discard — and Spark's default was `0.5/255`
+> (here it's set on the `SplatRenderer`). At
 > the opacities smoke needs, that fired at 43% of a puff's life while it was still at
 > a *third* of peak: not a fade, a pop, and at a different moment per puff, since each
 > carries its own birth heat. Lower it, and pair that with fewer, stronger splats —
@@ -202,9 +214,22 @@ The camera is the fixed framing plus a parallax lean toward the cursor
 the scene, so it lives behind the debug panel.
 
 Press **`` ` ``** for that panel: an **orbit camera** toggle (which stands the lean
-down while it's on, and puts the shot back when you turn it off), camera readout, a
-fire-heat override slider, the LOD budget, SDF light wireframes, and click-to-raycast
-for measuring the world-space landmarks in `src/scene.ts`.
+down while it's on, and puts the shot back when you turn it off), camera readout,
+layer toggles, fire-heat, night and bloom sliders, render scale, light helpers, and
+click-to-raycast for measuring the world-space landmarks in `src/scene.ts`.
+
+## Recording
+
+`?record=1` renders a take straight to an MP4 and downloads it. It isn't a screen
+recording: every frame is rendered on a fixed clock, exactly 1/120 s after the last,
+at 1920×1080 whatever the window, so the file is perfectly smooth at a rate the
+display couldn't show. Frames go from the canvas into the hardware encoder through
+WebCodecs and are muxed in the page with `mp4-muxer`.
+
+The take itself is designed in `src/record.ts`, not in the URL: the fire burns
+through a warmup before the first frame, gets one stoke a third of the way in, and
+the camera sways once across and back, ending where it began so the clip loops.
+`fps`, `width`, `height` and `mbps` change the output format.
 
 ## Layout
 
@@ -212,52 +237,29 @@ for measuring the world-space landmarks in `src/scene.ts`.
 | --- | --- |
 | `src/scene.ts` | Everything specific to *this* world: asset URL, camera framing, where the fire is. Swapping in a new scene is a one-file edit. |
 | `src/fire.ts` | The shared fire signal, and what drives it — resting burn, crackles, stokes. |
-| `src/flame.ts` | The flame body: particles advected through the velocity field, carrying a temperature. |
-| `src/smoke.ts` | Smoke above it — long-lived, expanding, cooling to nothing; reads the fire signal *delayed*. |
-| `src/embers.ts` | Sparks lifting off, riding the same field. |
-| `src/fireflies.ts` | Glints flashing in the dark past the fire. |
-| `src/glsl.ts` | What the generators share: the curl noise (so all three churn together), settings baked in as GLSL literals, and the generator plumbing. |
-| `src/lighting.ts`, `src/heat.ts` | Fire lighting and the heat-shimmer plume, each reading the signal. |
+| `src/sim.ts` | The WebGPU compute fire: the air grid, and the flame, smoke and ember particles that ride it. |
+| `src/flame.ts`, `src/smoke.ts`, `src/embers.ts` | The stateless fire, for where there's no compute. |
+| `src/tsl.ts` | What the generators share: the time uniform, the curl noise, hashing. |
+| `src/coals.ts`, `src/fireflies.ts` | The glowing bed under the flame, and the glints past it. |
+| `src/air.ts` | The breeze and gusts everything drifts in. |
+| `src/lighting.ts`, `src/heat.ts` | Firelight and the heat-shimmer plume, as modifiers on the capture. |
+| `src/post.ts` | Bloom and vignette. |
+| `src/record.ts` | The recording mode and the take's design. |
 | `src/interaction.ts` | Tap-to-stoke (tap, not drag — OrbitControls owns dragging). |
 | `src/camera-drift.ts` | Parallax lean toward the cursor while hovering, so the clearing reads as a space rather than a photo. |
-| `src/debug.ts`, `src/performance.ts` | Debug panel and runtime quality knobs. |
+| `src/debug.ts`, `src/raycast.ts`, `src/performance.ts` | Debug panel, its splat picker, and render scale. |
 
 ## Assets
 
 The scene came from [Marble](https://marble.worldlabs.ai/) (World Labs' 3D-world
 generator), exported as a `.spz` splat.
 
-- `assets/campfire.spz` — the source splat (28 MB). Not served: only the LOD file is.
-- `public/campfire-lod.rad` — the LOD-paged build (39 MB), what the browser loads.
-
-Rebuild the `.rad` from the source with (needs a [Rust toolchain][rust] —
-`build-lod` ships only in Spark's source repo, so the script shallow-clones it into
-a gitignored `vendor/`):
-
-```bash
-pnpm build:lod
-```
-
-The `.rad` is *bigger* than the `.spz` it came from, which is the point: it carries
-a level-of-detail pyramid rather than one flat list, so the renderer can draw a
-cheap version of what's far away. A flat `.spz` has nothing to choose between, so
-every splat is resident and drawn every frame and the LOD budget in
-`src/performance.ts` — and the debug panel's `lod scale` slider — do nothing at all.
-
-Two things are easy to get wrong here:
-
-- **`paged: true` on the `SplatMesh` *streams* the `.rad`** rather than loading it
-  resident. It isn't needed to read the file: `.rad` is an auto-detected format, and
-  the LOD tree is encoded in it, so `new SplatMesh({ url })` alone already gives you
-  LOD (Spark's docs note `lod: true` is unnecessary for a `.rad` for the same
-  reason). What the flag buys is instant start and the paging budget —
-  `pagedExtSplats` / `maxPagedSplats` only exist once a `SplatPager` does.
-- **Paging uses HTTP range requests** to pull pages out of the `.rad`, so whatever
-  serves it has to support them. This applies only when paged.
+`assets/campfire.spz` (28 MB) is what the browser loads, flat: radix draws every
+splat every frame and has no level-of-detail paging yet.
 
 > All the world-space landmarks in `src/scene.ts` — the fire origin, the flame
 > origin, where embers leave — were measured with the debug raycast: press
 > **`` ` ``**, click a point, read the `hit` line. Swap the scene and that's the
 > loop for re-finding them.
 
-[rust]: https://rustup.rs/
+[radix]: https://github.com/asundqui/radix-test
