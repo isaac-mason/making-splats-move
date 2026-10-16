@@ -12,13 +12,13 @@ stand back.
 ## A meadow without end
 
 You're a little cartoon kid walking it in third person (see below). Everything in the meadow,
-grass, ground, flowers and butterflies, lives in one 60 metre tile, and each thing
+grass, ground, flowers and butterflies, lives in one 80 metre tile, and each thing
 is drawn at whichever copy of its place is nearest you. So it holds still in the
 world until you've gone far enough that it wraps round to the far side, out in
 the haze ahead. That's all on the GPU, per splat, so it costs nothing to run as
 far and as fast as you like. The hills, the flower drifts, the dry patches, the
 wind and the clouds are all world-space fields, so the land itself never repeats;
-only the scatter of blades does, 60 metres apart, where the haze hides it.
+only the scatter of blades does, 80 metres apart, where the haze hides it.
 
 ## You
 
@@ -31,8 +31,7 @@ fast.
 
 Walking is a light bounce on alternating legs. Running is skipping: big and small
 hops in turn, the leading knee up, the free arm swinging up, a squash on landing
-and a stretch in the air. The hat bounces a beat late, the basket swings, the head
-nods, and standing still, the kid breathes. A jump is a floaty half-metre arc: knees tucked, the free
+and a stretch in the air. The hat sits steady, the basket swings, the head nods, and standing still, the kid breathes. A jump is a floaty half-metre arc: knees tucked, the free
 arm flung up and out, the body stretched, and a squash on landing as hard as the
 fall; the skirt and hair, simulated in world space, lag on the way up and flare and
 lift on the way down, and the grass isn't trampled from the air. Lit like a cartoon: banded sun, sky

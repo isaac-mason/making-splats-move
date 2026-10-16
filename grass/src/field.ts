@@ -83,12 +83,12 @@ const FIELD = {
      * drawn at whichever copy of its place is nearest you, so the meadow never
      * ends: what you leave behind comes round again out in the haze ahead.
      */
-    reach: 30,
-    blades: 260_000,
+    reach: 40,
+    blades: 340_000,
     segments: 5,
-    ground: 90_000,
+    ground: 120_000,
     /** Where the fade into haze starts and is complete, metres from the camera. */
-    fog: [9, 30],
+    fog: [14, 40],
 };
 
 /**
@@ -312,7 +312,7 @@ function place(random: TslNode): { xz: TslNode; out: TslNode } {
 /** The far field's finish: fade towards the haze with distance, and out at the edge. */
 function distance(center: TslNode, out: TslNode, rgb: TslNode): { rgb: TslNode; opacity: TslNode } {
     const fog = smoothstep(FIELD.fog[0], FIELD.fog[1], length(center.sub(eye)));
-    return { rgb: mix(rgb, v3(HAZE), fog.mul(0.92)), opacity: smoothstep(1, 0.88, out) };
+    return { rgb: mix(rgb, v3(HAZE), fog.mul(0.85)), opacity: smoothstep(1, 0.88, out) };
 }
 
 /** How much wider far splats draw, so a distant blade isn't thinner than a pixel. */
@@ -1173,7 +1173,6 @@ function kidPose() {
     const nod = sin(step.mul(Math.PI * 2))
         .mul(0.035)
         .mul(moving);
-    const hatLag = sin(within.mul(Math.PI).sub(0.9)).mul(0.018).mul(skip);
 
     const neck = vec3(0, 0.78, 0);
     const head = aboutX(nod);
@@ -1210,15 +1209,17 @@ function kidPose() {
                 ),
             );
     const turnToWorld = (dir: TslNode): TslNode => GpuSplatMath.quatRotate(turn, dir);
-    return { leftLeg, rightLeg, hatLag, neck, head, hip, shoulder, leftArm, rightArm, hand, basket, none, toWorld, turnToWorld };
+    return { leftLeg, rightLeg, neck, head, hip, shoulder, leftArm, rightArm, hand, basket, none, toWorld, turnToWorld };
 }
 
 /** `simulated`: the dress and hair are simulations of their own, so leave out the solid skirt and pigtails. */
 function kid(simulated: boolean): SplatObject {
-    const { leftLeg, rightLeg, hatLag, neck, head, hip, shoulder, leftArm, rightArm, hand, basket, none, toWorld, turnToWorld } =
+    const { leftLeg, rightLeg, neck, head, hip, shoulder, leftArm, rightArm, hand, basket, none, toWorld, turnToWorld } =
         kidPose();
     // The hat sits tipped back on the head, so the brim frames the face rather than lying flat.
-    const hatTurn = GpuSplatMath.quatMul(head, aboutX(float(-0.16)));
+    // Steady on the head: it rides the body's hop but doesn't nod or bounce on its own, or
+    // the wide brim turns the head's little nod into a see-saw at its edge.
+    const hatTurn = aboutX(float(-0.16));
 
     const parts: Part[] = [
         // legs and shoes
@@ -1280,7 +1281,7 @@ function kid(simulated: boolean): SplatObject {
         { pivot: neck, turn: head, offset: [0.052, 0.15, 0.159], radii: [0.011, 0.015, 0.004], colour: KID.eyes, flat: true },
         // the sunhat, tipped back a little: a floppy brim, a round crown and a ribbon, bouncing a beat late
         {
-            pivot: neck.add(vec3(0, hatLag, 0)),
+            pivot: neck,
             turn: hatTurn,
             offset: [0, 0.255, -0.01],
             radii: [0, 0, 0],
@@ -1288,14 +1289,14 @@ function kid(simulated: boolean): SplatObject {
             brim: { inner: 0.15, outer: 0.43, droop: 0.075 },
         },
         {
-            pivot: neck.add(vec3(0, hatLag, 0)),
+            pivot: neck,
             turn: hatTurn,
             offset: [0, 0.3, -0.01],
             radii: [0.17, 0.12, 0.17],
             colour: KID.straw,
         },
         {
-            pivot: neck.add(vec3(0, hatLag, 0)),
+            pivot: neck,
             turn: hatTurn,
             offset: [0, 0.27, -0.01],
             radii: [0.178, 0.032, 0.178],
