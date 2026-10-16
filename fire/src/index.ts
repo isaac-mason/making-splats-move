@@ -197,7 +197,7 @@ function syncCollection(state: State) {
     state.splats.collection = new SplatCollection(layers.filter(([on]) => on).map(([, object]) => object));
 }
 
-function update(state: State, elapsed: number, dt: number) {
+function update(state: State, elapsed: number, dt: number, render = true) {
     const { debug, fire, lighting } = state;
 
     // First, so every system reads this frame's heat.
@@ -231,7 +231,7 @@ function update(state: State, elapsed: number, dt: number) {
     // sort doesn't, so ask it each frame: everything here moves all the time.
     if (state.splats.sortMode === 'cpu') state.splats.requestSort();
     state.post.strength.value = debug.bloom;
-    state.post.pipeline.render();
+    if (render) state.post.pipeline.render();
 }
 
 function hideLoading() {
@@ -261,19 +261,20 @@ async function recordTake(state: State, recording: Recording) {
         const blob = await record(
             renderer.domElement,
             recording,
+            // `time` is seconds into the take; the warmup comes before it, unrecorded.
             (index, time, dt) => {
                 while (stokes.length && stokes[0] <= time) {
                     stokeFire(state.fire);
                     stokes.shift();
                 }
                 // The scripted mouse: one eased pass across the window over the take.
-                const u = time / recording.seconds;
+                const u = Math.max(0, time / recording.seconds);
                 const eased = u * u * (3 - 2 * u);
-                state.drift.drive((eased * 2 - 1) * recording.sweep, 0, index === 0);
-                update(state, time, dt);
+                state.drift.drive((eased * 2 - 1) * recording.sweep, 0, index <= 0);
+                update(state, recording.warmup + time, dt, index >= 0);
             },
             (done, total) => {
-                progress.textContent = `recording ${done} / ${total}`;
+                progress.textContent = done < 0 ? `warming up ${-done}` : `recording ${done} / ${total}`;
             },
         );
         download(blob, `fire-${recording.width}x${recording.height}-${recording.fps}fps.mp4`);

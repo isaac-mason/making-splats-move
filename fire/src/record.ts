@@ -7,8 +7,10 @@
  * Encoding is WebCodecs (the hardware H.264 encoder, VP9 if it can't do the size and
  * rate) muxed to an MP4 in memory, then downloaded.
  *
- *   ?record=1&fps=120&seconds=12&width=1920&height=1080&mbps=60&stokes=3,8&sweep=0.8
+ *   ?record=1&fps=120&seconds=12&width=1920&height=1080&mbps=60&stokes=3,8&sweep=0.8&warmup=4
  *
+ * `warmup` seconds run before the first frame, unrecorded, so the fire is already
+ * burning rather than lighting as the take starts.
  * `sweep` is a scripted mouse: it crosses the window from left to right over the
  * take, that far out of 1 each way, so the parallax lean is in the shot. Negative
  * goes right to left, 0 holds still.
@@ -25,6 +27,8 @@ export type Recording = {
     mbps: number;
     /** Seconds into the take to stoke the fire, so a take repeats. */
     stokes: number[];
+    /** Seconds simulated before the first frame, so the fire is already going. */
+    warmup: number;
     /** How far the scripted mouse crosses the window, -1..1; its sign is the direction. */
     sweep: number;
 };
@@ -49,6 +53,7 @@ export function recordingFromUrl(): Recording | null {
         height: Math.round(num('height', 1080) / 2) * 2,
         mbps: num('mbps', 60),
         stokes,
+        warmup: params.has('warmup') ? Math.max(0, Number(params.get('warmup')) || 0) : 4,
         sweep: Number.isFinite(sweep) ? Math.max(-1, Math.min(1, sweep)) : 0.8,
     };
 }
@@ -74,13 +79,22 @@ async function pickCodec(width: number, height: number, framerate: number, bitra
  */
 export async function record(
     canvas: HTMLCanvasElement,
-    { fps, seconds, width, height, mbps }: Recording,
+    { fps, seconds, width, height, mbps, warmup }: Recording,
     frame: (index: number, time: number, dt: number) => void,
     onProgress: (done: number, total: number) => void,
 ): Promise<Blob> {
     const total = Math.round(fps * seconds);
     const bitrate = mbps * 1e6;
     const { codec, mux } = await pickCodec(width, height, fps, bitrate);
+    const dt = 1 / fps;
+
+    // Negative frame indices: the warmup, stepped but not encoded.
+    const lead = Math.round(fps * warmup);
+    for (let f = -lead; f < 0; f++) {
+        frame(f, f * dt, dt);
+        onProgress(f, total);
+        if (f % 8 === 0) await new Promise(requestAnimationFrame);
+    }
 
     const muxer = new Muxer({
         target: new ArrayBufferTarget(),
@@ -104,7 +118,6 @@ export async function record(
         ...(mux === 'avc' ? { avc: { format: 'avc' as const } } : {}),
     });
 
-    const dt = 1 / fps;
     const microseconds = Math.round(1e6 / fps);
     for (let f = 0; f < total; f++) {
         if (failed) throw failed;
