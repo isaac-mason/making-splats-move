@@ -13,7 +13,7 @@ import campfireUrl from '../assets/campfire.spz?url';
 // every splat draws every frame either way.
 export const SPLAT_URL = campfireUrl;
 
-export const CAMERA_POSITION: Vec3 = [-0.71, 0.64, -2.07];
+export const CAMERA_POSITION: Vec3 = [-0.77, 0.655, -1.58];
 export const CAMERA_TARGET: Vec3 = [-0.06, 0.45, -7.64];
 
 // Measured with the debug raycast (backtick, click, read `hit`), then nudged 0.12 m
