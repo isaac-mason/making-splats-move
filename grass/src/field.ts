@@ -698,7 +698,7 @@ function flowers(): SplatObject {
 /**
  * Butterflies over the flowers, in front of you. Each wanders on a smooth looping
  * path, bobbing up on its wingbeats, facing the way it flies. A body and four
- * wings hinged on it, beating gently, and often a glide with the wings
+ * wings hinged on it, beating gently, and now and then a brief glide with the wings
  * held up in a V. Wings are thin enough to glow with the sun behind them.
  */
 const BUTTERFLIES = {
@@ -771,7 +771,8 @@ function butterflies(): SplatObject {
             );
             const heading = atan(velocity.x, velocity.y);
 
-            // Wingbeats, and now and then a glide with the wings held up.
+            // Wingbeats, and now and then a brief glide (under a second) with the
+            // wings held up, still quivering: long still-winged glides look like a toy.
             const rate = mix(BUTTERFLIES.flap[0], BUTTERFLIES.flap[1], c.x);
             const beat = sin(
                 t
@@ -779,8 +780,8 @@ function butterflies(): SplatObject {
                     .mul(Math.PI * 2)
                     .add(c.y.mul(6.283)),
             );
-            const glide = smoothstep(0.2, 0.6, sin(t.mul(0.45).add(c.z.mul(6.283))));
-            const lift = mix(beat, float(0.35), glide);
+            const glide = smoothstep(0.88, 0.97, sin(t.mul(0.8).add(c.z.mul(6.283))));
+            const lift = mix(beat, beat.mul(0.15).add(0.35), glide);
             const wing = lift.mul(0.65).add(0.35);
 
             // Bobbing: a slow rise and fall, and a hitch upwards on each downbeat.
