@@ -719,6 +719,71 @@ function stem(root: TslNode, height: TslNode, bend: TslNode, s: TslNode): { cent
     return { center, tangent };
 }
 
+/* instances: worked out once, read by many */
+
+/** How many components each field of an instance has. */
+type Layout = Record<string, 1 | 2 | 3 | 4>;
+type Fields<L extends Layout> = { [K in keyof L]: TslNode };
+
+/**
+ * Things worked out once and read by many splats: a blade, read by its segments; a
+ * flower, by its stem and petals (and by the butterflies choosing where to land); a
+ * boulder's surface, by each frame's light. Declare the fields and their sizes:
+ * they're packed into vec4 buffers, `kernel` fills them (dispatch it whenever they
+ * need refreshing), and `read` unpacks one. Without compute there are no buffers,
+ * and `read` simply works it out where it's asked, from the same code.
+ */
+type Instances<L extends Layout> = { read: (i: TslNode) => Fields<L>; kernel: WgpuCompute | null; count: number };
+
+function instances<L extends Layout>(
+    renderer: WebGPURenderer | null,
+    label: string,
+    count: number,
+    layout: L,
+    state: (i: TslNode) => Fields<L>,
+): Instances<L> {
+    if (!renderer) return { read: state, kernel: null, count };
+    // Pack the fields into vec4s in the order given, starting a new one when a field won't fit.
+    const slots: { key: keyof L; buffer: number; offset: number; size: number }[] = [];
+    let buffer = 0;
+    let offset = 0;
+    for (const key of Object.keys(layout) as (keyof L)[]) {
+        const size = layout[key];
+        if (offset + size > 4) {
+            buffer++;
+            offset = 0;
+        }
+        slots.push({ key, buffer, offset, size });
+        offset += size;
+    }
+    const buffers = Array.from({ length: buffer + 1 }, () => new WgpuBuffer({ renderer, format: 'float32x4', count }));
+    const parts = (node: TslNode, size: number): TslNode[] =>
+        size === 1 ? [node] : [...'xyzw'.slice(0, size)].map((c) => node[c]);
+    const kernel = new WgpuCompute({
+        label,
+        body: ({ index }) => {
+            If(index.lessThan(uint(count)), () => {
+                const value = state(index);
+                buffers.forEach((target, b) => {
+                    const comps = slots.filter((slot) => slot.buffer === b).flatMap((slot) => parts(value[slot.key], slot.size));
+                    while (comps.length < 4) comps.push(float(0));
+                    target.element(index).assign(vec4(comps[0], comps[1], comps[2], comps[3]));
+                });
+            });
+        },
+    });
+    const read = (i: TslNode): Fields<L> => {
+        const packed = buffers.map((b) => b.element(i).toVar());
+        const out = {} as Fields<L>;
+        for (const slot of slots) out[slot.key] = packed[slot.buffer]['xyzw'.slice(slot.offset, slot.offset + slot.size)];
+        return out;
+    };
+    return { read, kernel, count };
+}
+
+/** The splat-making objects that read instances, and the instances, made in `initField`. */
+let compute: WebGPURenderer | null = null;
+
 /* the blades */
 
 /**
@@ -810,87 +875,21 @@ function bladeSplat(st: BladeState, s: TslNode, girth: number, segments: number,
     return GpuSplats.Splat(center, scales, quaternion, hazed, st.visible, uint(index));
 }
 
-/** A layer's blade states, worked out once a frame by a kernel: four vec4s a blade. */
-type BladeBuffers = {
-    a: WgpuBuffer<'float32x4'>;
-    b: WgpuBuffer<'float32x4'>;
-    c: WgpuBuffer<'float32x4'>;
-    d: WgpuBuffer<'float32x4'>;
-    kernel: WgpuCompute;
-    count: number;
-};
+/** What a blade is, as `bladeState` works it out. */
+const BLADE_STATE = { root: 3, height: 1, bend: 2, gust: 1, visible: 1, base: 3, lit: 1, hillside: 1, fog: 1, turn: 1 } as const;
 
-function bladeBuffers(
-    renderer: WebGPURenderer,
-    count: number,
-    reach: number,
-    stream: number,
-    detail: boolean,
-    edge: number,
-): BladeBuffers {
-    const make = () => new WgpuBuffer({ renderer, format: 'float32x4', count });
-    const [a, b, c, d] = [make(), make(), make(), make()];
-    const kernel = new WgpuCompute({
-        label: 'grassBlades',
-        body: ({ index }) => {
-            If(index.lessThan(uint(count)), () => {
-                const st = bladeState(index, reach, stream, detail, edge);
-                a.element(index).assign(vec4(st.root, st.height));
-                b.element(index).assign(vec4(st.bend, st.gust, st.visible));
-                c.element(index).assign(vec4(st.base, st.lit));
-                d.element(index).assign(vec4(st.hillside, st.fog, st.turn, 0));
-            });
-        },
-    });
-    return { a, b, c, d, kernel, count };
-}
+/** Each grass layer's blades, worked out once a frame. */
+let bladeSets: Instances<typeof BLADE_STATE>[] = [];
 
-/** Blade `blade`'s state, read back from what its layer's kernel worked out this frame. */
-function bladeRead(buffers: BladeBuffers, blade: TslNode): BladeState {
-    const a = buffers.a.element(blade).toVar();
-    const b = buffers.b.element(blade).toVar();
-    const c = buffers.c.element(blade).toVar();
-    const d = buffers.d.element(blade).toVar();
-    return {
-        root: a.xyz,
-        height: a.w,
-        bend: b.xy,
-        gust: b.z,
-        visible: b.w,
-        base: c.xyz,
-        lit: c.w,
-        hillside: d.x,
-        fog: d.y,
-        turn: d.z,
-    };
-}
-
-/** The grass layers' blade buffers, when there's compute to fill them. */
-let bladeLayers: BladeBuffers[] | null = null;
-
-/**
- * One layer of grass: `count` blades on a tile of half-size `reach`, `girth` times as
- * thick, from random stream `stream`, fading out from `edge` of the way out, drawn
- * with `segments` splats a blade. Reads its blades from `buffers` when there are
- * some; otherwise works each one out per splat.
- */
-function blades(
-    count: number,
-    reach: number,
-    girth: number,
-    stream: number,
-    edge: number,
-    segments: number,
-    detail: boolean,
-    buffers: BladeBuffers | null,
-): SplatObject {
-    return generated(count * segments, (index) => {
+/** One layer of grass, drawn: its blades from `set`, `segments` splats a blade, `girth` times as thick. */
+function blades(set: Instances<typeof BLADE_STATE>, segments: number, girth: number): SplatObject {
+    return generated(set.count * segments, (index) => {
         const blade = index.div(uint(segments));
         const s = float(index.mod(uint(segments)))
             .add(0.5)
             .div(segments)
             .toVar();
-        const st = buffers ? bladeRead(buffers, blade) : bladeState(blade, reach, stream, detail, edge);
+        const st = set.read(blade);
         return bladeSplat(st, s, girth, segments, index);
     });
 }
@@ -997,7 +996,13 @@ function pick(kind: TslNode, values: TslNode[]): TslNode {
  * whether its drift lets it show (`here`, 0..1), its height, and how the wind has
  * it bent. Shared with the butterflies, which land on the flowers.
  */
-function flowerPlan(flower: TslNode) {
+/** What a flower is, as `flowerState` works it out. */
+const FLOWER_STATE = { root: 3, height: 1, bend: 2, gust: 1, here: 1, out: 1, kind: 1, tip: 2 } as const;
+
+/** Every flower, worked out once a frame: read by its stem and petals, and by the butterflies. */
+let flowerSet = {} as Instances<typeof FLOWER_STATE>;
+
+function flowerState(flower: TslNode) {
     const b = hash4(flower, 5).toVar();
     const c = hash4(flower, 6).toVar();
     // Drifts: flowers gather where the drift field says, with a few strays. Each
@@ -1030,7 +1035,24 @@ function flowerPlan(flower: TslNode) {
         .mul(0.75)
         .add(vec2(cos(b.y.mul(6.283)), sin(b.y.mul(6.283))).mul(0.15))
         .add(trampled(xz));
-    return { a, b, c, xz, out, root, here, height, gust, bend };
+    // The drift's own kind, or now and then any kind.
+    const kinds = FLOWERS.kinds.length;
+    const driftKind = mx_noise_float(xz.mul(FLOWERS.drift * 0.6).add(5.1))
+        .mul(0.5)
+        .add(0.5)
+        .mul(kinds);
+    const kind = c.w
+        .lessThan(0.25)
+        .select(c.x.mul(kinds), driftKind)
+        .floor()
+        .clamp(0, kinds - 1);
+    return { root, height, bend, gust, here, out, kind, tip: a.zw };
+}
+
+/** Flower `flower`: what it is, and its own random numbers. */
+function flowerPlan(flower: TslNode) {
+    const state = flowerSet.read(flower);
+    return { ...state, xz: state.root.xz, b: hash4(flower, 5).toVar(), c: hash4(flower, 6).toVar() };
 }
 
 function flowers(): SplatObject {
@@ -1049,19 +1071,8 @@ function flowers(): SplatObject {
             const part = float(index.mod(uint(parts))).toVar();
             // This petal's own numbers, so no two are alike.
             const own = hash4(index, 7).toVar();
-            const { a, b, c, xz, out, root, here, height, gust, bend } = flowerPlan(flower);
+            const { b, c, out, root, here, height, gust, bend, kind, tip } = flowerPlan(flower);
 
-            // The drift's own kind, or now and then any kind.
-            const driftKind = mx_noise_float(xz.mul(FLOWERS.drift * 0.6).add(5.1))
-                .mul(0.5)
-                .add(0.5)
-                .mul(kinds.length);
-            const kind = c.w
-                .lessThan(0.25)
-                .select(c.x.mul(kinds.length), driftKind)
-                .floor()
-                .clamp(0, kinds.length - 1)
-                .toVar();
             const bud = c.y.lessThan(FLOWERS.buds);
 
             const isStem = part.lessThan(stemSegments);
@@ -1071,13 +1082,13 @@ function flowers(): SplatObject {
             const head = stem(root, height, bend, float(1));
 
             // The head nods with the stem and is tipped its own way: most are seen side-on.
-            const tipAngle = a.z.mul(6.283);
-            const tip = vec3(cos(tipAngle), 0, sin(tipAngle)).mul(a.w.mul(0.9));
+            const tipAngle = tip.x.mul(6.283);
+            const tipped = vec3(cos(tipAngle), 0, sin(tipAngle)).mul(tip.y.mul(0.9));
             const facing = normalize(
                 head.tangent
                     .add(vec3(0, 0.5, 0))
                     .add(sun.mul(0.25))
-                    .add(tip),
+                    .add(tipped),
             ).toVar();
 
             // Petals round the head, evenly but not exactly, each its own size, cupped.
@@ -2406,60 +2417,76 @@ function ground(): SplatObject {
 
 /* boulders */
 
-function boulders(): SplatObject {
+/** What a boulder's surface splat is, as `boulderState` works it out: everything but the light. */
+const BOULDER_STATE = { center: 3, size: 1, normal: 3, shows: 1, body: 3 } as const;
+
+/** The boulders' surfaces, worked out only when the set of boulders near you changes. */
+let boulderSet = {} as Instances<typeof BOULDER_STATE>;
+
+/** Surface splat `index` of the boulders: its place, size, normal and stone colour. */
+function boulderState(index: TslNode) {
     const { splats } = BOULDERS;
+    const slot = index.div(uint(splats));
+    const k = float(index.mod(uint(splats)));
+    // This slot's boulder: one of the occupied cells near you, from the CPU.
+    const cell = boulderCells.element(slot).toVar();
+    const b = boulderOf(cell.x, cell.y);
+
+    // An even spiral over a sphere, pushed in and out by noise: a lumpy stone.
+    const y = k.add(0.5).div(splats).mul(-2).add(1);
+    const r = y.mul(y).oneMinus().max(0).sqrt();
+    const angle = k.mul(2.399963);
+    const dir = vec3(cos(angle).mul(r), y, sin(angle).mul(r)).toVar();
+    const seed = hash4(b.seed, 41).toVar();
+    const lumpAt = (d: TslNode) =>
+        mx_noise_float(d.mul(1.6).add(seed.xyz.mul(40)))
+            .mul(0.22)
+            .add(mx_noise_float(d.mul(4.2).add(seed.yzx.mul(40))).mul(0.07))
+            .add(mx_noise_float(d.mul(9).add(seed.zxy.mul(40))).mul(0.02))
+            .add(1);
+    const lump = lumpAt(dir).toVar();
+    const shape = vec3(1, BOULDERS.squat, mix(0.8, 1.15, seed.w));
+    const base = terrain(b.center).height.sub(b.radius.mul(BOULDERS.buried));
+    const center = vec3(b.center.x, base, b.center.y).add(dir.mul(shape).mul(lump).mul(b.radius)).toVar();
+    // Lit by its own lumps: the normal tilted by how the surface rises and falls
+    // round this point, so faces, ridges and creases catch the light.
+    const t1 = normalize(cross(dir, vec3(0, 1, 0)).add(vec3(1e-4, 0, 0)));
+    const t2 = cross(dir, t1);
+    const eps = 0.04;
+    const rise1 = lumpAt(normalize(dir.add(t1.mul(eps))))
+        .sub(lump)
+        .div(eps);
+    const rise2 = lumpAt(normalize(dir.add(t2.mul(eps))))
+        .sub(lump)
+        .div(eps);
+    const normal = normalize(dir.div(shape).sub(t1.mul(rise1)).sub(t2.mul(rise2))).toVar();
+
+    // Granite, dark in its creases, lichen in patches, moss on top.
+    const grain = mx_noise_float(center.mul(3.1))
+        .mul(0.35)
+        .add(mx_noise_float(center.mul(11)).mul(0.15))
+        .add(0.5);
+    const crease = smoothstep(0.98, 0.9, lump);
+    const lichen = smoothstep(0.62, 0.7, mx_noise_float(center.mul(1.7).add(9)).mul(0.5).add(0.5));
+    const moss = smoothstep(0.45, 0.8, normal.y).mul(
+        smoothstep(0.45, 0.6, mx_noise_float(center.mul(1.2).add(3)).mul(0.5).add(0.5)),
+    );
+    const stone = mix(v3(BOULDERS.dark), v3(BOULDERS.granite), grain.mul(0.6).add(0.4)).mul(crease.mul(-0.35).add(1));
+    const body = mix(mix(stone, v3(BOULDERS.lichen), lichen.mul(0.7)), v3(BOULDERS.moss), moss);
+
+    const size = b.radius.mul(Math.sqrt((4 * Math.PI) / splats)).mul(0.7);
+    // None where there's no boulder, nor below the ground.
+    const above = center.y.greaterThan(terrain(center.xz).height.sub(0.05)).select(float(1), float(0));
+    const shows = b.there.mul(cell.z).mul(above);
+    return { center, size, normal, shows, body };
+}
+
+/** The boulders, drawn: their baked surfaces, lit by this frame's sun and clouds. */
+function boulders(): SplatObject {
     return generated(
-        BOULDERS.slots * splats,
+        boulderSet.count,
         (index) => {
-            const slot = index.div(uint(splats));
-            const k = float(index.mod(uint(splats)));
-            // This slot's world cell: round the cell you're in.
-            // This slot's boulder: one of the occupied cells near you, from the CPU.
-            const cell = boulderCells.element(slot).toVar();
-            const b = boulderOf(cell.x, cell.y);
-            b.there = b.there.mul(cell.z);
-
-            // An even spiral over a sphere, pushed in and out by noise: a lumpy stone.
-            const y = k.add(0.5).div(splats).mul(-2).add(1);
-            const r = y.mul(y).oneMinus().max(0).sqrt();
-            const angle = k.mul(2.399963);
-            const dir = vec3(cos(angle).mul(r), y, sin(angle).mul(r)).toVar();
-            const seed = hash4(b.seed, 41).toVar();
-            const lumpAt = (d: TslNode) =>
-                mx_noise_float(d.mul(1.6).add(seed.xyz.mul(40)))
-                    .mul(0.22)
-                    .add(mx_noise_float(d.mul(4.2).add(seed.yzx.mul(40))).mul(0.07))
-                    .add(mx_noise_float(d.mul(9).add(seed.zxy.mul(40))).mul(0.02))
-                    .add(1);
-            const lump = lumpAt(dir).toVar();
-            const shape = vec3(1, BOULDERS.squat, mix(0.8, 1.15, seed.w));
-            const base = terrain(b.center).height.sub(b.radius.mul(BOULDERS.buried));
-            const center = vec3(b.center.x, base, b.center.y).add(dir.mul(shape).mul(lump).mul(b.radius)).toVar();
-            // Lit by its own lumps: the normal tilted by how the surface rises and falls
-            // round this point, so faces, ridges and creases catch the light.
-            const t1 = normalize(cross(dir, vec3(0, 1, 0)).add(vec3(1e-4, 0, 0)));
-            const t2 = cross(dir, t1);
-            const eps = 0.04;
-            const rise1 = lumpAt(normalize(dir.add(t1.mul(eps))))
-                .sub(lump)
-                .div(eps);
-            const rise2 = lumpAt(normalize(dir.add(t2.mul(eps))))
-                .sub(lump)
-                .div(eps);
-            const normal = normalize(dir.div(shape).sub(t1.mul(rise1)).sub(t2.mul(rise2))).toVar();
-
-            // Granite, dark in its creases, lichen in patches, moss on top.
-            const grain = mx_noise_float(center.mul(3.1))
-                .mul(0.35)
-                .add(mx_noise_float(center.mul(11)).mul(0.15))
-                .add(0.5);
-            const crease = smoothstep(0.98, 0.9, lump);
-            const lichen = smoothstep(0.62, 0.7, mx_noise_float(center.mul(1.7).add(9)).mul(0.5).add(0.5));
-            const moss = smoothstep(0.45, 0.8, normal.y).mul(
-                smoothstep(0.45, 0.6, mx_noise_float(center.mul(1.2).add(3)).mul(0.5).add(0.5)),
-            );
-            const stone = mix(v3(BOULDERS.dark), v3(BOULDERS.granite), grain.mul(0.6).add(0.4)).mul(crease.mul(-0.35).add(1));
-            const body = mix(mix(stone, v3(BOULDERS.lichen), lichen.mul(0.7)), v3(BOULDERS.moss), moss);
+            const { center, size, normal, shows, body } = boulderSet.read(index);
             const lit = sunlight(center);
             const below = smoothstep(-0.6, 0.3, normal.y).mul(0.5).add(0.5);
             const rgb = body.mul(
@@ -2469,20 +2496,14 @@ function boulders(): SplatObject {
                     .mul(0.85)
                     .add(v3(SKYLIGHT).mul(0.55).mul(below)),
             );
-
-            const size = b.radius.mul(Math.sqrt((4 * Math.PI) / splats)).mul(0.7);
             const finish = distance(center, float(0), rgb);
-            // None where there's no boulder, nor below the ground.
-            const shows = b.there.mul(center.y.greaterThan(terrain(center.xz).height.sub(0.05)).select(float(1), float(0)));
+            const fade = smoothstep(BOULDERS.fade[1], BOULDERS.fade[0], length(center.xz.sub(you.xz)));
             return GpuSplats.Splat(
                 center,
                 vec3(size, size.mul(0.3), size),
                 alignY(normal),
                 finish.rgb.min(0.95),
-                finish.opacity
-                    .mul(shows)
-                    .mul(smoothstep(BOULDERS.fade[1], BOULDERS.fade[0], length(b.center.sub(you.xz))))
-                    .mul(1.3),
+                finish.opacity.mul(shows).mul(fade).mul(1.3),
                 uint(index),
             );
         },
@@ -2514,9 +2535,7 @@ export function boulderAt(x: number, z: number): { x: number; z: number; radius:
 
 /** The grass, every layer of it, each on its own random stream. */
 function grass(): SplatObject[] {
-    return FIELD.layers.map((layer, n) =>
-        blades(layer.blades, layer.reach, layer.girth, n * 4, layer.edge, layer.segments, layer.detail, bladeLayers?.[n] ?? null),
-    );
+    return FIELD.layers.map((layer, n) => blades(bladeSets[n], layer.segments, layer.girth));
 }
 
 /* the paths' surface */
@@ -2619,11 +2638,15 @@ export function initField(renderer: WebGPURenderer, clouds: THREE.Texture, kidOn
     clouds.colorSpace = THREE.NoColorSpace;
     cloudMap = clouds;
     // Before the generators: they read the trample grid if there is one.
-    const compute = getGpuCaps(renderer).compute;
+    compute = getGpuCaps(renderer).compute ? renderer : null;
     trampleState = compute ? initTrample(renderer) : null;
-    bladeLayers = compute
-        ? FIELD.layers.map((layer, n) => bladeBuffers(renderer, layer.blades, layer.reach, n * 4, layer.detail, layer.edge))
-        : null;
+    flowerSet = instances(compute, 'flowers', FLOWERS.count, FLOWER_STATE, flowerState);
+    boulderSet = instances(compute, 'boulders', BOULDERS.slots * BOULDERS.splats, BOULDER_STATE, boulderState);
+    bladeSets = FIELD.layers.map((layer, n) =>
+        instances(compute, 'grassBlades', layer.blades, BLADE_STATE, (i) =>
+            bladeState(i, layer.reach, n * 4, layer.detail, layer.edge),
+        ),
+    );
     simState = compute ? initSim(renderer) : null;
     const dressAndHair = simState ? [skirt(simState), hairStrands(simState)] : [];
     const you = [kid(simState !== null), ...dressAndHair];
@@ -2653,6 +2676,8 @@ export type Walker = {
 };
 
 let frames = 0;
+/** Which boulder cells were near you last frame, so their surfaces are only re-baked when that changes. */
+let bouldersNear = '';
 
 export function updateField(elapsed: number, dt: number, camera: THREE.Camera, walker: Walker): void {
     time.value = elapsed;
@@ -2674,6 +2699,12 @@ export function updateField(elapsed: number, dt: number, camera: THREE.Camera, w
     }
     near.sort((a, b) => a[2] - b[2]);
     const cells = boulderCells.array as THREE.Vector4[];
+    const which = near
+        .slice(0, BOULDERS.slots)
+        .map(([x, z]) => `${x},${z}`)
+        .join(';');
+    const bouldersMoved = which !== bouldersNear;
+    bouldersNear = which;
     for (let i = 0; i < BOULDERS.slots; i++) {
         const c = near[i];
         cells[i].set(c ? c[0] : 0, c ? c[1] : 0, c ? 1 : 0, 0);
@@ -2691,7 +2722,9 @@ export function updateField(elapsed: number, dt: number, camera: THREE.Camera, w
         const { batch } = trampleState;
         batch.add(trampleState.kernel, TRAMPLE.cells ** 2);
         // Every blade worked out once, before its splats read it.
-        if (bladeLayers) for (const layer of bladeLayers) batch.add(layer.kernel, layer.count);
+        for (const set of [...bladeSets, flowerSet]) if (set.kernel) batch.add(set.kernel, set.count);
+        // The boulders' surfaces only when the boulders near you have changed.
+        if (bouldersMoved && boulderSet.kernel) batch.add(boulderSet.kernel, boulderSet.count);
         if (simState) for (const [kernel, count] of simState.kernels) batch.add(kernel, count);
         batch.submit();
     }

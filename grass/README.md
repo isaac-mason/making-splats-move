@@ -135,6 +135,18 @@ round you on a world grid so they hold still as you walk, with a pebble here and
 there, keyed to its place on the path so it holds still as you walk. Here and
 there, rare clearings: soft patches where the grass grows a little shorter and sparser.
 
+## Worked out once
+
+Much of the meadow is things that many splats read: a blade, read by each of its
+segments; a flower, by its stem and petals (and by the butterflies choosing where to
+land); a boulder's surface, by each frame's light. One small tool, `instances`,
+handles all of them: declare the fields and their sizes, give a function that works
+one out, and it packs the fields into vec4 buffers, gives a kernel that fills them,
+and a reader that unpacks one. Grass and flowers are refilled every frame; boulder
+surfaces only when the set of boulders near you changes, so each frame only adds
+the light. Without compute (WebGL2) there are no buffers, and the reader simply
+works it out where it's asked, from the same code.
+
 ## Trampling, on the GPU
 
 The grass parts round you and stays flattened behind you, springing back over a
@@ -166,10 +178,7 @@ a blade near you, four further out, three in the outer layer, which also takes a
 cheaper wind (the same gusts without the warp, second layer and fine octave you
 can't see that far off). And nothing is drawn past the 48 metres the camera can
 reach. And each blade is worked out once a frame, not once a
-splat: where it grows, its height, its wind and trampling, colour, sunlight, haze
-and whether it shows are all computed by a compute kernel per layer into a small
-buffer, and a blade's splats just read it and draw their segment (without compute,
-on WebGL2, each splat works it out itself, from the same code). One even scatter can't do it: thin enough to afford
+splat (see *Worked out once* below). One even scatter can't do it: thin enough to afford
 over the whole meadow, it shows the earth between blades from above.
 
 Far blades draw wider with distance, the ground between them turns grass-coloured,
