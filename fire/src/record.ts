@@ -29,11 +29,11 @@ export type Recording = {
     stokes: number[];
     /** Seconds simulated before the first frame, so the fire is already going. */
     warmup: number;
-    /** The scripted mouse's half-width, -1..1; its sign is the direction round. */
+    /** The scripted mouse's half-width, 0..2, where 1 is the window's edge. */
     sweep: number;
-    /** Its half-height, 0..1. */
+    /** Its half-height, 0..2. */
     rise: number;
-    /** Seconds per lap. */
+    /** Seconds per swing, roughly: the sway is several sines, not a loop. */
     period: number;
 };
 
@@ -46,7 +46,7 @@ export function recordingFromUrl(): Recording | null {
     };
     const unit = (name: string, fallback: number) => {
         const value = Number(params.get(name));
-        return params.has(name) && Number.isFinite(value) ? Math.max(-1, Math.min(1, value)) : fallback;
+        return params.has(name) && Number.isFinite(value) ? Math.max(0, Math.min(2, value)) : fallback;
     };
     const stokes = (params.get('stokes') ?? '')
         .split(',')
@@ -61,9 +61,9 @@ export function recordingFromUrl(): Recording | null {
         mbps: num('mbps', 60),
         stokes,
         warmup: params.has('warmup') ? Math.max(0, Number(params.get('warmup')) || 0) : 4,
-        sweep: unit('sweep', 1),
-        rise: Math.abs(unit('rise', 0.3)),
-        period: num('period', 6),
+        sweep: unit('sweep', 1.4),
+        rise: unit('rise', 0.4),
+        period: num('period', 7),
     };
 }
 

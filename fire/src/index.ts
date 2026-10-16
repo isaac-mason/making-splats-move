@@ -268,10 +268,13 @@ async function recordTake(state: State, recording: Recording) {
                     stokeFire(state.fire);
                     stokes.shift();
                 }
-                // The scripted mouse laps the window, through the warmup too, so the
-                // lean is already moving on the first frame.
-                const phase = (2 * Math.PI * time) / recording.period;
-                state.drift.drive(Math.sin(phase) * recording.sweep, Math.cos(phase) * recording.rise, first);
+                // The scripted mouse sways about the window, through the warmup too, so
+                // the lean is already moving on the first frame. Sines at unrelated
+                // rates, so it never quite repeats and never reads as a loop.
+                const p = (2 * Math.PI * time) / recording.period;
+                const x = 0.75 * Math.sin(p) + 0.25 * Math.sin(0.43 * p + 1.7);
+                const y = 0.6 * Math.sin(0.71 * p + 0.9) + 0.4 * Math.sin(1.37 * p + 2.6);
+                state.drift.drive(x * recording.sweep, y * recording.rise, first);
                 first = false;
                 update(state, recording.warmup + time, dt, index >= 0);
             },
