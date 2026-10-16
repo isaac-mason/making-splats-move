@@ -69,9 +69,12 @@ field, not noise boiling in place, and blades with a little weight to them.
   past it as the gust lets go. That needs no state: since the pattern only slides,
   what reached a blade a moment ago is the pattern a little downwind of it, and
   how fast it was letting go is the difference between two such samples.
-- **Sway**: a gentle ripple running through the grass downwind, neighbours in step,
-  each blade only a touch off their rate and phase, so you see ripples pass rather
-  than a buzz of separate blades.
+- **Flutter**: each stem shakes on its own, at its own rate, more in a gust, along
+  the wind and a little across it. Not a wave running through the field: a shared
+  wave moves every blade in step, and the eye reads that as the ground heaving
+  rather than the grass blowing.
+- **Scatter**: each stem leans a little its own way off the wind, so a gust
+  doesn't lay the field over as one sheet.
 - **Lulls and gusts**: how hard it blows rises and falls over tens of seconds, and
   that travels too: a lull rolls across the field with the wind rather than the
   whole field calming at once. The wind veers a little, and taller blades catch

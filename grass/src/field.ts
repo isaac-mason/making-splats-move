@@ -142,13 +142,15 @@ const WIND = {
     respond: 0.35,
     whip: 0.4,
     /**
-     * A gentle sway that ripples through the grass as a travelling wave: its
-     * angle, rate (Hz), and wavelength along the wind (metres). Neighbours sway
-     * together, so you see the ripples pass.
+     * Each stem's own flutter: its angle (radians, more in a gust) and rate (Hz,
+     * each stem somewhere in the range). Its own, not a wave running through the
+     * field: a shared wave moves every blade in step, and reads as the ground
+     * heaving rather than the grass blowing.
      */
-    sway: 0.05,
-    swayRate: 0.6,
-    swayLength: 5,
+    flutter: 0.075,
+    flutterRate: [1.1, 2.4],
+    /** How far each stem's lean strays from the wind's way, radians either side. */
+    scatter: 0.35,
     /** A finer octave of gust riding the broad one, at this scale and weight. */
     detail: 0.36,
     detailWeight: 0.35,
@@ -418,7 +420,8 @@ function trampled(xz: TslNode): TslNode {
 
 /**
  * The wind on a stem at `xz` of `height`, with its own random numbers `r`: how much
- * gust it feels (for the sheen) and how far the wind pushes it over, radians.
+ * gust it feels (for the sheen) and how the wind pushes it over, an xz vector whose
+ * length is the angle.
  *
  * Gusts: one broad pattern in the wind's own frame, stretched across it, sliding
  * downwind and barely changing shape as it goes. Because it only slides, what
@@ -455,19 +458,24 @@ function windAt(xz: TslNode, height: TslNode, r: TslNode): { gust: TslNode; push
         .mul(blowing)
         .toVar();
 
-    // The sway: a ripple running through the grass downwind, each stem a touch off
-    // its neighbours' rate and phase so it isn't a sheet.
-    const downwind = dot(xz, windDir).div(WIND.swayLength);
-    const sway = sin(
-        downwind
-            .sub(time.mul(WIND.swayRate).mul(r.x.sub(0.5).mul(0.25).add(1)))
-            .add(r.y.mul(0.15))
-            .mul(Math.PI * 2),
-    ).mul(gust.mul(0.8).add(0.35).mul(WIND.sway));
+    // Its own flutter: along the wind and a little across it, at its own rate.
+    const rate = mix(WIND.flutterRate[0], WIND.flutterRate[1], r.x).mul(Math.PI * 2);
+    const phase = r.y.mul(Math.PI * 2);
+    const flutter = gust.add(0.25).mul(WIND.flutter);
+    const shake = vec2(sin(time.mul(rate).add(phase)), sin(time.mul(rate.mul(1.37)).add(phase.mul(2.1))).mul(0.6)).mul(flutter);
+
+    // Each stem leans a little its own way, so a gust doesn't lay the field over as one sheet.
+    const stray = r.z.sub(0.5).mul(2 * WIND.scatter);
+    const way = vec2(
+        windDir.x.mul(cos(stray)).sub(windDir.y.mul(sin(stray))),
+        windDir.x.mul(sin(stray)).add(windDir.y.mul(cos(stray))),
+    );
+    const sideways = vec2(way.y.negate(), way.x);
 
     // Taller stems catch more of it.
     const reach = clamp(height.div(BLADE.height[1]), 0.5, 1.3);
-    const push = gust.mul(WIND.gust).add(blowing.mul(0.5).add(0.5).mul(WIND.breeze)).add(sway).mul(reach);
+    const lay = gust.mul(WIND.gust).add(blowing.mul(0.5).add(0.5).mul(WIND.breeze));
+    const push = way.mul(lay.add(shake.x)).add(sideways.mul(shake.y)).mul(reach);
     return { gust, push };
 }
 
@@ -530,7 +538,7 @@ function blades(): SplatObject {
         const { gust, push } = windAt(xz, height, c);
         const leanAngle = b.z.mul(Math.PI * 2);
         const lean = vec2(cos(leanAngle), sin(leanAngle)).mul(b.w.mul(BLADE.restLean));
-        const { center, tangent } = stem(root, height, lean.add(windDir.mul(push)).add(trampled(xz)), s);
+        const { center, tangent } = stem(root, height, lean.add(push).add(trampled(xz)), s);
 
         // Facing turns the blade about its own length; then it's stood along the stem.
         const quaternion = GpuSplatMath.quatMul(alignY(tangent), yaw(b.y.mul(Math.PI))).toVar();
@@ -685,8 +693,8 @@ function flowerPlan(flower: TslNode) {
     const height = mix(FLOWERS.height[0], FLOWERS.height[1], b.x).toVar();
     const { gust, push } = windAt(xz, height, c);
     // A little stiffer than grass, and each with a lean of its own.
-    const bend = windDir
-        .mul(push.mul(0.75))
+    const bend = push
+        .mul(0.75)
         .add(vec2(cos(b.y.mul(6.283)), sin(b.y.mul(6.283))).mul(0.15))
         .add(trampled(xz));
     return { a, b, c, xz, out, root, here, height, gust, bend };
