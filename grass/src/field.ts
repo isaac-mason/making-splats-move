@@ -1179,7 +1179,7 @@ function butterflies(): SplatObject {
  * beat late and the basket swings. Standing still, breathing.
  */
 /** The sunhat: how far it tips back (radians, negative), and its brim, as the kid's parts and the hair both need it. */
-const HAT = { tip: -0.16, at: 0.255, inner: 0.15, outer: 0.43, droop: 0.075 };
+const HAT = { tip: -0.16, at: 0.255, inner: 0.15, outer: 0.43, droop: 0.075, clear: 0.025 };
 
 const KID = {
     skin: [0.98, 0.8, 0.68],
@@ -1923,17 +1923,7 @@ function initSim(renderer: WebGPURenderer): Sim {
                         const push = d.div(l).mul(float(HAIR.gap).sub(l).max(0).mul(0.5));
                         out = out.add(inRange.and(sameRow).select(push, vec3(0)));
                     }
-                    // Under the hat's brim: in the hat's own tipped frame, no hair above the
-                    // brim's drooping surface anywhere in its footprint.
-                    const hatTurnWorld = GpuSplatMath.quatMul(pose.turn, pose.hat);
-                    const hatAt = pose.toWorld(pose.neck.add(GpuSplatMath.quatRotate(pose.hat, vec3(0, HAT.at, -0.01))));
-                    const unturn = vec4(hatTurnWorld.xyz.negate(), hatTurnWorld.w);
-                    const inHat = GpuSplatMath.quatRotate(unturn, out.sub(hatAt)).toVar();
-                    const across = length(inHat.xz);
-                    const e = clamp(across.sub(HAT.inner).div(HAT.outer - HAT.inner), 0, 1);
-                    const below = e.mul(e).mul(-HAT.droop).sub(0.012);
-                    const under = across.lessThan(HAT.outer).and(inHat.y.greaterThan(below));
-                    out = under.select(hatAt.add(GpuSplatMath.quatRotate(hatTurnWorld, vec3(inHat.x, below, inHat.z))), out);
+                    out = underBrim(pose, out, HAT.clear);
                     // Off the head, shoulders and back.
                     const headAt = pose.toWorld(pose.neck.add(GpuSplatMath.quatRotate(pose.head, vec3(0, 0.15, 0))));
                     out = outOf(out, headAt, headAt, 0.175);
@@ -2021,6 +2011,24 @@ function skirt(sim: Sim): SplatObject {
     );
 }
 
+/**
+ * Point `p` kept under the hat's brim: in the hat's own tipped frame, nothing above
+ * the brim's drooping surface (less `clear`) anywhere in its footprint. For the
+ * hair's simulated joints, and again for every drawn strand point, which sit a
+ * little off their joints and would otherwise poke through when the hair flies up.
+ */
+function underBrim(pose: ReturnType<typeof kidPose>, p: TslNode, clear: number): TslNode {
+    const hatTurnWorld = GpuSplatMath.quatMul(pose.turn, pose.hat);
+    const hatAt = pose.toWorld(pose.neck.add(GpuSplatMath.quatRotate(pose.hat, vec3(0, HAT.at, -0.01))));
+    const unturn = vec4(hatTurnWorld.xyz.negate(), hatTurnWorld.w);
+    const inHat = GpuSplatMath.quatRotate(unturn, p.sub(hatAt)).toVar();
+    const across = length(inHat.xz);
+    const e = clamp(across.sub(HAT.inner).div(HAT.outer - HAT.inner), 0, 1);
+    const below = e.mul(e).mul(-HAT.droop).sub(clear);
+    const under = across.lessThan(HAT.outer + 0.02).and(inHat.y.greaterThan(below));
+    return under.select(hatAt.add(GpuSplatMath.quatRotate(hatTurnWorld, vec3(inHat.x, below, inHat.z))), p);
+}
+
 /** A point `t` (0 root, 1 tip) along guide `g`: a Catmull-Rom curve through its simulated joints. */
 function guideAt(sim: Sim, g: TslNode, t: TslNode): TslNode {
     const joints = HAIR.points;
@@ -2090,10 +2098,11 @@ function hairStrands(sim: Sim): SplatObject {
             const wave = sin(t.mul(HAIR.waves * Math.PI * 2).add(c.w.mul(6.283)))
                 .mul(t)
                 .mul(HAIR.wave);
-            return p
+            const placed = p
                 .add(across.mul(side.add(wave)))
                 .add(depthward.mul(depth))
                 .add(strayDir.mul(t.mul(t).mul(0.06).mul(stray)));
+            return underBrim(pose, placed, 0.01);
         };
         const t0 = k.div(segments).mul(reach);
         const t1 = k.add(1).div(segments).mul(reach);

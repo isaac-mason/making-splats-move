@@ -86,7 +86,8 @@ thin Gaussians, which is how Gaussian hair is rendered. It moves in clumps, the
 way hair does: forty guide strands of ten joints are simulated, one per clump,
 their roots in two staggered rows under the brim so the clumps layer, each
 catching the air a little differently so they swing out of step, each keeping
-under the hat's brim (tested in the hat's own tipped frame), and each keeping
+under the hat's brim (tested in the hat's own tipped frame, for the guides and
+again for every drawn strand point, which sit a little off their guides), and each keeping
 a little apart from its neighbours, so the hair keeps its volume but parts and
 swings. 1,600 strands are drawn, each following only its own clump's guide, offset
 across and in depth within the clump and gathering in towards the tip, measured
