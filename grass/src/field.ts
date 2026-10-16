@@ -595,7 +595,7 @@ function flowers(): SplatObject {
 /**
  * Butterflies over the flowers, in front of you. Each wanders on a smooth looping
  * path, bobbing up on its wingbeats, facing the way it flies. A body and four
- * wings hinged on it, flapping fast, and every few seconds a glide with the wings
+ * wings hinged on it, beating gently, and often a glide with the wings
  * held up in a V. Wings are thin enough to glow with the sun behind them.
  */
 const BUTTERFLIES = {
@@ -608,8 +608,8 @@ const BUTTERFLIES = {
     pace: [0.12, 0.3],
     /** Height over the ground, metres. */
     height: [0.55, 1.4],
-    /** Wingbeats a second, and a wing's span from the body, metres. */
-    flap: [7, 11],
+    /** Wingbeats a second (slow enough not to alias into a buzz), and a wing's span from the body, metres. */
+    flap: [3.5, 5.5],
     span: [0.026, 0.038],
     kinds: [
         { name: 'cabbage white', fore: [0.98, 0.97, 0.9], hind: [0.95, 0.95, 0.85] },
@@ -624,104 +624,109 @@ function butterflies(): SplatObject {
     const parts = 5;
     const { kinds } = BUTTERFLIES;
 
-    return generated(BUTTERFLIES.count * parts, (index) => {
-        const fly = index.div(uint(parts));
-        const part = float(index.mod(uint(parts))).toVar();
-        const a = hash4(fly, 8).toVar();
-        const b = hash4(fly, 9).toVar();
-        const c = hash4(fly, 10).toVar();
+    return generated(
+        BUTTERFLIES.count * parts,
+        (index) => {
+            const fly = index.div(uint(parts));
+            const part = float(index.mod(uint(parts))).toVar();
+            const a = hash4(fly, 8).toVar();
+            const b = hash4(fly, 9).toVar();
+            const c = hash4(fly, 10).toVar();
 
-        // Home, somewhere in the patch of meadow in front of you.
-        const homeAngle = a.x.mul(Math.PI * 2);
-        const home = vec2(BUTTERFLIES.home[0], BUTTERFLIES.home[1]).add(
-            vec2(cos(homeAngle), sin(homeAngle)).mul(a.y.sqrt().mul(BUTTERFLIES.roam)),
-        );
+            // Home, somewhere in the patch of meadow in front of you.
+            const homeAngle = a.x.mul(Math.PI * 2);
+            const home = vec2(BUTTERFLIES.home[0], BUTTERFLIES.home[1]).add(
+                vec2(cos(homeAngle), sin(homeAngle)).mul(a.y.sqrt().mul(BUTTERFLIES.roam)),
+            );
 
-        // The path: two loops at unrelated rates, and its velocity, analytically.
-        const r1 = mix(BUTTERFLIES.wander[0], BUTTERFLIES.wander[1], a.z);
-        const r2 = r1.mul(0.45);
-        const w1 = mix(BUTTERFLIES.pace[0], BUTTERFLIES.pace[1], a.w);
-        const w2 = w1.mul(2.3);
-        const p = b.xyzw.mul(Math.PI * 2);
-        const t = time;
-        const xz = home
-            .add(
-                vec2(
-                    sin(t.mul(w1).add(p.x))
-                        .mul(r1)
-                        .add(sin(t.mul(w2).add(p.y)).mul(r2)),
-                    cos(t.mul(w1).add(p.z))
-                        .mul(r1)
-                        .add(cos(t.mul(w2).add(p.w)).mul(r2)),
-                ),
-            )
-            .toVar();
-        const velocity = vec2(
-            cos(t.mul(w1).add(p.x))
-                .mul(r1.mul(w1))
-                .add(cos(t.mul(w2).add(p.y)).mul(r2.mul(w2))),
-            sin(t.mul(w1).add(p.z))
-                .mul(r1.mul(w1).negate())
-                .sub(sin(t.mul(w2).add(p.w)).mul(r2.mul(w2))),
-        );
-        const heading = atan(velocity.x, velocity.y);
+            // The path: two loops at unrelated rates, and its velocity, analytically.
+            const r1 = mix(BUTTERFLIES.wander[0], BUTTERFLIES.wander[1], a.z);
+            const r2 = r1.mul(0.45);
+            const w1 = mix(BUTTERFLIES.pace[0], BUTTERFLIES.pace[1], a.w);
+            const w2 = w1.mul(2.3);
+            const p = b.xyzw.mul(Math.PI * 2);
+            const t = time;
+            const xz = home
+                .add(
+                    vec2(
+                        sin(t.mul(w1).add(p.x))
+                            .mul(r1)
+                            .add(sin(t.mul(w2).add(p.y)).mul(r2)),
+                        cos(t.mul(w1).add(p.z))
+                            .mul(r1)
+                            .add(cos(t.mul(w2).add(p.w)).mul(r2)),
+                    ),
+                )
+                .toVar();
+            const velocity = vec2(
+                cos(t.mul(w1).add(p.x))
+                    .mul(r1.mul(w1))
+                    .add(cos(t.mul(w2).add(p.y)).mul(r2.mul(w2))),
+                sin(t.mul(w1).add(p.z))
+                    .mul(r1.mul(w1).negate())
+                    .sub(sin(t.mul(w2).add(p.w)).mul(r2.mul(w2))),
+            );
+            const heading = atan(velocity.x, velocity.y);
 
-        // Wingbeats, and now and then a glide with the wings held up.
-        const rate = mix(BUTTERFLIES.flap[0], BUTTERFLIES.flap[1], c.x);
-        const beat = sin(
-            t
-                .mul(rate)
-                .mul(Math.PI * 2)
-                .add(c.y.mul(6.283)),
-        );
-        const glide = smoothstep(0.55, 0.85, sin(t.mul(0.6).add(c.z.mul(6.283))));
-        const lift = mix(beat, float(0.35), glide);
-        const wing = lift.mul(0.95).add(0.3);
+            // Wingbeats, and now and then a glide with the wings held up.
+            const rate = mix(BUTTERFLIES.flap[0], BUTTERFLIES.flap[1], c.x);
+            const beat = sin(
+                t
+                    .mul(rate)
+                    .mul(Math.PI * 2)
+                    .add(c.y.mul(6.283)),
+            );
+            const glide = smoothstep(0.2, 0.6, sin(t.mul(0.45).add(c.z.mul(6.283))));
+            const lift = mix(beat, float(0.35), glide);
+            const wing = lift.mul(0.65).add(0.35);
 
-        // Bobbing: a slow rise and fall, and a hitch upwards on each downbeat.
-        const ground = terrain(xz).height;
-        const cruise = mix(BUTTERFLIES.height[0], BUTTERFLIES.height[1], c.w);
-        const bob = sin(t.mul(1.3).add(p.x)).mul(0.18).add(beat.mul(glide.oneMinus()).mul(0.025));
-        const body = vec3(xz.x, ground.add(cruise).add(bob), xz.y).toVar();
+            // Bobbing: a slow rise and fall, and a hitch upwards on each downbeat.
+            const ground = terrain(xz).height;
+            const cruise = mix(BUTTERFLIES.height[0], BUTTERFLIES.height[1], c.w);
+            const bob = sin(t.mul(1.1).add(p.x)).mul(0.15).add(beat.mul(glide.oneMinus()).mul(0.012));
+            const body = vec3(xz.x, ground.add(cruise).add(bob), xz.y).toVar();
 
-        // Parts: 0 the body; 1, 2 the forewings; 3, 4 the hindwings.
-        const isBody = part.equal(0);
-        const side = part.mod(2).equal(1).select(float(1), float(-1));
-        const isFore = part.lessThan(2.5);
-        const span = mix(BUTTERFLIES.span[0], BUTTERFLIES.span[1], b.x).mul(isFore.select(float(1), float(0.8)));
-        const facing = yaw(heading.mul(0.5));
-        const roll = side.mul(wing).mul(0.5);
-        const quaternion = isBody.select(facing, GpuSplatMath.quatMul(facing, vec4(0, 0, sin(roll), cos(roll)))).toVar();
-        const reach = vec3(side.mul(span).mul(0.85), 0, isFore.select(span.mul(0.25), span.mul(-0.45)));
-        const center = isBody.select(body, body.add(GpuSplatMath.quatRotate(quaternion, reach))).toVar();
-        const scales = isBody.select(vec3(0.0035, 0.0035, span.mul(0.75)), vec3(span.mul(0.55), 0.0015, span.mul(0.5)));
+            // Parts: 0 the body; 1, 2 the forewings; 3, 4 the hindwings.
+            const isBody = part.equal(0);
+            const side = part.mod(2).equal(1).select(float(1), float(-1));
+            const isFore = part.lessThan(2.5);
+            const span = mix(BUTTERFLIES.span[0], BUTTERFLIES.span[1], b.x).mul(isFore.select(float(1), float(0.8)));
+            const facing = yaw(heading.mul(0.5));
+            const roll = side.mul(wing).mul(0.5);
+            const quaternion = isBody.select(facing, GpuSplatMath.quatMul(facing, vec4(0, 0, sin(roll), cos(roll)))).toVar();
+            const reach = vec3(side.mul(span).mul(0.62), 0, isFore.select(span.mul(0.2), span.mul(-0.32)));
+            const center = isBody.select(body, body.add(GpuSplatMath.quatRotate(quaternion, reach))).toVar();
+            const scales = isBody.select(vec3(0.0025, 0.0025, span.mul(0.5)), vec3(span.mul(0.36), 0.001, span.mul(0.3)));
 
-        // Colour and light: sun unless a cloud's in the way, the sky, and through
-        // the wings towards the sun.
-        const kind = c.x.add(c.w).fract().mul(kinds.length).floor();
-        const fore = pick(
-            kind,
-            kinds.map((k) => v3(k.fore)),
-        );
-        const hind = pick(
-            kind,
-            kinds.map((k) => v3(k.hind)),
-        );
-        const colour = isBody.select(v3(BUTTERFLIES.body), isFore.select(fore, hind));
-        const normal = GpuSplatMath.quatRotate(quaternion, vec3(0, 1, 0));
-        const view = normalize(center.sub(eye));
-        const through = pow(max(dot(view, sun), 0), 4).mul(isBody.select(float(0), float(0.8)));
-        const lit = sunlight(center);
-        const rgb = colour.mul(
-            v3(SUN)
-                .mul(abs(dot(normal, sun)).mul(0.6).add(0.4).add(through))
-                .mul(lit)
-                .add(v3(SKYLIGHT).mul(0.5)),
-        );
+            // Colour and light: sun unless a cloud's in the way, the sky, and through
+            // the wings towards the sun.
+            const kind = c.x.add(c.w).fract().mul(kinds.length).floor();
+            const fore = pick(
+                kind,
+                kinds.map((k) => v3(k.fore)),
+            );
+            const hind = pick(
+                kind,
+                kinds.map((k) => v3(k.hind)),
+            );
+            const colour = isBody.select(v3(BUTTERFLIES.body), isFore.select(fore, hind));
+            const normal = GpuSplatMath.quatRotate(quaternion, vec3(0, 1, 0));
+            const view = normalize(center.sub(eye));
+            const through = pow(max(dot(view, sun), 0), 4).mul(isBody.select(float(0), float(0.8)));
+            const lit = sunlight(center);
+            const rgb = colour.mul(
+                v3(SUN)
+                    .mul(abs(dot(normal, sun)).mul(0.6).add(0.4).add(through))
+                    .mul(lit)
+                    .add(v3(SKYLIGHT).mul(0.5)),
+            );
 
-        const finish = distance(center, float(0), rgb);
-        return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity, uint(index));
-    });
+            const finish = distance(center, float(0), rgb);
+            // Crisp, like the petals: each wing is one separate shape.
+            return GpuSplats.Splat(center, scales, quaternion, finish.rgb.min(0.97), finish.opacity.mul(1.7), uint(index));
+        },
+        true,
+    );
 }
 
 /* the ground */

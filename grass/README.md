@@ -76,9 +76,10 @@ leaves), but a petal is one splat, and a crisp one reads as a petal.
 Cabbage whites, fritillaries, common blues and brimstones over the flowers in
 front of you. Each wanders on two loops at unrelated rates, faces the way it flies
 (the path's velocity, worked out analytically), and bobs, hitching up on its
-wingbeats. A body and four wings hinged on it, flapping seven to eleven times a
-second, with a glide now and then, wings held up in a V. The wings are thin
-enough to glow with the sun behind them.
+wingbeats. A body and four wings hinged on it, beating four or five times a second
+(faster aliases into a buzz at 60 frames a second), often gliding with the wings
+held up in a V. Wings are crisp, like the petals, and thin enough to glow with the
+sun behind them.
 
 ## The clouds' shadows
 
