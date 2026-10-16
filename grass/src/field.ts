@@ -721,7 +721,159 @@ function stem(root: TslNode, height: TslNode, bend: TslNode, s: TslNode): { cent
 
 /* the blades */
 
-/** One layer of grass: `count` blades on a tile of half-size `reach`, `girth` times as thick, from random stream `stream`, fading out from `edge` of the way out. */
+/**
+ * Everything about blade `blade` of a layer, worked out once: where it grows, how
+ * tall, how the wind and your trampling bend it, its colour, the sunlight on it,
+ * the haze over it and whether it shows at all. With compute, a kernel works this
+ * out once a blade each frame and the blade's splats just read it; without, each
+ * splat works it out itself (the same code).
+ */
+function bladeState(blade: TslNode, reach: number, stream: number, detail: boolean, edge: number) {
+    const a = hash4(blade, stream).toVar();
+    const b = hash4(blade, stream + 1).toVar();
+    const c = hash4(blade, stream + 2).toVar();
+
+    const { xz, out } = place(a, reach);
+    const ground = terrain(xz);
+    const root = vec3(xz.x, ground.height, xz.y).toVar();
+
+    // Taller in patches, and patches of dry straw among the green.
+    const lush = mx_noise_float(xz.mul(0.09)).mul(0.5).add(0.5);
+    const { core: path, fringe } = paths(xz);
+    const clearing = inClearing(xz);
+    const height = mix(BLADE.height[0], BLADE.height[1], pow(b.x, 0.7))
+        .mul(mix(0.65, 1.3, lush))
+        .mul(clearing.mul(-PATHS.short).add(1))
+        .mul(fringe.mul(-0.35).add(1))
+        .toVar();
+    const dryPatch = mx_noise_float(xz.mul(0.05).add(7.3));
+    const dry = smoothstep(0.25, 0.7, dryPatch.add(c.z.sub(0.5).mul(0.3))).mul(0.7);
+    // Blade-to-blade variety, calmed with distance: far off it only reads as grain.
+    const variety = mix(1, 0.2, smoothstep(5, 22, length(root.sub(eye))));
+    const green = mix(v3(BLADE.deep), v3(BLADE.fresh), c.w.sub(0.5).mul(variety).add(0.5));
+    const base = mix(green, v3(BLADE.straw), dry);
+
+    const { gust, push } = windAt(xz, height, c, detail);
+    const leanAngle = b.z.mul(Math.PI * 2);
+    const lean = vec2(cos(leanAngle), sin(leanAngle)).mul(b.w.mul(BLADE.restLean));
+    const bend = lean.add(push).add(trampled(xz));
+
+    // Light it gets: the sun unless a cloud's in the way (taken half way up the
+    // blade), and how its hillside faces the sun.
+    const lit = sunlight(root.add(vec3(0, height.mul(0.5), 0)));
+    const hillside = clamp(dot(ground.normal, sun).mul(1.3), 0.25, 1.1);
+    const fog = smoothstep(FIELD.fog[0], FIELD.fog[1], length(xz.sub(you.xz)));
+
+    // Whether it shows: faded at its tile's edge, not through boulders, none on the
+    // paths, sparse in the clearings and petering out towards a path.
+    const thin = max(clearing.mul(0.3), pow(fringe, 2).mul(0.8)).greaterThan(c.y).select(float(0), float(1));
+    const visible = smoothstep(1, edge, out).mul(clear(xz)).mul(path.oneMinus()).mul(thin);
+
+    return { root, height, bend, gust, visible, base, lit, hillside, fog, turn: b.y };
+}
+
+type BladeState = ReturnType<typeof bladeState>;
+
+/** Segment `s` (0 root, 1 tip) of a blade, as a splat, from its state. */
+function bladeSplat(st: BladeState, s: TslNode, girth: number, segments: number, index: TslNode): TslNode {
+    const { center, tangent } = stem(st.root, st.height, st.bend, s);
+    // Facing turns the blade about its own length; then it's stood along the stem.
+    const quaternion = GpuSplatMath.quatMul(alignY(tangent), yaw(st.turn.mul(Math.PI))).toVar();
+
+    const widen = farWidth(center).mul(girth);
+    const taper = mix(1, 0.3, pow(s, 1.6));
+    const scales = vec3(
+        float(BLADE.width).mul(taper).mul(widen),
+        st.height.div(segments).mul(0.62),
+        float(BLADE.thickness).mul(widen),
+    );
+
+    // Colour: dark in the thatch, lighter and yellower towards the tip.
+    const body = mix(st.base, mix(st.base, v3(BLADE.tip), 0.55), smoothstep(0.3, 1, s));
+    const shade = mix(BLADE.rootShade, 1, smoothstep(0, 0.85, s));
+
+    // Light: the sky everywhere; the sun on the blade's face and on its hillside,
+    // unless a cloud is in the way; through the blade when you look towards the
+    // sun; and a sheen on blades a gust has laid over.
+    const normal = GpuSplatMath.quatRotate(quaternion, vec3(0, 0, 1));
+    const facing = abs(dot(normal, sun)).mul(0.5).add(0.5);
+    const view = normalize(center.sub(eye));
+    const through = pow(max(dot(view, sun), 0), 5)
+        .mul(smoothstep(0.25, 1, s))
+        .mul(0.6);
+    const direct = v3(SUN).mul(facing.mul(st.hillside).add(through)).mul(st.lit);
+    const rgb = body
+        .mul(shade)
+        .mul(direct.mul(0.95).add(v3(SKYLIGHT).mul(0.55)))
+        .add(max(st.gust, 0).mul(WIND.sheen).mul(s).mul(st.lit.mul(0.7).add(0.3)));
+    const hazed = mix(rgb, v3(HAZE), st.fog.mul(0.85));
+    return GpuSplats.Splat(center, scales, quaternion, hazed, st.visible, uint(index));
+}
+
+/** A layer's blade states, worked out once a frame by a kernel: four vec4s a blade. */
+type BladeBuffers = {
+    a: WgpuBuffer<'float32x4'>;
+    b: WgpuBuffer<'float32x4'>;
+    c: WgpuBuffer<'float32x4'>;
+    d: WgpuBuffer<'float32x4'>;
+    kernel: WgpuCompute;
+    count: number;
+};
+
+function bladeBuffers(
+    renderer: WebGPURenderer,
+    count: number,
+    reach: number,
+    stream: number,
+    detail: boolean,
+    edge: number,
+): BladeBuffers {
+    const make = () => new WgpuBuffer({ renderer, format: 'float32x4', count });
+    const [a, b, c, d] = [make(), make(), make(), make()];
+    const kernel = new WgpuCompute({
+        label: 'grassBlades',
+        body: ({ index }) => {
+            If(index.lessThan(uint(count)), () => {
+                const st = bladeState(index, reach, stream, detail, edge);
+                a.element(index).assign(vec4(st.root, st.height));
+                b.element(index).assign(vec4(st.bend, st.gust, st.visible));
+                c.element(index).assign(vec4(st.base, st.lit));
+                d.element(index).assign(vec4(st.hillside, st.fog, st.turn, 0));
+            });
+        },
+    });
+    return { a, b, c, d, kernel, count };
+}
+
+/** Blade `blade`'s state, read back from what its layer's kernel worked out this frame. */
+function bladeRead(buffers: BladeBuffers, blade: TslNode): BladeState {
+    const a = buffers.a.element(blade).toVar();
+    const b = buffers.b.element(blade).toVar();
+    const c = buffers.c.element(blade).toVar();
+    const d = buffers.d.element(blade).toVar();
+    return {
+        root: a.xyz,
+        height: a.w,
+        bend: b.xy,
+        gust: b.z,
+        visible: b.w,
+        base: c.xyz,
+        lit: c.w,
+        hillside: d.x,
+        fog: d.y,
+        turn: d.z,
+    };
+}
+
+/** The grass layers' blade buffers, when there's compute to fill them. */
+let bladeLayers: BladeBuffers[] | null = null;
+
+/**
+ * One layer of grass: `count` blades on a tile of half-size `reach`, `girth` times as
+ * thick, from random stream `stream`, fading out from `edge` of the way out, drawn
+ * with `segments` splats a blade. Reads its blades from `buffers` when there are
+ * some; otherwise works each one out per splat.
+ */
 function blades(
     count: number,
     reach: number,
@@ -730,6 +882,7 @@ function blades(
     edge: number,
     segments: number,
     detail: boolean,
+    buffers: BladeBuffers | null,
 ): SplatObject {
     return generated(count * segments, (index) => {
         const blade = index.div(uint(segments));
@@ -737,74 +890,8 @@ function blades(
             .add(0.5)
             .div(segments)
             .toVar();
-
-        const a = hash4(blade, stream).toVar();
-        const b = hash4(blade, stream + 1).toVar();
-        const c = hash4(blade, stream + 2).toVar();
-
-        const { xz, out } = place(a, reach);
-        const ground = terrain(xz);
-        const root = vec3(xz.x, ground.height, xz.y).toVar();
-
-        // Taller in patches, and patches of dry straw among the green.
-        const lush = mx_noise_float(xz.mul(0.09)).mul(0.5).add(0.5);
-        const { core: path, fringe } = paths(xz);
-        const clearing = inClearing(xz);
-        const height = mix(BLADE.height[0], BLADE.height[1], pow(b.x, 0.7))
-            .mul(mix(0.65, 1.3, lush))
-            .mul(clearing.mul(-PATHS.short).add(1))
-            .mul(fringe.mul(-0.35).add(1))
-            .toVar();
-        const dryPatch = mx_noise_float(xz.mul(0.05).add(7.3));
-        const dry = smoothstep(0.25, 0.7, dryPatch.add(c.z.sub(0.5).mul(0.3))).mul(0.7);
-        // Blade-to-blade variety, calmed with distance: far off it only reads as grain.
-        const variety = mix(1, 0.2, smoothstep(5, 22, length(root.sub(eye))));
-
-        const { gust, push } = windAt(xz, height, c, detail);
-        const leanAngle = b.z.mul(Math.PI * 2);
-        const lean = vec2(cos(leanAngle), sin(leanAngle)).mul(b.w.mul(BLADE.restLean));
-        const { center, tangent } = stem(root, height, lean.add(push).add(trampled(xz)), s);
-
-        // Facing turns the blade about its own length; then it's stood along the stem.
-        const quaternion = GpuSplatMath.quatMul(alignY(tangent), yaw(b.y.mul(Math.PI))).toVar();
-
-        const widen = farWidth(center).mul(girth);
-        const taper = mix(1, 0.3, pow(s, 1.6));
-        const scales = vec3(
-            float(BLADE.width).mul(taper).mul(widen),
-            height.div(segments).mul(0.62),
-            float(BLADE.thickness).mul(widen),
-        );
-
-        // Colour: dark in the thatch, lighter and yellower towards the tip.
-        const green = mix(v3(BLADE.deep), v3(BLADE.fresh), c.w.sub(0.5).mul(variety).add(0.5));
-        const base = mix(green, v3(BLADE.straw), dry);
-        const body = mix(base, mix(base, v3(BLADE.tip), 0.55), smoothstep(0.3, 1, s));
-        const shade = mix(BLADE.rootShade, 1, smoothstep(0, 0.85, s));
-
-        // Light: the sky everywhere; the sun on the blade's face and on the hillside
-        // it grows from, unless a cloud is in the way; through the blade when you
-        // look towards the sun; and a sheen on blades a front has laid over.
-        const lit = sunlight(center).toVar();
-        const normal = GpuSplatMath.quatRotate(quaternion, vec3(0, 0, 1));
-        const facing = abs(dot(normal, sun)).mul(0.5).add(0.5);
-        const hillside = clamp(dot(ground.normal, sun).mul(1.3), 0.25, 1.1);
-        const view = normalize(center.sub(eye));
-        const through = pow(max(dot(view, sun), 0), 5)
-            .mul(smoothstep(0.25, 1, s))
-            .mul(0.6);
-        const direct = v3(SUN).mul(facing.mul(hillside).add(through)).mul(lit);
-        const rgb = body
-            .mul(shade)
-            .mul(direct.mul(0.95).add(v3(SKYLIGHT).mul(0.55)))
-            .add(max(gust, 0).mul(WIND.sheen).mul(s).mul(lit.mul(0.7).add(0.3)));
-
-        const finish = distance(center, out, rgb, edge);
-        // Not through boulders, none on the paths, sparse in the clearings.
-        // Thinning: sparse in clearings, and petering out towards a path, scattered rather than cut off.
-        const thin = max(clearing.mul(0.3), pow(fringe, 2).mul(0.8)).greaterThan(c.y).select(float(0), float(1));
-        finish.opacity = finish.opacity.mul(clear(xz)).mul(path.oneMinus()).mul(thin);
-        return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity, uint(index));
+        const st = buffers ? bladeRead(buffers, blade) : bladeState(blade, reach, stream, detail, edge);
+        return bladeSplat(st, s, girth, segments, index);
     });
 }
 
@@ -823,7 +910,9 @@ function blades(
  * They share the grass's wind and stem curve, a little stiffer.
  */
 const FLOWERS = {
-    count: 7_500,
+    count: 3_600,
+    /** Spots each flower tries before settling for one outside a drift. */
+    tries: 4,
     stemSegments: 3,
     /** Petal slots per flower: the most any kind has. */
     slots: 16,
@@ -909,13 +998,27 @@ function pick(kind: TslNode, values: TslNode[]): TslNode {
  * it bent. Shared with the butterflies, which land on the flowers.
  */
 function flowerPlan(flower: TslNode) {
-    const a = hash4(flower, 4).toVar();
     const b = hash4(flower, 5).toVar();
     const c = hash4(flower, 6).toVar();
+    // Drifts: flowers gather where the drift field says, with a few strays. Each
+    // flower tries a few spots and takes the first in a drift, rather than one spot
+    // that's usually outside one: far fewer flowers drawn for the same meadow.
+    const driftAt = (xz: TslNode) => mx_noise_float(xz.mul(FLOWERS.drift).add(41.7)).mul(0.5).add(0.5);
+    const inDrift = (xz: TslNode) =>
+        driftAt(xz)
+            .sub(0.25)
+            .greaterThan(FLOWERS.gather[0] + 0.1);
+    let a: TslNode = hash4(flower, 4);
+    let found: TslNode = inDrift(place(a).xz);
+    for (let k = 1; k < FLOWERS.tries; k++) {
+        const next = hash4(flower, 60 + k);
+        a = found.select(a, next);
+        found = found.or(inDrift(place(next).xz));
+    }
+    a = a.toVar();
     const { xz, out } = place(a);
     const root = vec3(xz.x, terrain(xz).height, xz.y).toVar();
-    // Drifts: flowers only where the drift field gathers them, but for strays.
-    const drift = mx_noise_float(xz.mul(FLOWERS.drift).add(41.7)).mul(0.5).add(0.5);
+    const drift = driftAt(xz);
     const here = smoothstep(FLOWERS.gather[0], FLOWERS.gather[1], drift.sub(0.25))
         .mul(clear(xz))
         .mul(onPath(xz).oneMinus())
@@ -2412,7 +2515,7 @@ export function boulderAt(x: number, z: number): { x: number; z: number; radius:
 /** The grass, every layer of it, each on its own random stream. */
 function grass(): SplatObject[] {
     return FIELD.layers.map((layer, n) =>
-        blades(layer.blades, layer.reach, layer.girth, n * 4, layer.edge, layer.segments, layer.detail),
+        blades(layer.blades, layer.reach, layer.girth, n * 4, layer.edge, layer.segments, layer.detail, bladeLayers?.[n] ?? null),
     );
 }
 
@@ -2518,6 +2621,9 @@ export function initField(renderer: WebGPURenderer, clouds: THREE.Texture, kidOn
     // Before the generators: they read the trample grid if there is one.
     const compute = getGpuCaps(renderer).compute;
     trampleState = compute ? initTrample(renderer) : null;
+    bladeLayers = compute
+        ? FIELD.layers.map((layer, n) => bladeBuffers(renderer, layer.blades, layer.reach, n * 4, layer.detail, layer.edge))
+        : null;
     simState = compute ? initSim(renderer) : null;
     const dressAndHair = simState ? [skirt(simState), hairStrands(simState)] : [];
     const you = [kid(simState !== null), ...dressAndHair];
@@ -2584,6 +2690,8 @@ export function updateField(elapsed: number, dt: number, camera: THREE.Camera, w
     if (trampleState) {
         const { batch } = trampleState;
         batch.add(trampleState.kernel, TRAMPLE.cells ** 2);
+        // Every blade worked out once, before its splats read it.
+        if (bladeLayers) for (const layer of bladeLayers) batch.add(layer.kernel, layer.count);
         if (simState) for (const [kernel, count] of simState.kernels) batch.add(kernel, count);
         batch.submit();
     }

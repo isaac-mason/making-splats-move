@@ -165,7 +165,11 @@ like the rest of the meadow. The layers' detail falls off too: five splats
 a blade near you, four further out, three in the outer layer, which also takes a
 cheaper wind (the same gusts without the warp, second layer and fine octave you
 can't see that far off). And nothing is drawn past the 48 metres the camera can
-reach. One even scatter can't do it: thin enough to afford
+reach. And each blade is worked out once a frame, not once a
+splat: where it grows, its height, its wind and trampling, colour, sunlight, haze
+and whether it shows are all computed by a compute kernel per layer into a small
+buffer, and a blade's splats just read it and draw their segment (without compute,
+on WebGL2, each splat works it out itself, from the same code). One even scatter can't do it: thin enough to afford
 over the whole meadow, it shows the earth between blades from above.
 
 Far blades draw wider with distance, the ground between them turns grass-coloured,
@@ -211,7 +215,8 @@ rolling through the grass.
 
 Poppies, cornflowers, oxeye daisies, buttercups and knapweed, in drifts: one noise
 field says where flowers gather and another which kind leads each drift, with
-strays of every kind in between.
+strays of every kind in between. Each flower tries a few spots and takes the first in a
+drift, so nearly every flower drawn is one you see.
 
 What keeps them from looking like stickers:
 
