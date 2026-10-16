@@ -15,18 +15,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { RenderPipeline, type WebGPURenderer } from 'three/webgpu';
 import cloudUrl from '../assets/cloud.jpg?url';
-import {
-    BOULDERS,
-    boulderAt,
-    HAZE,
-    initField,
-    SUN_DIRECTION,
-    TREES,
-    terrainHeight,
-    treeAt,
-    updateField,
-    type Walker,
-} from './field';
+import { BOULDERS, boulderAt, HAZE, initField, SUN_DIRECTION, terrainHeight, updateField, type Walker } from './field';
 import './style.css';
 
 const { dot, max, mix, normalize, pass, positionWorldDirection, pow, screenUV, smoothstep, uniform, vec4 } = TSL;
@@ -197,23 +186,6 @@ function walk(
             if (d < keep && d > 1e-4) {
                 walker.position.x = b.x + (ox / d) * keep;
                 walker.position.z = b.z + (oz / d) * keep;
-                walker.position.y = terrainHeight(walker.position.x, walker.position.z) + walker.lift;
-            }
-        }
-    }
-
-    // Nor through tree trunks.
-    for (let dx = -1; dx <= 1; dx++) {
-        for (let dz = -1; dz <= 1; dz++) {
-            const tree = treeAt(walker.position.x + dx * TREES.cell, walker.position.z + dz * TREES.cell);
-            if (!tree) continue;
-            const ox = walker.position.x - tree.x;
-            const oz = walker.position.z - tree.z;
-            const d = Math.hypot(ox, oz);
-            const keep = tree.radius + WALK.body;
-            if (d < keep && d > 1e-4) {
-                walker.position.x = tree.x + (ox / d) * keep;
-                walker.position.z = tree.z + (oz / d) * keep;
                 walker.position.y = terrainHeight(walker.position.x, walker.position.z) + walker.lift;
             }
         }

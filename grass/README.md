@@ -133,24 +133,6 @@ round you on a world grid so they hold still as you walk, with a pebble here and
 there, keyed to its place on the path so it holds still as you walk. Here and
 there, rare clearings: soft patches where the grass grows a little shorter and sparser.
 
-## Trees
-
-Painted, the Ghibli way, and made of leaves you can see. A slim trunk, its bark
-splats in neat rings with streaks running up it, lifts a canopy on a few branches;
-the canopy is eighteen big, overlapping clumps, unevenly sized and spaced, merging
-into one lumpy mass, covered in small, crisp, leaf-shaped splats (24,000 a tree)
-lying mostly in layers facing up and out, each tilted a little its own way so it
-catches the light on its own. It's lit the way the grass is, so it belongs to
-the same meadow: the grass's greens, soft sun on each leaf, shaded by how the
-canopy faces the sun, blue skylight, light through the leaves towards the sun,
-darker under and inside, and the trunk in its own canopy's shade. (Earlier tries
-made a smooth green blob from big soft splats, scales from big crisp ones, dark
-balls from dark clump cores, and cel-shaded mint canopies that looked pasted in
-from another picture.) he
-tree sways in the wind, each clump stirring on its own, and casts dappled shadows
-the way the clouds do. Scattered on a world grid like the boulders, never on the
-path or in a boulder, and mirrored on the CPU so you walk round the trunks.
-
 ## Trampling, on the GPU
 
 The grass parts round you and stays flattened behind you, springing back over a
