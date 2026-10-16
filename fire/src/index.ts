@@ -35,7 +35,7 @@ import { initLighting, NIGHT_BRIGHTNESS, updateLighting } from './lighting';
 import { applyPerformance, initPerformance } from './performance';
 import { BLOOM_STRENGTH, initPost } from './post';
 import { createSplatPicker, type SplatPicker } from './raycast';
-import { download, type Recording, record, recordingFromUrl, scriptedMouse } from './record';
+import { cameraPath, download, type Recording, record, recordingFromUrl } from './record';
 import { CAMERA_POSITION, CAMERA_TARGET, SPLAT_URL } from './scene';
 import { initFireSim } from './sim';
 import { initSmoke, updateSmoke } from './smoke';
@@ -257,7 +257,7 @@ async function recordTake(state: State, recording: Recording) {
     document.body.append(progress);
 
     const stokes = [...recording.stokes];
-    const mouse = scriptedMouse(recording);
+    const move = cameraPath(recording);
     let first = true;
     try {
         const blob = await record(
@@ -269,9 +269,9 @@ async function recordTake(state: State, recording: Recording) {
                     stokeFire(state.fire);
                     stokes.shift();
                 }
-                // The scripted mouse, through the warmup too, so the lean is already
+                // The camera move, through the warmup too, so the lean is already
                 // moving on the first frame.
-                const [x, y] = mouse(time);
+                const [x, y] = move(time);
                 state.drift.drive(x, y, first);
                 first = false;
                 update(state, recording.warmup + time, dt, index >= 0);
