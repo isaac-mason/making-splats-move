@@ -187,8 +187,33 @@ const CLOUDS = {
 };
 
 const GROUND = {
-    thatch: [0.18, 0.15, 0.06],
-    moss: [0.08, 0.16, 0.04],
+    /** Earth under the grass: dark and light, and the odd pale pebble. */
+    earth: [0.24, 0.17, 0.11],
+    loam: [0.38, 0.28, 0.18],
+    pebble: [0.62, 0.58, 0.52],
+};
+
+/**
+ * Boulders, scattered on a world grid: each cell may hold one, mostly small, now
+ * and then big, partly buried. Stateless like everything else, and the same
+ * integer hash runs on the CPU, so you can't walk through them and the grass knows
+ * not to grow through them.
+ */
+export const BOULDERS = {
+    /** The grid's cell, metres, and the chance a cell has a boulder. */
+    cell: 9,
+    chance: 0.3,
+    /** Radius, smallest to biggest, metres; how much is buried; how flattened. */
+    radius: [0.3, 1.25],
+    buried: 0.35,
+    squat: 0.72,
+    /** Cells drawn round you, each way, and splats on each boulder. */
+    around: 5,
+    splats: 1500,
+    granite: [0.5, 0.48, 0.45],
+    dark: [0.32, 0.31, 0.3],
+    lichen: [0.66, 0.63, 0.38],
+    moss: [0.26, 0.35, 0.13],
 };
 
 /* uniforms, set once a frame */
@@ -294,6 +319,30 @@ const hash4 = (id: TslNode, salt: number): TslNode => {
         .add(uint(salt * 4));
     return vec4(hash(base), hash(base.add(uint(1))), hash(base.add(uint(2))), hash(base.add(uint(3))));
 };
+
+/**
+ * The boulder of world cell (cx, cz), if any: its xz centre, radius, and whether
+ * there is one (1 or 0). Kept wholly inside its cell, so a point only ever needs
+ * to ask its own cell. Mirrored on the CPU by `boulderAt`.
+ */
+function boulderOf(cx: TslNode, cz: TslNode): { center: TslNode; radius: TslNode; there: TslNode; seed: TslNode } {
+    const id = uint(int(cx))
+        .mul(uint(73856093))
+        .bitXor(uint(int(cz)).mul(uint(19349663)));
+    const h = hash4(id, 40);
+    const [small, big] = BOULDERS.radius;
+    const radius = mix(small, big, h.y.mul(h.y));
+    const room = float(BOULDERS.cell).sub(radius.mul(2)).max(0);
+    const center = vec2(cx, cz).mul(BOULDERS.cell).add(radius).add(vec2(h.z, h.w).mul(room));
+    return { center, radius, there: h.x.lessThan(BOULDERS.chance).select(float(1), float(0)), seed: id };
+}
+
+/** How much of the ground at `xz` is clear of boulders: 0 under one, 1 in the open. */
+function clear(xz: TslNode): TslNode {
+    const cell = xz.div(BOULDERS.cell).floor();
+    const b = boulderOf(cell.x, cell.y);
+    return smoothstep(0.8, 1, length(xz.sub(b.center)).div(b.radius)).max(b.there.oneMinus());
+}
 
 /** Shortest-arc rotation taking +Y onto `dir`. */
 const alignY = (dir: TslNode): TslNode => normalize(vec4(cross(vec3(0, 1, 0), dir), dir.y.add(1.0001)));
@@ -584,6 +633,7 @@ function blades(count: number = FIELD.blades, reach: number = FIELD.reach, strea
             .add(max(gust, 0).mul(WIND.sheen).mul(s).mul(lit.mul(0.7).add(0.3)));
 
         const finish = distance(center, out, rgb, edge);
+        finish.opacity = finish.opacity.mul(clear(xz));
         return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity, uint(index));
     });
 }
@@ -696,9 +746,9 @@ function flowerPlan(flower: TslNode) {
     const root = vec3(xz.x, terrain(xz).height, xz.y).toVar();
     // Drifts: flowers only where the drift field gathers them, but for strays.
     const drift = mx_noise_float(xz.mul(FLOWERS.drift).add(41.7)).mul(0.5).add(0.5);
-    const here = smoothstep(FLOWERS.gather[0], FLOWERS.gather[1], drift.sub(0.25)).max(
-        c.z.lessThan(FLOWERS.strays).select(float(1), float(0)),
-    );
+    const here = smoothstep(FLOWERS.gather[0], FLOWERS.gather[1], drift.sub(0.25))
+        .mul(clear(xz))
+        .max(c.z.lessThan(FLOWERS.strays).select(float(1), float(0)));
     const height = mix(FLOWERS.height[0], FLOWERS.height[1], b.x).toVar();
     const { gust, push } = windAt(xz, height, c);
     // A little stiffer than grass, and each with a lean of its own.
@@ -1103,6 +1153,9 @@ const facing = uniform(0);
 /** Jumping: how far off the ground you are (0 on it, 1 well up), and the jolt of the last landing, 0..1. */
 const airborne = uniform(0);
 const landed = uniform(0);
+/** Leaning into it: forward (into acceleration and speed) and banking into a turn, radians. */
+const lean = uniform(0);
+const bank = uniform(0);
 
 /** Cartoon light for the kid, its dress and its hair: banded sun unless a cloud's in the way, sky fill and a rim. */
 function cartoon(world: TslNode, normal: TslNode, colour: TslNode): TslNode {
@@ -1149,34 +1202,25 @@ function kidPose() {
     const step = stride.toVar();
     const moving = clamp(length(yourVelocity.xz).div(1.2), 0, 1);
     const skip = skipping.mul(moving);
-    // One hop a step; when skipping, big and small in turn.
+    // Physical, not cartoon: the body rises a little over each stride and settles
+    // at each footfall, more running than walking; no squash and stretch.
     const within = step.fract();
     const arc = sin(within.mul(Math.PI));
-    const big = wrap(step.floor(), 2).lessThan(0.5).select(float(1), float(0.55));
-    // No stepping hops in the air: the jump itself lifts you.
-    const hop = arc
-        .mul(mix(0.03, big.mul(0.11), skip))
+    const bounce = arc
+        .mul(mix(0.016, 0.04, skip))
         .mul(moving)
         .mul(airborne.oneMinus());
-    // Squash on landing, stretch in the air.
-    // And for a jump: stretched in the air, squashed by how hard you land.
-    const squash = pow(arc.oneMinus(), 4)
-        .mul(0.07)
-        .sub(arc.mul(0.03))
-        .mul(skip)
-        .mul(airborne.oneMinus())
-        .sub(airborne.mul(0.06))
-        .add(landed.mul(0.16));
-    // Legs swing in turn, the leading knee higher when skipping.
+    // A landing is taken in the knees: the body dips by how hard you came down, and rises again.
+    const hop = bounce.sub(landed.mul(0.09));
+    const squash = float(0);
+    // Legs swing in turn, further running; in the air they lift a little, one leading.
     const swing = sin(step.mul(Math.PI))
-        .mul(mix(0.5, 0.75, skip))
+        .mul(mix(0.42, 0.62, skip))
         .mul(moving);
-    const lead = (x: TslNode) => x.greaterThan(0).select(x.mul(mix(1, 1.5, skip)), x.mul(0.7));
-    // In the air the knees tuck up, one more than the other.
-    const leftLeg = mix(lead(swing), float(0.75), airborne);
-    const rightLeg = mix(lead(swing.negate()), float(0.35), airborne);
-    // The free arm swings against its leg, and up when skipping.
-    const freeArm = rightLeg.mul(0.9).negate().sub(skip.mul(arc).mul(0.6));
+    const leftLeg = mix(swing, float(0.35), airborne);
+    const rightLeg = mix(swing.negate(), float(0.12), airborne);
+    // The free arm swings against its leg.
+    const freeArm = rightLeg.mul(0.8).negate();
     const breath = sin(t.mul(1.8)).mul(0.012).mul(moving.oneMinus());
     const nod = sin(step.mul(Math.PI * 2))
         .mul(0.035)
@@ -1188,12 +1232,12 @@ function kidPose() {
     const shoulder = (side: number) => vec3(side * 0.15, 0.68, 0);
     // In the air the free arm flies up and out, the basket arm lifts.
     const leftArm = GpuSplatMath.quatMul(
-        aboutZ(airborne.mul(-1.1).sub(0.22)),
+        aboutZ(airborne.mul(-0.45).sub(0.22)),
         aboutX(mix(freeArm.negate(), float(-0.5), airborne)),
     );
     const rightArm = GpuSplatMath.quatMul(
-        aboutZ(airborne.mul(0.3).add(0.12)),
-        aboutX(float(-0.55).add(arc.mul(0.06)).sub(airborne.mul(0.45))),
+        aboutZ(airborne.mul(0.15).add(0.12)),
+        aboutX(float(-0.55).add(arc.mul(0.06)).sub(airborne.mul(0.2))),
     );
     const hand = shoulder(1).add(GpuSplatMath.quatRotate(rightArm, vec3(0, -0.29, 0)));
     const basket = aboutX(sin(within.mul(Math.PI).sub(0.5)).mul(0.3).mul(moving));
@@ -1201,8 +1245,9 @@ function kidPose() {
 
     // The whole kid: squashed or stretched from the feet, breathing, leaning into
     // the run, turned to face the way you go, standing on the ground.
-    const lean = aboutX(length(yourVelocity.xz).mul(0.025));
-    const turn = GpuSplatMath.quatMul(yaw(facing.mul(0.5)), lean);
+    // Leaning into acceleration and speed, banking into turns, all from the CPU's springs.
+    const tilt = GpuSplatMath.quatMul(aboutX(lean), aboutZ(bank));
+    const turn = GpuSplatMath.quatMul(yaw(facing.mul(0.5)), tilt);
     const toWorld = (local: TslNode): TslNode =>
         you
             .add(vec3(0, hop, 0))
@@ -1911,19 +1956,13 @@ function ground(): SplatObject {
         // Lying on the hillside, turned at random about it.
         const quaternion = GpuSplatMath.quatMul(alignY(land.normal), yaw(b.w.mul(Math.PI)));
 
-        const mottle = mx_noise_float(xz.mul(0.7)).mul(0.5).add(0.5);
-        const soil = mix(v3(GROUND.moss), v3(GROUND.thatch), mottle).mul(a.w.mul(0.3).add(0.85));
-        // Far off, the gaps between blades should read as more grass, not as ground.
+        // Earth close up, mottled, the odd pale pebble. Far off, where gaps between
+        // blades should read as more grass, turf.
+        const mottle = mx_noise_float(xz.mul(0.9)).mul(0.5).add(0.5);
+        const earth = mix(v3(GROUND.earth), v3(GROUND.loam), mottle).mul(a.w.mul(0.25).add(0.88));
+        const soil = b.x.greaterThan(0.97).select(v3(GROUND.pebble), earth);
         const turf = mix(v3(BLADE.deep), v3(BLADE.fresh), 0.55);
-        // The gaps between blades should read as more grass, not as a hole to the soil: mostly
-        // turf even close up, all turf further off.
-        const body = mix(
-            soil,
-            turf,
-            smoothstep(4, 18, length(center.sub(eye)))
-                .mul(0.35)
-                .add(0.65),
-        );
+        const body = mix(soil, turf, smoothstep(6, 22, length(center.sub(eye))));
         const direct = v3(SUN)
             .mul(max(dot(land.normal, sun), 0))
             .mul(sunlight(center));
@@ -1932,6 +1971,95 @@ function ground(): SplatObject {
         const finish = distance(center, out, rgb);
         return GpuSplats.Splat(center, scales, quaternion, finish.rgb, finish.opacity, uint(index));
     });
+}
+
+/* boulders */
+
+function boulders(): SplatObject {
+    const span = BOULDERS.around * 2 + 1;
+    const { splats } = BOULDERS;
+    return generated(
+        span * span * splats,
+        (index) => {
+            const slot = index.div(uint(splats));
+            const k = float(index.mod(uint(splats)));
+            // This slot's world cell: round the cell you're in.
+            const yours = you.xz.div(BOULDERS.cell).floor();
+            const cx = yours.x.add(float(slot.mod(uint(span)))).sub(BOULDERS.around);
+            const cz = yours.y.add(float(slot.div(uint(span)))).sub(BOULDERS.around);
+            const b = boulderOf(cx, cz);
+
+            // An even spiral over a sphere, pushed in and out by noise: a lumpy stone.
+            const y = k.add(0.5).div(splats).mul(-2).add(1);
+            const r = y.mul(y).oneMinus().max(0).sqrt();
+            const angle = k.mul(2.399963);
+            const dir = vec3(cos(angle).mul(r), y, sin(angle).mul(r)).toVar();
+            const seed = hash4(b.seed, 41);
+            const lump = mx_noise_float(dir.mul(1.6).add(seed.xyz.mul(40)))
+                .mul(0.22)
+                .add(mx_noise_float(dir.mul(4.2).add(seed.yzx.mul(40))).mul(0.07))
+                .add(1);
+            const shape = vec3(1, BOULDERS.squat, mix(0.8, 1.15, seed.w));
+            const base = terrain(b.center).height.sub(b.radius.mul(BOULDERS.buried));
+            const center = vec3(b.center.x, base, b.center.y).add(dir.mul(shape).mul(lump).mul(b.radius)).toVar();
+            const normal = normalize(dir.div(shape));
+
+            // Granite, dark in its creases, lichen in patches, moss on top.
+            const grain = mx_noise_float(center.mul(3.1)).mul(0.5).add(0.5);
+            const crease = smoothstep(0.98, 0.9, lump);
+            const lichen = smoothstep(0.62, 0.7, mx_noise_float(center.mul(1.7).add(9)).mul(0.5).add(0.5));
+            const moss = smoothstep(0.45, 0.8, normal.y).mul(
+                smoothstep(0.45, 0.6, mx_noise_float(center.mul(1.2).add(3)).mul(0.5).add(0.5)),
+            );
+            const stone = mix(v3(BOULDERS.dark), v3(BOULDERS.granite), grain.mul(0.6).add(0.4)).mul(crease.mul(-0.35).add(1));
+            const body = mix(mix(stone, v3(BOULDERS.lichen), lichen.mul(0.7)), v3(BOULDERS.moss), moss);
+            const lit = sunlight(center);
+            const below = smoothstep(-0.6, 0.3, normal.y).mul(0.5).add(0.5);
+            const rgb = body.mul(
+                v3(SUN)
+                    .mul(max(dot(normal, sun), 0))
+                    .mul(lit)
+                    .mul(0.85)
+                    .add(v3(SKYLIGHT).mul(0.55).mul(below)),
+            );
+
+            const size = b.radius.mul(Math.sqrt((4 * Math.PI) / splats)).mul(0.95);
+            const finish = distance(center, float(0), rgb);
+            // None where there's no boulder, nor below the ground.
+            const shows = b.there.mul(center.y.greaterThan(terrain(center.xz).height.sub(0.05)).select(float(1), float(0)));
+            return GpuSplats.Splat(
+                center,
+                vec3(size, size.mul(0.3), size),
+                alignY(normal),
+                finish.rgb.min(0.95),
+                finish.opacity.mul(shows).mul(1.3),
+                uint(index),
+            );
+        },
+        true,
+    );
+}
+
+/**
+ * The boulder at world point (x, z), on the CPU: the same hash as the GPU's
+ * `boulderOf`, so the kid can be kept out of them. Its xz centre and radius, or null.
+ */
+export function boulderAt(x: number, z: number): { x: number; z: number; radius: number } | null {
+    const pcg = (seed: number) => {
+        const state = (Math.imul(seed >>> 0, 747796405) + 2891336453) >>> 0;
+        const word = Math.imul(((state >>> ((state >>> 28) + 4)) ^ state) >>> 0, 277803737) >>> 0;
+        return ((word >>> 22) ^ word) >>> 0;
+    };
+    const cx = Math.floor(x / BOULDERS.cell);
+    const cz = Math.floor(z / BOULDERS.cell);
+    const id = (Math.imul(cx, 73856093) ^ Math.imul(cz, 19349663)) >>> 0;
+    const base = (Math.imul(id, 16) + 40 * 4) >>> 0;
+    const h = [0, 1, 2, 3].map((k) => pcg((base + k) >>> 0) / 4294967296);
+    if (h[0] >= BOULDERS.chance) return null;
+    const [small, big] = BOULDERS.radius;
+    const radius = small + (big - small) * h[1] * h[1];
+    const room = Math.max(BOULDERS.cell - radius * 2, 0);
+    return { x: cx * BOULDERS.cell + radius + h[2] * room, z: cz * BOULDERS.cell + radius + h[3] * room, radius };
 }
 
 /* the field */
@@ -1953,7 +2081,15 @@ export function initField(renderer: WebGPURenderer, clouds: THREE.Texture, kidOn
     return {
         objects: kidOnly
             ? [ground(), ...you]
-            : [ground(), blades(), blades(FIELD.nearBlades, FIELD.nearReach, 30, 0.6), flowers(), butterflies(), ...you],
+            : [
+                  ground(),
+                  boulders(),
+                  blades(),
+                  blades(FIELD.nearBlades, FIELD.nearReach, 30, 0.6),
+                  flowers(),
+                  butterflies(),
+                  ...you,
+              ],
     };
 }
 
@@ -1970,6 +2106,9 @@ export type Walker = {
     lift: number;
     rise: number;
     landed: number;
+    /** Leaning forward and banking into a turn, radians. */
+    lean: number;
+    bank: number;
 };
 
 let frames = 0;
@@ -1985,6 +2124,8 @@ export function updateField(elapsed: number, dt: number, camera: THREE.Camera, w
     skipping.value = walker.skipping;
     airborne.value = Math.min(walker.lift / 0.08, 1);
     landed.value = walker.landed;
+    lean.value = walker.lean;
+    bank.value = walker.bank;
     // Settle the dress and hair at rest for the first few frames, then simulate.
     settle.value = frames++ < 3 ? 1 : 0;
     subDt.value = Math.min(Math.max(dt, 1e-4), 1 / 30) / SUBSTEPS;

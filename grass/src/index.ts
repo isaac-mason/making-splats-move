@@ -15,7 +15,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { RenderPipeline, type WebGPURenderer } from 'three/webgpu';
 import cloudUrl from '../assets/cloud.jpg?url';
-import { HAZE, initField, SUN_DIRECTION, terrainHeight, updateField, type Walker } from './field';
+import { BOULDERS, boulderAt, HAZE, initField, SUN_DIRECTION, terrainHeight, updateField, type Walker } from './field';
 import './style.css';
 
 const { dot, max, mix, normalize, pass, positionWorldDirection, pow, screenUV, smoothstep, uniform, vec4 } = TSL;
@@ -29,24 +29,31 @@ const { dot, max, mix, normalize, pass, positionWorldDirection, pow, screenUV, s
  * ends, so you can run as far and as fast as you like.
  */
 const WALK = {
-    /** Walking and running speed, m/s, and how quickly you get up to speed. */
-    speed: 2.6,
-    run: 6,
-    grip: 8,
-    /** A step's length walking, and a skip's running, metres: the stride clock. */
-    stride: 0.9,
-    skip: 3.2,
-    /** How quickly you turn to face the way you're going. */
-    turn: 10,
-    /** Jumping (space): take-off speed, m/s, and gravity, floaty: about half a metre up. */
-    jump: 3.8,
-    gravity: 14,
+    /** Walking and running speed, m/s, and how quickly you get up to speed: some momentum. */
+    speed: 2.4,
+    run: 5.5,
+    grip: 3.5,
+    /** A step's length walking, and running, metres: the stride clock. */
+    stride: 0.75,
+    skip: 1.5,
+    /** How quickly you turn to face the way you're going: unhurried. */
+    turn: 5,
+    /** Jumping (space): take-off speed, m/s, and real gravity: a smooth half-metre arc. */
+    jump: 3.1,
+    gravity: 9.8,
+    /** Leaning: forward per m/s² of acceleration and per m/s of speed, banking per m/s² of turn; how quickly it follows. */
+    leanAccel: 0.035,
+    leanSpeed: 0.02,
+    bank: 0.03,
+    sway: 4,
     /** Which way you face at the start, radians in xz: up the long rise to the crest. */
     facing: (140 * Math.PI) / 180,
     /** The camera: how far back and above to start, and how close to the grass it may get. */
     back: 4,
     above: 1.4,
     clearance: 0.6,
+    /** Your radius, for keeping out of boulders. */
+    body: 0.25,
     /** What the camera looks at: you, at about chest height. */
     chest: 1.0,
 };
@@ -80,6 +87,7 @@ const forward = new THREE.Vector3();
 const right = new THREE.Vector3();
 const wanted = new THREE.Vector3();
 const before = new THREE.Vector3();
+const accel = new THREE.Vector3();
 
 /**
  * `?kid=1`: just the kid on the ground, walking and skipping round a circle on its
@@ -124,7 +132,9 @@ function walk(
     const running = held.has('ShiftLeft') || held.has('ShiftRight');
     if (wanted.lengthSq() > 0) wanted.normalize().multiplyScalar(running ? WALK.run : WALK.speed);
     if (steer) wanted.copy(steer);
+    accel.copy(walker.velocity);
     walker.velocity.lerp(wanted, 1 - Math.exp(-WALK.grip * dt));
+    accel.subVectors(walker.velocity, accel).divideScalar(Math.max(dt, 1e-4));
 
     before.copy(walker.position);
     walker.position.addScaledVector(walker.velocity, dt);
@@ -152,6 +162,33 @@ function walk(
         const toward = Math.atan2(walker.velocity.x, walker.velocity.z);
         const turn = Math.atan2(Math.sin(toward - walker.facing), Math.cos(toward - walker.facing));
         walker.facing += turn * (1 - Math.exp(-WALK.turn * dt));
+    }
+
+    // Leaning into it: forward into acceleration and with speed, banking into a turn,
+    // each on a spring so it settles rather than snaps.
+    const ahead = new THREE.Vector3(Math.sin(walker.facing), 0, Math.cos(walker.facing));
+    const side = new THREE.Vector3(ahead.z, 0, -ahead.x);
+    const leanTo = THREE.MathUtils.clamp(accel.dot(ahead) * WALK.leanAccel + speed * WALK.leanSpeed, -0.2, 0.3);
+    const bankTo = THREE.MathUtils.clamp(-accel.dot(side) * WALK.bank, -0.18, 0.18);
+    const follow = 1 - Math.exp(-WALK.sway * dt);
+    walker.lean += (leanTo - walker.lean) * follow;
+    walker.bank += (bankTo - walker.bank) * follow;
+
+    // Not through boulders: pushed out round any near you.
+    for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+            const b = boulderAt(walker.position.x + dx * BOULDERS.cell, walker.position.z + dz * BOULDERS.cell);
+            if (!b) continue;
+            const ox = walker.position.x - b.x;
+            const oz = walker.position.z - b.z;
+            const d = Math.hypot(ox, oz);
+            const keep = b.radius * 0.95 + WALK.body;
+            if (d < keep && d > 1e-4) {
+                walker.position.x = b.x + (ox / d) * keep;
+                walker.position.z = b.z + (oz / d) * keep;
+                walker.position.y = terrainHeight(walker.position.x, walker.position.z) + walker.lift;
+            }
+        }
     }
 
     // The camera comes along, keeping its place behind you.
@@ -232,6 +269,8 @@ async function start() {
         lift: 0,
         rise: 0,
         landed: 0,
+        lean: 0,
+        bank: 0,
     };
     const target = walker.position.clone();
     target.y += WALK.chest;

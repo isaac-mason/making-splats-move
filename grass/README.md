@@ -6,7 +6,7 @@ index and the time, so the wind costs nothing extra: each frame makes every blad
 afresh, already bent. Cloud shadows sweep across the hills.
 
 Drawn by [spark-radix][radix] on three.js's `WebGPURenderer`. **WASD** to walk,
-**shift** to skip, **space** to jump, drag to look round, scroll to come closer or
+**shift** to run, **space** to jump, drag to look round, scroll to come closer or
 stand back.
 
 ## A meadow without end
@@ -29,13 +29,17 @@ ring), hinged at hips, shoulders, neck and hand, and posed in the shader from a
 stride clock, so the CPU only says how far you've gone, which way you face and how
 fast.
 
-Walking is a light bounce on alternating legs. Running is skipping: big and small
-hops in turn, the leading knee up, the free arm swinging up, a squash on landing
-and a stretch in the air. The hat sits steady, the basket swings, the head nods, and standing still, the kid breathes. A jump is a floaty half-metre arc: knees tucked, the free
-arm flung up and out, the body stretched, and a squash on landing as hard as the
-fall; the skirt and hair, simulated in world space, lag on the way up and flare and
-lift on the way down, and the grass isn't trampled from the air. Lit like a cartoon: banded sun, sky
-fill and a rim.
+Motion is physical rather than cartoon: you have momentum, speeding up, slowing
+and turning gradually; the body leans into acceleration and with speed, and banks
+into turns, each on a spring so it settles rather than snaps; it rises a little
+over each stride and settles at each footfall, more running than walking. A jump
+is a real-gravity arc of about half a metre, the knees lifting a little and the
+arms rising for balance, and a landing is taken in the knees, the body dipping by
+how hard you came down and rising again. The skirt and hair, simulated in world
+space, lag on the way up and flare and lift on the way down, and the grass isn't
+trampled from the air. The hat sits steady, the basket swings, the head nods,
+and standing still, the kid breathes. Lit like a cartoon: banded sun, sky fill
+and a rim.
 
 ## The dress and the hair, simulated
 
@@ -90,6 +94,17 @@ pigtails.
 
 `?kid=1` shows just the kid on the ground, walking, skipping and standing round a
 circle on its own: a cheap way to look at the dress and hair.
+
+## Earth and boulders
+
+Under the grass is earth, mottled dark and light with the odd pale pebble, fading
+to turf colour far off where gaps should read as more grass. Boulders are
+scattered on a 9 metre world grid, each cell maybe holding one, mostly small, now
+and then big: a lumpy, noise-shaped, partly buried stone, granite with darker
+creases, lichen in patches and moss on top. A boulder sits wholly inside its cell,
+so any point only has to ask its own cell about it: grass and flowers don't grow
+through one, and the same integer hash on the CPU keeps you from walking through
+one.
 
 ## Trampling, on the GPU
 
