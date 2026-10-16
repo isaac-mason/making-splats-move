@@ -45,11 +45,16 @@ it a skirt rather than a heap, and it's pushed out of the legs and hips so it
 drapes over them. It's drawn as two splats a cloth cell, each facing the way the
 cloth does there, so folds catch the light; pleats and a white hem trim finish it.
 
-The hair is the same idea in chains: chunky locks rather than strands, since
-cartoon hair is a few clumps. Sixteen overlapping locks hang in a bob round the
-back under the hat brim, and each pigtail is a rope of three from its red tie;
-held at the root, swung by gravity, wind and you, loosely holding their shape,
-and kept off the head and shoulders. Each segment is a tapering splat.
+The hair is sculpted locks, the way stylised game characters have it, rather than
+strands. Strand hair is how photoreal methods do it, with tens of thousands of
+strands; with a few dozen it's just stringy. Here each lock is a shell of splats
+round a tapered, curving tube, opaque and solid, driven by a four-joint spring-bone
+chain in the same simulation: stiff shape springs, so a lock swings and bounces as
+one piece. A bob of twelve wide flat locks round the back and sides, their tips
+curling in, a lock in front of each ear, and two pigtails as thick ropes, bunched a
+little and tapering to a point, from red ties; a fringe on the forehead is part of
+the head. Shaded like the kid, plus the bright highlight ring stylised hair has
+across its crown.
 
 All of it lives in world space, so inertia comes free: the pinned ends move with
 you and the rest have to catch up. The kid's pose is a function rather than
