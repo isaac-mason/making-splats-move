@@ -13,7 +13,7 @@ stand back.
 
 You're a little cartoon kid walking it in third person, seen mostly from above
 (see below): the camera follows high and well back (10 to 18 metres), looking down
-at 23 to 40 degrees, never far enough out to see the haze 48 metres away (it
+at 23 to 40 degrees, never far enough out to see the haze 42 metres away (it
 only hides the tiles' edges), so the meadow's waves, the cloud shadows and the trail you trample read best. Everything in the meadow,
 grass, ground, flowers and butterflies, lives in one 112 metre tile, and each thing
 is drawn at whichever copy of its place is nearest you. So it holds still in the
@@ -116,7 +116,9 @@ to turf colour far off where gaps should read as more grass. Boulders are
 scattered on an 18 metre world grid, each cell maybe holding one, from about two
 metres across to six, fading in with distance rather than popping in: a lumpy, noise-shaped, partly buried stone of 8,000 small splats, lit by
 its own lumps (the normal tilted by how the surface rises and falls) so faces and
-ridges catch the light, granite with darker creases, lichen in patches and moss on top. A boulder sits wholly inside its cell,
+ridges catch the light, granite with darker creases, lichen in patches and moss on top. The CPU, which knows where every boulder is, hands the GPU
+the nearest occupied cells each frame, so splats go only to real boulders, not to
+every cell (two thirds of them empty). A boulder sits wholly inside its cell,
 so any point only has to ask its own cell about it: grass and flowers don't grow
 through one, and the same integer hash on the CPU keeps you from walking through
 one.
@@ -159,7 +161,11 @@ also widen with distance, and the two together turn the grass to soft strokes),
 each fading out at its edge, so they stack into about 220 blades a square metre at
 your feet, 95 at ten metres and 40 at twenty, thinning to thick, sparse blades out
 in the haze. Every blade still holds still in the world: each layer wraps round you
-like the rest of the meadow. One even scatter can't do it: thin enough to afford
+like the rest of the meadow. The layers' detail falls off too: five splats
+a blade near you, four further out, three in the outer layer, which also takes a
+cheaper wind (the same gusts without the warp, second layer and fine octave you
+can't see that far off). And nothing is drawn past the 48 metres the camera can
+reach. One even scatter can't do it: thin enough to afford
 over the whole meadow, it shows the earth between blades from above.
 
 Far blades draw wider with distance, the ground between them turns grass-coloured,

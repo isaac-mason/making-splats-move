@@ -58,6 +58,8 @@ const {
     smoothstep,
     uint,
     uniform,
+    uniformArray,
+
     vec2,
     vec3,
     vec4,
@@ -83,7 +85,7 @@ const FIELD = {
      * drawn at whichever copy of its place is nearest you, so the meadow never
      * ends: what you leave behind comes round again out in the haze ahead.
      */
-    reach: 56,
+    reach: 48,
     /**
      * The grass's level of detail: nested tiles round you, each wider and sparser
      * than the last, its blades thicker, each fading out at its edge (a clipmap).
@@ -91,19 +93,23 @@ const FIELD = {
      * holds still in the world. Each: half-size (metres), blades, thickness, and
      * how far out it starts to fade (of its half-size).
      */
+    /**
+     * Each layer also has its own detail: splats along a blade (`segments`), and
+     * whether it gets the full organic wind or a cheaper one (the same gusts, without
+     * the warp, second layer and fine octave you can't see far off).
+     */
     layers: [
-        { reach: 7, blades: 25_000, girth: 1, edge: 0.65 },
-        { reach: 15, blades: 50_000, girth: 1.1, edge: 0.7 },
-        { reach: 30, blades: 90_000, girth: 1.25, edge: 0.75 },
-        { reach: 58, blades: 220_000, girth: 1.45, edge: 0.88 },
+        { reach: 7, blades: 25_000, girth: 1, edge: 0.65, segments: 5, detail: true },
+        { reach: 15, blades: 50_000, girth: 1.1, edge: 0.7, segments: 5, detail: true },
+        { reach: 30, blades: 90_000, girth: 1.25, edge: 0.75, segments: 4, detail: true },
+        { reach: 48, blades: 150_000, girth: 1.45, edge: 0.88, segments: 3, detail: false },
     ],
-    segments: 5,
-    ground: 220_000,
+    ground: 160_000,
     /**
      * Where the haze starts and is complete, metres from you (across the ground). It
      * only hides the tiles' edges: the camera never looks out as far as it starts.
      */
-    fog: [48, 58],
+    fog: [42, 48],
 };
 
 /**
@@ -227,9 +233,14 @@ export const BOULDERS = {
     /** Cells drawn round you, each way, and splats on each boulder. */
     around: 3,
     /** Where they fade in, metres from you: well inside the cells drawn, so none pops in. */
-    fade: [46, 54],
+    fade: [40, 48],
     /** Splats on each: enough that each is small and the stone reads crisp, not soft, even close. */
     splats: 8000,
+    /**
+     * Boulders drawn at once: the nearest occupied cells, found on the CPU each frame,
+     * so splats only go to real boulders rather than to every cell, two thirds empty.
+     */
+    slots: 22,
     granite: [0.5, 0.48, 0.45],
     dark: [0.32, 0.31, 0.3],
     lichen: [0.66, 0.63, 0.38],
@@ -237,6 +248,12 @@ export const BOULDERS = {
 };
 
 /* uniforms, set once a frame */
+
+/** The occupied boulder cells nearest you, from the CPU: (cx, cz, 1) each, (0, 0, 0) for an empty slot. */
+const boulderCells = uniformArray(
+    Array.from({ length: BOULDERS.slots }, () => new THREE.Vector4()),
+    'vec4',
+);
 
 /** Seconds since the start. */
 export const time = uniform(0);
@@ -439,7 +456,7 @@ function boulderOf(cx: TslNode, cz: TslNode): { center: TslNode; radius: TslNode
     const radius = mix(small, big, pow(h.y, 1.5));
     const room = float(BOULDERS.cell).sub(radius.mul(2)).max(0);
     const center = vec2(cx, cz).mul(BOULDERS.cell).add(radius).add(vec2(h.z, h.w).mul(room));
-    return { center, radius, there: h.x.lessThan(BOULDERS.chance).select(float(1), float(0)), seed: id };
+    return { center, radius, there: h.x.lessThan(BOULDERS.chance).select(float(1), float(0)) as TslNode, seed: id };
 }
 
 /** How much of the ground at `xz` is clear of boulders: 0 under one, 1 in the open. */
@@ -591,7 +608,7 @@ function trampled(xz: TslNode): TslNode {
  * answers the gust of `respond` seconds ago, and whips back past it by how fast
  * that gust was letting go.
  */
-function windAt(xz: TslNode, height: TslNode, r: TslNode): { gust: TslNode; push: TslNode } {
+function windAt(xz: TslNode, height: TslNode, r: TslNode, detail = true): { gust: TslNode; push: TslNode } {
     const p = xz.sub(gustTravel);
     const along = dot(p, windDir);
     const across = dot(p, vec2(windDir.y.negate(), windDir.x));
@@ -599,12 +616,13 @@ function windAt(xz: TslNode, height: TslNode, r: TslNode): { gust: TslNode; push
     // sliding along with it.
     // The bend in the gusts' coordinates: slow, so it's shared by the whole moment of a stem.
     const q0 = vec2(along.div(WIND.depth), across.div(WIND.length));
-    const bend = vec2(
-        mx_noise_float(vec3(q0.mul(0.45), time.mul(0.04))),
-        mx_noise_float(vec3(q0.mul(0.45).add(31), time.mul(0.04))),
-    )
-        .mul(WIND.warp)
-        .toVar();
+    // (Far off, without `detail`: no bend, no second layer, no fine octave, no wander.
+    // Two noises a splat instead of nine, and you can't tell at that distance.)
+    const bend = detail
+        ? vec2(mx_noise_float(vec3(q0.mul(0.45), time.mul(0.04))), mx_noise_float(vec3(q0.mul(0.45).add(31), time.mul(0.04))))
+              .mul(WIND.warp)
+              .toVar()
+        : vec2(0);
     // The second layer: its own frame, turned off the wind, slower, smaller.
     const p2 = xz.sub(gustTravel.mul(0.65));
     const turned = vec2(cos(0.7), sin(0.7));
@@ -631,6 +649,7 @@ function windAt(xz: TslNode, height: TslNode, r: TslNode): { gust: TslNode; push
         const fine = mx_noise_float(
             vec3(a.div(WIND.depth * WIND.detail), across.div(WIND.length * WIND.detail), time.mul(0.03).add(17)),
         );
+        if (!detail) return clamp(broad.mul(0.8).add(0.45), 0, 1);
         return clamp(broad.add(other.mul(WIND.second)).add(fine.mul(WIND.detailWeight)).mul(0.7).add(0.45), 0, 1);
     };
     const felt = gustAt(1).toVar();
@@ -656,7 +675,7 @@ function windAt(xz: TslNode, height: TslNode, r: TslNode): { gust: TslNode; push
 
     // Each stem leans a little its own way, so a gust doesn't lay the field over as one
     // sheet; and the wind's own way wanders slowly across the field, so gusts eddy.
-    const wander = mx_noise_float(vec3(xz.div(20), time.mul(0.03).add(5))).mul(WIND.wander);
+    const wander = detail ? mx_noise_float(vec3(xz.div(20), time.mul(0.03).add(5))).mul(WIND.wander) : float(0);
     const stray = r.z
         .sub(0.5)
         .mul(2 * WIND.scatter)
@@ -703,9 +722,15 @@ function stem(root: TslNode, height: TslNode, bend: TslNode, s: TslNode): { cent
 /* the blades */
 
 /** One layer of grass: `count` blades on a tile of half-size `reach`, `girth` times as thick, from random stream `stream`, fading out from `edge` of the way out. */
-function blades(count: number, reach: number, girth: number, stream: number, edge: number): SplatObject {
-    const { segments } = FIELD;
-
+function blades(
+    count: number,
+    reach: number,
+    girth: number,
+    stream: number,
+    edge: number,
+    segments: number,
+    detail: boolean,
+): SplatObject {
     return generated(count * segments, (index) => {
         const blade = index.div(uint(segments));
         const s = float(index.mod(uint(segments)))
@@ -735,7 +760,7 @@ function blades(count: number, reach: number, girth: number, stream: number, edg
         // Blade-to-blade variety, calmed with distance: far off it only reads as grain.
         const variety = mix(1, 0.2, smoothstep(5, 22, length(root.sub(eye))));
 
-        const { gust, push } = windAt(xz, height, c);
+        const { gust, push } = windAt(xz, height, c, detail);
         const leanAngle = b.z.mul(Math.PI * 2);
         const lean = vec2(cos(leanAngle), sin(leanAngle)).mul(b.w.mul(BLADE.restLean));
         const { center, tangent } = stem(root, height, lean.add(push).add(trampled(xz)), s);
@@ -798,7 +823,7 @@ function blades(count: number, reach: number, girth: number, stream: number, edg
  * They share the grass's wind and stem curve, a little stiffer.
  */
 const FLOWERS = {
-    count: 10_000,
+    count: 7_500,
     stemSegments: 3,
     /** Petal slots per flower: the most any kind has. */
     slots: 16,
@@ -1050,7 +1075,7 @@ function flowers(): SplatObject {
  * enough to glow with the sun behind them.
  */
 const BUTTERFLIES = {
-    count: 120,
+    count: 90,
     /** How many flowers each looks at to choose its next. */
     choices: 6,
     /** Seconds per flower, rest and flight together, and the share spent resting. */
@@ -2279,18 +2304,17 @@ function ground(): SplatObject {
 /* boulders */
 
 function boulders(): SplatObject {
-    const span = BOULDERS.around * 2 + 1;
     const { splats } = BOULDERS;
     return generated(
-        span * span * splats,
+        BOULDERS.slots * splats,
         (index) => {
             const slot = index.div(uint(splats));
             const k = float(index.mod(uint(splats)));
             // This slot's world cell: round the cell you're in.
-            const yours = you.xz.div(BOULDERS.cell).floor();
-            const cx = yours.x.add(float(slot.mod(uint(span)))).sub(BOULDERS.around);
-            const cz = yours.y.add(float(slot.div(uint(span)))).sub(BOULDERS.around);
-            const b = boulderOf(cx, cz);
+            // This slot's boulder: one of the occupied cells near you, from the CPU.
+            const cell = boulderCells.element(slot).toVar();
+            const b = boulderOf(cell.x, cell.y);
+            b.there = b.there.mul(cell.z);
 
             // An even spiral over a sphere, pushed in and out by noise: a lumpy stone.
             const y = k.add(0.5).div(splats).mul(-2).add(1);
@@ -2387,7 +2411,9 @@ export function boulderAt(x: number, z: number): { x: number; z: number; radius:
 
 /** The grass, every layer of it, each on its own random stream. */
 function grass(): SplatObject[] {
-    return FIELD.layers.map((layer, n) => blades(layer.blades, layer.reach, layer.girth, n * 4, layer.edge));
+    return FIELD.layers.map((layer, n) =>
+        blades(layer.blades, layer.reach, layer.girth, n * 4, layer.edge, layer.segments, layer.detail),
+    );
 }
 
 /* the paths' surface */
@@ -2529,6 +2555,23 @@ export function updateField(elapsed: number, dt: number, camera: THREE.Camera, w
     you.value.copy(walker.position);
     yourVelocity.value.copy(walker.velocity);
     stride.value = walker.stride;
+    // The occupied boulder cells nearest you, for the boulders' slots.
+    const cx = Math.floor(walker.position.x / BOULDERS.cell);
+    const cz = Math.floor(walker.position.z / BOULDERS.cell);
+    const near: [number, number, number][] = [];
+    for (let dx = -BOULDERS.around; dx <= BOULDERS.around; dx++) {
+        for (let dz = -BOULDERS.around; dz <= BOULDERS.around; dz++) {
+            const x = cx + dx;
+            const z = cz + dz;
+            if (boulderAt((x + 0.5) * BOULDERS.cell, (z + 0.5) * BOULDERS.cell)) near.push([x, z, dx * dx + dz * dz]);
+        }
+    }
+    near.sort((a, b) => a[2] - b[2]);
+    const cells = boulderCells.array as THREE.Vector4[];
+    for (let i = 0; i < BOULDERS.slots; i++) {
+        const c = near[i];
+        cells[i].set(c ? c[0] : 0, c ? c[1] : 0, c ? 1 : 0, 0);
+    }
     facing.value = walker.facing;
     skipping.value = walker.skipping;
     airborne.value = Math.min(walker.lift / 0.08, 1);
