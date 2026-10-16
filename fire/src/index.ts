@@ -35,7 +35,7 @@ import { initLighting, NIGHT_BRIGHTNESS, updateLighting } from './lighting';
 import { applyPerformance, initPerformance } from './performance';
 import { BLOOM_STRENGTH, initPost } from './post';
 import { createSplatPicker, type SplatPicker } from './raycast';
-import { download, type Recording, record, recordingFromUrl } from './record';
+import { download, type Recording, record, recordingFromUrl, scriptedMouse } from './record';
 import { CAMERA_POSITION, CAMERA_TARGET, SPLAT_URL } from './scene';
 import { initFireSim } from './sim';
 import { initSmoke, updateSmoke } from './smoke';
@@ -86,9 +86,7 @@ async function init() {
     controls.target.set(...CAMERA_TARGET);
     controls.update();
 
-    // `?lean=` blends the sway: 1 all swing about the target, 0 all slide, 0.5 half each.
-    const lean = Number(new URLSearchParams(location.search).get('lean') ?? 0.5);
-    const drift = createCameraDrift(camera, controls, renderer.domElement, Number.isFinite(lean) ? lean : 0.5);
+    const drift = createCameraDrift(camera, controls, renderer.domElement);
     const perf = initPerformance();
 
     const debug = createDebugOverlay(
@@ -259,6 +257,7 @@ async function recordTake(state: State, recording: Recording) {
     document.body.append(progress);
 
     const stokes = [...recording.stokes];
+    const mouse = scriptedMouse(recording);
     let first = true;
     try {
         const blob = await record(
@@ -270,13 +269,10 @@ async function recordTake(state: State, recording: Recording) {
                     stokeFire(state.fire);
                     stokes.shift();
                 }
-                // The scripted mouse sways about the window, through the warmup too, so
-                // the lean is already moving on the first frame. Sines at unrelated
-                // rates, so it never quite repeats and never reads as a loop.
-                const p = (2 * Math.PI * time) / recording.period;
-                const x = 0.75 * Math.sin(p) + 0.25 * Math.sin(0.43 * p + 1.7);
-                const y = 0.6 * Math.sin(0.71 * p + 0.9) + 0.4 * Math.sin(1.37 * p + 2.6);
-                state.drift.drive(x * recording.sweep, y * recording.rise, first);
+                // The scripted mouse, through the warmup too, so the lean is already
+                // moving on the first frame.
+                const [x, y] = mouse(time);
+                state.drift.drive(x, y, first);
                 first = false;
                 update(state, recording.warmup + time, dt, index >= 0);
             },
