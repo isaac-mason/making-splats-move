@@ -464,30 +464,87 @@ function blades(): SplatObject {
 
 /**
  * Wildflowers in drifts: a noise field says where they gather, and which kind
- * leads each drift, with strays of every kind in between. Each is a thin stem and
- * a head: a ring of petals, tipped up towards the sky and a little towards the
- * sun, round a centre. They stand just above the grass so the heads show, and
- * take the same wind, so they bob in the same gusts.
+ * leads each drift, with strays of every kind in between.
+ *
+ * What keeps them from looking like stickers: each kind has its own shape (a
+ * poppy's four broad cupped petals, a daisy's ring of thin rays, a buttercup's
+ * five glossy cups, a cornflower's ragged florets, a knapweed's upright tuft),
+ * in muted colours; no two petals are quite alike, now and then one is missing;
+ * heads are tipped every which way, so from eye height most are seen side-on;
+ * some are still buds; and they stand at every height, some down in the grass.
+ * They share the grass's wind and stem curve, a little stiffer.
  */
 const FLOWERS = {
-    count: 14_000,
+    count: 10_000,
     stemSegments: 3,
-    petals: 8,
+    /** Petal slots per flower: the most any kind has. */
+    slots: 12,
     /** Petal opacity past 1, for a crisp petal edge. */
-    crisp: 1.7,
+    crisp: 1.5,
     /** The size of a drift (one over metres), where one starts and is full, and the strays' share. */
     drift: 0.07,
     gather: [0.15, 0.5],
     strays: 0.05,
-    height: [0.5, 0.9],
-    stem: [0.17, 0.36, 0.08],
-    /** Petals, each kind: colour, centre colour, petal length (metres), and its share of drifts. */
+    height: [0.32, 0.82],
+    /** The share still in bud. */
+    buds: 0.18,
+    stem: [0.2, 0.34, 0.1],
+    /**
+     * Each kind: petal and centre colour, how many petals, a petal's length
+     * (metres) and width (of its length), how far the petals cup up (radians, below
+     * 0 bends them back), and the eye's size: the centre, as a share of a petal's length.
+     */
     kinds: [
-        { name: 'poppy', petal: [0.96, 0.2, 0.07], centre: [0.12, 0.07, 0.08], size: 0.03 },
-        { name: 'cornflower', petal: [0.3, 0.45, 0.96], centre: [0.2, 0.22, 0.6], size: 0.021 },
-        { name: 'daisy', petal: [0.98, 0.97, 0.92], centre: [1.0, 0.78, 0.12], size: 0.024 },
-        { name: 'buttercup', petal: [1.0, 0.84, 0.1], centre: [0.95, 0.68, 0.08], size: 0.017 },
-        { name: 'knapweed', petal: [0.72, 0.32, 0.78], centre: [0.45, 0.18, 0.5], size: 0.019 },
+        {
+            name: 'poppy',
+            petal: [0.8, 0.17, 0.09],
+            centre: [0.1, 0.08, 0.07],
+            petals: 4,
+            length: 0.02,
+            width: 0.85,
+            cup: 0.55,
+            eye: 0.32,
+        },
+        {
+            name: 'cornflower',
+            petal: [0.33, 0.45, 0.84],
+            centre: [0.26, 0.26, 0.55],
+            petals: 9,
+            length: 0.013,
+            width: 0.35,
+            cup: 0.35,
+            eye: 0.38,
+        },
+        {
+            name: 'oxeye daisy',
+            petal: [0.93, 0.92, 0.86],
+            centre: [0.88, 0.68, 0.16],
+            petals: 12,
+            length: 0.015,
+            width: 0.22,
+            cup: -0.08,
+            eye: 0.42,
+        },
+        {
+            name: 'buttercup',
+            petal: [0.92, 0.77, 0.16],
+            centre: [0.82, 0.62, 0.14],
+            petals: 5,
+            length: 0.009,
+            width: 0.75,
+            cup: 0.75,
+            eye: 0.32,
+        },
+        {
+            name: 'knapweed',
+            petal: [0.58, 0.3, 0.58],
+            centre: [0.4, 0.24, 0.32],
+            petals: 10,
+            length: 0.008,
+            width: 0.3,
+            cup: 1.15,
+            eye: 0.7,
+        },
     ],
 };
 
@@ -499,8 +556,13 @@ function pick(kind: TslNode, values: TslNode[]): TslNode {
 }
 
 function flowers(): SplatObject {
-    const { stemSegments, petals, kinds } = FLOWERS;
-    const parts = stemSegments + petals + 1;
+    const { stemSegments, slots, kinds } = FLOWERS;
+    const parts = stemSegments + slots + 1;
+    const of = (key: 'petals' | 'length' | 'width' | 'cup' | 'eye') => (kind: TslNode) =>
+        pick(
+            kind,
+            kinds.map((k) => float(k[key])),
+        );
 
     return generated(
         FLOWERS.count * parts,
@@ -510,6 +572,8 @@ function flowers(): SplatObject {
             const a = hash4(flower, 4).toVar();
             const b = hash4(flower, 5).toVar();
             const c = hash4(flower, 6).toVar();
+            // This petal's own numbers, so no two are alike.
+            const own = hash4(index, 7).toVar();
 
             const { xz, out } = scatter(a);
             const ground = terrain(xz);
@@ -525,66 +589,105 @@ function flowers(): SplatObject {
                 .mul(0.5)
                 .add(0.5)
                 .mul(kinds.length);
-            const kind = c.w.lessThan(0.25).select(c.x.mul(kinds.length), driftKind).floor().toVar();
+            const kind = c.w
+                .lessThan(0.25)
+                .select(c.x.mul(kinds.length), driftKind)
+                .floor()
+                .clamp(0, kinds.length - 1)
+                .toVar();
+            const bud = c.y.lessThan(FLOWERS.buds);
 
             const height = mix(FLOWERS.height[0], FLOWERS.height[1], b.x).toVar();
             const { gust, push } = windAt(xz, height, c);
-            // A little stiffer than grass.
-            const bend = windDir.mul(push.mul(0.75)).add(vec2(cos(b.y.mul(6.283)), sin(b.y.mul(6.283))).mul(0.12));
+            // A little stiffer than grass, and each with a lean of its own.
+            const bend = windDir.mul(push.mul(0.75)).add(vec2(cos(b.y.mul(6.283)), sin(b.y.mul(6.283))).mul(0.15));
 
             const isStem = part.lessThan(stemSegments);
             const isCentre = part.equal(parts - 1);
-            const s = part.add(0.5).div(stemSegments).min(1);
-            const along = stem(root, height, bend, s);
+            const slot = part.sub(stemSegments);
+            const along = stem(root, height, bend, part.add(0.5).div(stemSegments).min(1));
             const head = stem(root, height, bend, float(1));
 
-            // The head looks up, a little towards the sun, and leans with the stem.
-            const facing = normalize(head.tangent.add(vec3(0, 1.2, 0)).add(sun.mul(0.35))).toVar();
-            const petal = part.sub(stemSegments);
-            const turn = petal.div(petals).add(b.z).mul(Math.PI);
-            const headTurn = GpuSplatMath.quatMul(alignY(facing), yaw(turn)).toVar();
-            const size = pick(
-                kind,
-                kinds.map((k) => float(k.size)),
-            ).mul(b.w.mul(0.4).add(0.8));
-            const reachOut = isCentre.select(float(0), size.mul(0.62));
-            const headPoint = head.center.add(GpuSplatMath.quatRotate(headTurn, vec3(reachOut, 0, 0)));
+            // The head nods with the stem and is tipped its own way: most are seen side-on.
+            const tipAngle = a.z.mul(6.283);
+            const tip = vec3(cos(tipAngle), 0, sin(tipAngle)).mul(a.w.mul(0.9));
+            const facing = normalize(
+                head.tangent
+                    .add(vec3(0, 0.5, 0))
+                    .add(sun.mul(0.25))
+                    .add(tip),
+            ).toVar();
 
-            const center = isStem.select(along.center, headPoint).toVar();
-            const quaternion = isStem.select(alignY(along.tangent), headTurn);
-            const far = clamp(length(center.sub(eye)).div(9), 1, 1.8);
+            // Petals round the head, evenly but not exactly, each its own size, cupped.
+            const count = of('petals')(kind);
+            const scale = b.w.mul(0.5).add(0.75);
+            const length = of('length')(kind).mul(scale).mul(own.x.mul(0.4).add(0.8)).toVar();
+            const width = of('width')(kind).mul(own.y.mul(0.4).add(0.8));
+            const cup = of('cup')(kind).add(own.z.sub(0.5).mul(0.3));
+            const turn = slot.add(own.w.sub(0.5).mul(0.35)).div(count).add(b.z).mul(Math.PI);
+            const headTurn = GpuSplatMath.quatMul(alignY(facing), yaw(turn)).toVar();
+            const petalTurn = GpuSplatMath.quatMul(headTurn, vec4(0, 0, sin(cup.mul(0.5)), cos(cup.mul(0.5))));
+            const petalAt = head.center.add(GpuSplatMath.quatRotate(petalTurn, vec3(length.mul(1.05), 0, 0)));
+            const centreSize = of('eye')(kind)
+                .mul(of('length')(kind))
+                .mul(scale)
+                .mul(bud.select(float(1.4), float(1)));
+
+            const center = isStem.select(along.center, isCentre.select(head.center, petalAt)).toVar();
+            const quaternion = isStem.select(alignY(along.tangent), isCentre.select(headTurn, petalTurn));
             const scales = isStem.select(
-                vec3(0.0035, height.div(stemSegments).mul(0.6), 0.0035),
-                isCentre
-                    .select(vec3(size.mul(0.26), 0.004, size.mul(0.26)), vec3(size.mul(0.42), 0.0015, size.mul(0.15)))
-                    .mul(far),
+                vec3(0.0025, height.div(stemSegments).mul(0.6), 0.0025),
+                isCentre.select(vec3(centreSize, centreSize.mul(0.6), centreSize), vec3(length, 0.0012, length.mul(width))),
             );
 
-            // Colour, and light as the grass has it: sun unless a cloud's in the way,
-            // the sky always, and through the petals towards the sun.
+            // Which splats show: the stem; petals this kind has (one in twenty-five
+            // gone), not on a bud; the centre always.
+            const petalShows = slot.lessThan(count).and(own.z.greaterThan(0.04)).and(bud.not());
+            const shows = isStem.or(isCentre).or(petalShows).select(float(1), float(0));
+
+            // Colour: muted, each petal a touch different; a bud is green going over
+            // to its colour. Lit as the grass is.
             const petalColour = pick(
                 kind,
                 kinds.map((k) => v3(k.petal)),
-            );
-            const centreColour = pick(
-                kind,
-                kinds.map((k) => v3(k.centre)),
+            ).mul(own.y.mul(0.16).add(0.92));
+            const centreColour = bud.select(
+                mix(
+                    v3(FLOWERS.stem),
+                    pick(
+                        kind,
+                        kinds.map((k) => v3(k.petal)),
+                    ),
+                    0.35,
+                ),
+                pick(
+                    kind,
+                    kinds.map((k) => v3(k.centre)),
+                ),
             );
             const body = isStem.select(v3(FLOWERS.stem), isCentre.select(centreColour, petalColour));
             const lit = sunlight(center);
             const view = normalize(center.sub(eye));
-            // Not too much: white petals glowing past the bloom threshold turn to halos.
             const through = pow(max(dot(view, sun), 0), 4).mul(isStem.select(float(0), float(0.3)));
-            const faceSun = max(dot(facing, sun), 0).mul(0.5).add(0.5);
-            const rgb = body.mul(v3(SUN).mul(faceSun.add(through)).mul(lit).mul(0.95).add(v3(SKYLIGHT).mul(0.5))).add(
+            const faceSun = abs(dot(GpuSplatMath.quatRotate(quaternion, vec3(0, 1, 0)), sun))
+                .mul(0.5)
+                .add(0.5);
+            const rgb = body.mul(v3(SUN).mul(faceSun.add(through)).mul(lit).mul(0.9).add(v3(SKYLIGHT).mul(0.5))).add(
                 max(gust, 0)
-                    .mul(0.05)
+                    .mul(0.03)
                     .mul(isStem.select(float(0), float(1))),
             );
 
             const finish = distance(center, out, rgb);
-            const opacity = finish.opacity.mul(here).mul(isStem.select(float(1), float(FLOWERS.crisp)));
-            return GpuSplats.Splat(center, scales, quaternion, finish.rgb.min(0.97), opacity, uint(index));
+            const crisp = isStem.select(float(1), float(FLOWERS.crisp));
+            return GpuSplats.Splat(
+                center,
+                scales,
+                quaternion,
+                finish.rgb.min(0.95),
+                finish.opacity.mul(here).mul(shows).mul(crisp),
+                uint(index),
+            );
         },
         true,
     );

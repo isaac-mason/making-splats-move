@@ -60,16 +60,27 @@ rolling through the grass.
 
 ## Wildflowers
 
-Poppies, cornflowers, daisies, buttercups and knapweed, in drifts: one noise field
-says where flowers gather and another which kind leads each drift, with strays of
-every kind in between. Each is a thin stem and a head, a ring of eight petals
-tipped up to the sky and a little towards the sun, round a centre. They share the
-grass's wind and stem curve, a little stiffer, so they bob in the same gusts.
+Poppies, cornflowers, oxeye daisies, buttercups and knapweed, in drifts: one noise
+field says where flowers gather and another which kind leads each drift, with
+strays of every kind in between.
 
-Petals are separate shapes, so they're drawn crisp: opacity past 1 on an object
-with radix's LoD inflation off, which radix draws as a harder edge. The grass
-can't take that (a blade's splats stack into one, and hard rims show as separate
-leaves), but a petal is one splat, and a crisp one reads as a petal.
+What keeps them from looking like stickers:
+
+- **Each kind has its own shape**: a poppy's four broad cupped petals, a daisy's
+  ring of thin rays bent slightly back, a buttercup's five small cups, a
+  cornflower's ragged florets, a knapweed's upright tuft.
+- **Muted colours**, and no two petals quite alike in size, angle or shade. Now and
+  then one is missing.
+- **Heads tipped every which way**, so from eye height most are seen side-on, not
+  as flat rings facing the sky.
+- **Buds**: some haven't opened, a green head going over to its colour.
+- **Every height**, some down among the grass.
+
+They share the grass's wind and stem curve, a little stiffer, so they bob in the
+same gusts. Petals are separate shapes, so they're drawn crisp: opacity past 1 on
+an object with radix's LoD inflation off, which radix draws as a harder edge. The
+grass can't take that (a blade's splats stack into one, and hard rims show as
+separate leaves), but a petal is one splat, and a crisp one reads as a petal.
 
 ## Butterflies
 
