@@ -10,6 +10,7 @@
 | [`avatars-parts/`](avatars-parts) | How the avatars are drawn, in five short files: splat shapes, a face built from them, a body, that body skinned, and a flower that bends. The version to read first. |
 | [`grass/`](grass) | An endless meadow with nothing captured: walk it in third person and trample a path, through splat grass combed by the wind, drifts of wildflowers, butterflies and cloud shadows. |
 | [`clouds/`](clouds) | An endless glide under broken cumulus at golden hour, nothing captured: clouds as billowy density fields, splats on their skins each marching its own light, the low sun peeking through the gaps. |
+| [`birds/`](birds) | A murmuration at dusk, nothing captured: eight thousand starlings wheeling overhead, simulated on the GPU, each a little bird of flapping splats. |
 
 ## Quick start
 
