@@ -11,6 +11,7 @@
 | [`grass/`](grass) | An endless meadow with nothing captured: walk it in third person and trample a path, through splat grass combed by the wind, drifts of wildflowers, butterflies and cloud shadows. |
 | [`clouds/`](clouds) | An endless glide under broken cumulus at golden hour, nothing captured: clouds as billowy density fields, splats on their skins each marching its own light, the low sun peeking through the gaps. |
 | [`birds/`](birds) | A murmuration at dusk, nothing captured: eight thousand starlings wheeling overhead, simulated on the GPU, each a little bird of flapping splats. |
+| [`tree/`](tree) | A tree, nothing captured: grown from a seed, its canopy sprays of soft-edged splat leaves, blown by the wind. |
 
 ## Quick start
 
