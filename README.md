@@ -13,6 +13,7 @@
 | [`birds/`](birds) | A murmuration at dusk, nothing captured: eight thousand starlings wheeling overhead, simulated on the GPU, each a little bird of flapping splats. |
 | [`tree/`](tree) | A tree, nothing captured: grown from a seed, its canopy sprays of soft-edged splat leaves, blown by the wind. |
 | [`fireworks/`](fireworks) | A fireworks show, nothing captured or simulated: eight kinds of shell climbing, bursting and falling over dark hills, every spark a splat worked out from the time. |
+| [`confetti/`](confetti) | A confetti gun in your hand, nothing captured or simulated: click to fire paper that flies off, flutters and tumbles down and piles up on the floor. |
 
 ## Quick start
 
