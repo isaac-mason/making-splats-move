@@ -1,0 +1,23 @@
+{
+    "name": "snowglobe",
+    "private": true,
+    "version": "0.0.0",
+    "description": "The anime city as a snow globe: shake it and the snow whirls up and settles on its streets.",
+    "license": "MIT",
+    "author": "Isaac Mason",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "spark-radix": "catalog:",
+        "three": "^0.186.0"
+    },
+    "devDependencies": {
+        "@types/three": "^0.186.0",
+        "typescript": "~6.0.2",
+        "vite": "^8.0.12"
+    }
+}

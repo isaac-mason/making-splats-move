@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="The anime city as a snow globe: shake it and the snow whirls up and settles on its streets" />
+    <title>snowglobe</title>
+    <style>
+      #loading {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        background: radial-gradient(circle at 50% 40%, #3a2f27, #120e0b);
+        transition: opacity 0.8s ease;
+      }
+      #loading.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #hint {
+        position: fixed;
+        left: 50%;
+        bottom: 28px;
+        transform: translateX(-50%);
+        font: 500 14px/1 system-ui, sans-serif;
+        letter-spacing: 0.04em;
+        color: rgba(255, 244, 230, 0.7);
+        pointer-events: none;
+        transition: opacity 1.2s ease;
+      }
+      #hint.hidden {
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="loading"></div>
+    <div id="hint">press space to shake</div>
+    <script type="module" src="/src/index.ts"></script>
+  </body>
+</html>

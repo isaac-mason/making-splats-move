@@ -1,0 +1,19 @@
+{
+    "centre": [-4, -3],
+    "radius": 14,
+    "top": 7,
+    "base": -1.6,
+    "minOpacity": 110,
+    "minSize": 0.012,
+    "sky": {
+        "blue": 0.45,
+        "overRed": 0.12,
+        "overGreen": 0.02
+    },
+    "heights": {
+        "size": 120,
+        "cell": 0.25,
+        "solid": 120,
+        "top": 0.92
+    }
+}

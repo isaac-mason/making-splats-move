@@ -14,6 +14,7 @@
 | [`tree/`](tree) | A tree, nothing captured: grown from a seed, its canopy sprays of soft-edged splat leaves, blown by the wind. |
 | [`fireworks/`](fireworks) | A fireworks show, nothing captured or simulated: eight kinds of shell climbing, bursting and falling over dark hills, every spark a splat worked out from the time. |
 | [`confetti/`](confetti) | A confetti gun in your hand, nothing captured or simulated: click to fire paper that flies off, flutters and tumbles down and piles up on the floor. |
+| [`snowglobe/`](snowglobe) | The anime city's street crossing as a snow globe: cut into a diorama under glass, snow simulated on the GPU settling on its roofs and streets; shake it and the snow whirls up. |
 
 ## Quick start
 
