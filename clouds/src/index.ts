@@ -76,7 +76,9 @@ const GLIDE = {
         { amount: 0.12, period: 47, phase: 1 },
     ],
     /** Altitude, metres: the middle, how far either side, and seconds round. The bases are at 150. */
-    altitude: { middle: 110, swing: 14, period: 70 },
+    // Low enough that the nearest bases are 90 m off or more: any nearer and their
+    // splats are big enough on screen to read as a blur.
+    altitude: { middle: 50, swing: 10, period: 70 },
     /**
      * Looking up, 21°: the clouds fill the frame, the land is a thin strip along
      * the bottom, and the 13° sun sits just below the middle, among the clouds.

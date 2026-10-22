@@ -12,7 +12,8 @@ a few seconds the glide eases back in.
 What splats bring that a painted sky can't is **parallax**: clouds you move
 past. So the camera flies, forever, but under the deck, never in it. A sky this
 full has no lanes through its middle (an earlier cut flew through the layer and
-spent half its time inside cloud), so it glides 25–55 m beneath the flat bases at
+spent half its time inside cloud), so it glides 90–110 m beneath the flat bases (any nearer and the bases' splats are
+big enough on screen to read as a blur) at
 17 m/s, looking 21° up so the clouds fill the frame: bases sweeping overhead, towers stacking towards the
 horizon, the land below. It holds a heading that keeps the low sun ahead and to
 one side, weaving either way on two slow sines and banking into the turns, with
