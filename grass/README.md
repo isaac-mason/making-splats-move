@@ -13,8 +13,10 @@ stand back.
 
 You're a little cartoon kid walking it in third person, seen mostly from above
 (see below): the camera follows high and well back (10 to 18 metres), looking down
-at 23 to 40 degrees, never far enough out to see the haze 42 metres away (it
-only hides the tiles' edges), so the meadow's waves, the cloud shadows and the trail you trample read best. Everything in the meadow,
+at 23 to 40 degrees. Drag down to bring it low over the grass (as close as 4
+metres), looking across the meadow as it melts into the haze, which thickens
+slowly from 24 metres out and is complete at the meadow's edge, 200 metres away,
+where it's the sky's own horizon colour. From above, the meadow's waves, the cloud shadows and the trail you trample read best. Everything in the meadow,
 grass, ground, flowers and butterflies, lives in one 112 metre tile, and each thing
 is drawn at whichever copy of its place is nearest you. So it holds still in the
 world until you've gone far enough that it wraps round to the far side, out in
@@ -39,10 +41,13 @@ onto the standing leg each step and from foot to foot standing still, and a head
 that steadies itself against the body's sway, looks about when you stop, and
 blinks. Motion is physical rather than cartoon: you have momentum, speeding up, slowing
 and turning gradually; the body leans into acceleration and with speed, and banks
-into turns, each on a spring so it settles rather than snaps; it rises a little
-over each stride and settles at each footfall, more running than walking. A jump
+into turns, each on a spring so it settles rather than snaps. On top of that the
+gait is a happy, springy cartoon one: the body bounces up off each foot and drops
+back into the next (more running than walking), squashing as it lands and
+stretching as it rises, rocking over the standing leg, the head tilting side to
+side a beat behind. A jump
 is a real-gravity arc of about half a metre, the knees lifting a little and the
-arms rising for balance, and a landing is taken in the knees, the body dipping by
+arms rising for balance, and a landing is taken in the knees, the body dipping and squashing by
 how hard you came down and rising again. The skirt and hair, simulated in world
 space, lag on the way up and flare and lift on the way down, and the grass isn't
 trampled from the air. The hat sits steady, the basket swings, the head nods,
@@ -101,7 +106,10 @@ its guide, lit along its length (Kajiya-Kay), never thinner than about a pixel a
 soft, or it shimmers.
 
 The sunhat sits tipped back, its brim a floppy ring drooping towards the edge
-with a gentle wave, over a round crown and a ribbon.
+with a gentle wave, over a round crown and a ribbon. The brim's splats are four
+times as fine as the rest of the kid's and stop a splat's width short of its edge,
+so the edge is crisp. A minimal face: closed happy eyes, ^ ^, high under the
+fringe, a little line of a nose and a small smile, each an arc of unlit dots.
 
 Without compute (WebGL2) the kid keeps a solid skirt and
 pigtails.
@@ -112,7 +120,11 @@ circle on its own: a cheap way to look at the dress and hair.
 ## Earth and boulders
 
 Under the grass is earth, mottled dark and light with the odd pale pebble, fading
-to turf colour far off where gaps should read as more grass. Boulders are
+to turf colour far off where gaps should read as more grass. The turf is painted
+with the meadow's own fields, the ones the blades and flowers grow from: deeper
+green where it's lush, gold in the dry patches, tinted with each drift's flowers.
+So past the blades, the distant hills are the same patchwork as the grass you walk
+into. Boulders are
 scattered on an 18 metre world grid, each cell maybe holding one, from about two
 metres across to six, fading in with distance rather than popping in: a lumpy, noise-shaped, partly buried stone of 8,000 small splats, lit by
 its own lumps (the normal tilted by how the surface rises and falls) so faces and
@@ -176,8 +188,10 @@ in the haze. Every blade still holds still in the world: each layer wraps round 
 like the rest of the meadow. The layers' detail falls off too: five splats
 a blade near you, four further out, three in the outer layer, which also takes a
 cheaper wind (the same gusts without the warp, second layer and fine octave you
-can't see that far off). And nothing is drawn past the 48 metres the camera can
-reach. And each blade is worked out once a frame, not once a
+can't see that far off). Past 48 metres, only seen from down low, a far ring out to
+96, a fifth layer of sparse, coarse blades, two splats each, and out to 200, the
+distant hills: a coarse far ground of turf that fades in where the near ground fades out. Flowers, boulders and butterflies
+stop at 48, in the haze. And each blade is worked out once a frame, not once a
 splat (see *Worked out once* below). One even scatter can't do it: thin enough to afford
 over the whole meadow, it shows the earth between blades from above.
 
@@ -281,7 +295,14 @@ shapes sliding over the hills.
 Sun on each blade's face and on the hillside it grows from, blue skylight in
 shadow, light through the blades when you look towards the sun, and roots dark down
 in the thatch. The far field fades into a haze that is exactly the sky's horizon
-colour, so the field's edge disappears.
+colour, so the field's edge disappears. A depth of field softens the distance
+only: everything up to 15 metres past you stays crisp, then the meadow softens
+over the next 60, the far hills softest. Splats write no depth, so it reads its
+depth from a stand-in, never seen, drawn in a pass of its own: the ground as a
+plain mesh (the grass is only knee high). And so you're never blurred by the
+ground seen behind you, your splats are drawn a second time on their own, and
+where they cover the screen is in focus: exactly to your outline, dress and hair
+too.
 
 ## Layout
 

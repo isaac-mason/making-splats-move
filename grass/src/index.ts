@@ -13,9 +13,20 @@ import { createRenderer, SplatCollection, SplatRenderer, TSL } from 'spark-radix
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import { dof } from 'three/addons/tsl/display/DepthOfFieldNode.js';
 import { RenderPipeline, type WebGPURenderer } from 'three/webgpu';
 import cloudUrl from '../assets/cloud.jpg?url';
-import { BOULDERS, boulderAt, HAZE, initField, SUN_DIRECTION, terrainHeight, updateField, type Walker } from './field';
+import {
+    BOULDERS,
+    boulderAt,
+    groundDepth,
+    HAZE,
+    initField,
+    SUN_DIRECTION,
+    terrainHeight,
+    updateField,
+    type Walker,
+} from './field';
 import './style.css';
 
 const { dot, max, mix, normalize, pass, positionWorldDirection, pow, screenUV, smoothstep, uniform, vec4 } = TSL;
@@ -48,10 +59,10 @@ const WALK = {
     sway: 4,
     /** Which way you face at the start, radians in xz: up the long rise to the crest. */
     facing: (140 * Math.PI) / 180,
-    /** The camera: how far back and above to start, and how close to the grass it may get. */
+    /** The camera: how far back and above to start, and how close to the ground it may get: just over the tallest blades. */
     back: 8.5,
     above: 10,
-    clearance: 0.6,
+    clearance: 1.0,
     /** Your radius, for keeping out of boulders. */
     body: 0.25,
     /** What the camera looks at: you, at about chest height. */
@@ -239,18 +250,44 @@ const BLOOM = { strength: 0.22, radius: 0.5, threshold: 0.85 };
 const VIGNETTE = 0.28;
 
 /**
- * Splats blend sRGB-encoded but land in the pass decoded to linear, so the output
- * encodes back to sRGB with no tone mapping, plus a bloom and a vignette.
+ * Depth of field, focused on you, for the distance only: everything nearer than
+ * `sharp` metres past you stays crisp (the grass at your feet too), then the
+ * meadow softens over the next `range` metres, the far hills going softest, with
+ * a gentle bokeh.
  */
-function initPost(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera): RenderPipeline {
+const DOF = { sharp: 15, range: 60, bokeh: 1 };
+
+/**
+ * Splats blend sRGB-encoded but land in the pass decoded to linear, so the output
+ * encodes back to sRGB with no tone mapping, plus a depth of field, a bloom and a
+ * vignette. Splats write no depth, so it comes from the ground as a plain mesh,
+ * drawn in a pass of its own; and you're never blurred by the ground seen behind
+ * you: `you`, your splats on their own, drawn in another pass, mask you in focus,
+ * exactly to your outline, the dress and hair too. `focus`: how far ahead you are.
+ */
+function initPost(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, you: THREE.Object3D) {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping;
     const pipeline = new RenderPipeline(renderer);
     const color = pass(scene, camera).getTextureNode('output');
-    const glow = bloom(color, BLOOM.strength, BLOOM.radius, BLOOM.threshold);
+    const depthScene = new THREE.Scene();
+    depthScene.add(groundDepth());
+    const youScene = new THREE.Scene();
+    youScene.add(you);
+    // Cleared clear, so your pass's alpha is just you.
+    renderer.setClearAlpha(0);
+    const focus = uniform(10);
+    // How far ahead each pixel is, with everything up to `sharp` past you read as
+    // at you, so only what's beyond it blurs, and you at you.
+    const ahead = pass(depthScene, camera).getViewZNode().negate();
+    const covered = pass(youScene, camera).getTextureNode('output').a;
+    const viewZ = focus.add(max(ahead.sub(focus.add(DOF.sharp)), 0).mul(covered.oneMinus())).negate();
+    // (Its typings lag the node: it's a texture node like the others.)
+    const sharp = dof(color, viewZ, focus, DOF.range, DOF.bokeh) as unknown as typeof color;
+    const glow = bloom(sharp, BLOOM.strength, BLOOM.radius, BLOOM.threshold);
     const vignette = smoothstep(0.35, 1.0, screenUV.sub(0.5).length().mul(1.35)).mul(VIGNETTE).oneMinus();
-    pipeline.outputNode = vec4(color.add(glow).rgb.mul(vignette), 1);
-    return pipeline;
+    pipeline.outputNode = vec4(sharp.add(glow).rgb.mul(vignette), 1);
+    return { pipeline, focus };
 }
 
 /* the loop */
@@ -289,13 +326,13 @@ async function start() {
     controls.enableDamping = true;
     // The camera's tied to you, so no panning away.
     controls.enablePan = false;
-    // Mostly top down: looking down on you and the meadow round you, from between
-    // about 23 and 40 degrees off straight down, 10 to 18 metres away. Never so low or
-    // far that the top of the frame reaches the haze (48 metres out) or the horizon,
-    // never overhead, where the hat would hide the dress and hair.
+    // From high above, 23 degrees off straight down, down to just over the grass
+    // looking across it to the horizon, where the haze is the sky's own colour so the
+    // field's edge disappears; 4 to 18 metres away. Never overhead, where the hat
+    // would hide the dress and hair.
     controls.minPolarAngle = 0.4;
-    controls.maxPolarAngle = 0.7;
-    controls.minDistance = 10;
+    controls.maxPolarAngle = 1.5;
+    controls.minDistance = 4;
     controls.maxDistance = 18;
     controls.update();
 
@@ -304,7 +341,10 @@ async function start() {
     splats.collection = new SplatCollection(field.objects);
     scene.add(splats);
 
-    const pipeline = initPost(renderer, scene, camera);
+    // You again, on your own, for the depth of field's mask.
+    const you = new SplatRenderer({ renderer });
+    you.collection = new SplatCollection(field.you);
+    const { pipeline, focus } = initPost(renderer, scene, camera, you);
 
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -327,8 +367,12 @@ async function start() {
         const floor = terrainHeight(camera.position.x, camera.position.z) + WALK.clearance;
         if (camera.position.y < floor) camera.position.y = floor;
         updateField(elapsed, dt, camera, walker);
+        focus.value = camera.position.distanceTo(controls.target);
         // The WebGL2 backend sorts on the CPU and only when asked; everything moves.
-        if (splats.sortMode === 'cpu') splats.requestSort();
+        if (splats.sortMode === 'cpu') {
+            splats.requestSort();
+            you.requestSort();
+        }
         pipeline.render();
         // A few frames in, past the first frame's shader compiles.
         if (++frames === 3) document.getElementById('loading')?.classList.add('hidden');
