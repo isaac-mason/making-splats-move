@@ -2,28 +2,30 @@
 
 | Example | What it does |
 | --- | --- |
-| [`reveal/`](reveal) | A splat city that assembles itself from a single point: a wavefront ripples outward, surging splats into place as it passes. |
-| [`wind/`](wind) | Trees swaying in a splat city: foliage displaced by a TSL splat modifier, with an edit mode for placing the volumes. |
-| [`dust/`](dust) | Dust motes drifting through a splat greenhouse: a stateless procedural particle generator. |
-| [`fire/`](fire) | A campfire under a starry sky: a procedural splat flame, splat-space lighting, heat shimmer and embers. |
-| [`avatars/`](avatars) | Procedural rigged characters built out of splats, dual-quaternion skinned by a splat generator and walking around a town square. |
-| [`avatars-parts/`](avatars-parts) | How the avatars are drawn, in five short files: splat shapes, a face built from them, a body, that body skinned, and a flower that bends. The version to read first. |
+| [`reveal/`](reveal) | A splat city that assembles itself from a single point as a wavefront ripples outward. |
+| [`wind/`](wind) | Trees swaying in a splat city, with an edit mode for placing the volumes. |
+| [`dust/`](dust) | Dust motes drifting through a splat greenhouse. |
+| [`fire/`](fire) | A campfire under a starry sky: procedural splat flame, firelight, heat shimmer and embers. |
+| [`avatars/`](avatars) | Procedural rigged characters built from splats, walking around a town square. |
+| [`avatars-parts/`](avatars-parts) | How the avatars are drawn, in five short files. Read this one first. |
 | [`grass/`](grass) | An endless meadow with nothing captured: walk it in third person and trample a path, through splat grass combed by the wind, drifts of wildflowers, butterflies and cloud shadows. |
-| [`clouds/`](clouds) | An endless glide under broken cumulus at golden hour, nothing captured: clouds as billowy density fields, splats on their skins each marching its own light, the low sun peeking through the gaps. |
-| [`birds/`](birds) | A murmuration at dusk, nothing captured: eight thousand starlings wheeling overhead, simulated on the GPU, each a little bird of flapping splats. |
-| [`tree/`](tree) | A tree, nothing captured: grown from a seed, its canopy sprays of soft-edged splat leaves, blown by the wind. |
-| [`fireworks/`](fireworks) | A fireworks show, nothing captured or simulated: eight kinds of shell climbing, bursting and falling over dark hills, every spark a splat worked out from the time. |
-| [`confetti/`](confetti) | A confetti gun in your hand, nothing captured or simulated: click to fire paper that flies off, flutters and tumbles down and piles up on the floor. |
-| [`snowglobe/`](snowglobe) | The anime city's street crossing as a snow globe: cut into a diorama under glass, snow simulated on the GPU settling on its roofs and streets; shake it and the snow whirls up. |
+| [`clouds/`](clouds) | A glide under broken cumulus at golden hour, nothing captured. |
+| [`birds/`](birds) | A murmuration of eight thousand starlings at dusk, simulated on the GPU. |
+| [`tree/`](tree) | A tree grown from a seed, its canopy sprays of splat leaves, blown by the wind. |
+| [`fireworks/`](fireworks) | A fireworks show of eight shell kinds over dark hills, every spark a splat. |
+| [`confetti/`](confetti) | A confetti gun in your hand: paper flutters down and piles up. |
+| [`snowglobe/`](snowglobe) | The anime city as a snow globe, with GPU snow settling on its roofs. |
+| [`time/`](time) | The avatars' courtyard relit through a whole day, sun, shadows and moonlight. |
+| [`rain/`](rain) | A downpour over the same courtyard: soaked paving, puddles and splashes. |
+| [`ocean/`](ocean) | An open ocean of splats and a little sailboat of splats to sail on it: a sheet of 410,000 splats moved by an FFT ocean and a simulated wake, both on the GPU, lit after Sea of Thieves, the boat floating on the very waves drawn. |
 
 ## Quick start
 
-Requires **Node 24+**, **pnpm**, and **[git-lfs][lfs]** (the splat assets are stored
-in LFS — see [Assets](#assets)).
+Requires **Node 24+**, **pnpm** and **[git-lfs][lfs]** (splat assets live in LFS).
 
 ```bash
 git lfs install       # once per machine
-pnpm install          # also builds spark-radix from source, see below
+pnpm install          # also builds spark-radix from source
 pnpm dev              # runs fire/ → http://localhost:5173
 ```
 
@@ -43,27 +45,11 @@ pnpm --filter fire dev
 
 ## The renderer
 
-Everything draws with **[spark-radix][radix]**: Gaussian splats on three.js r186's
-`WebGPURenderer`, on WebGPU or its WebGL2 backend (`?gpu=webgpu-gl` on any example
-forces the latter). The effects are radix *generators* and *modifiers* written in
-three's TSL, and the fire's simulation is WebGPU compute through radix's kernels.
-
-Radix is a pinned GitHub dependency: the commit hash lives in the `catalog` of
-[`pnpm-workspace.yaml`](pnpm-workspace.yaml), every example depends on
-`spark-radix: catalog:`, and pnpm builds it from source on install (the package's
-own `prepare` script, allowed through `onlyBuiltDependencies`). To move to a newer
-radix, change the hash there and run `pnpm install`. `three` is pinned to 0.186.x
-across the workspace, radix's peer dependency.
+Everything draws with **[spark-radix][radix]** on three.js r186's `WebGPURenderer`, on WebGPU or its WebGL2 backend (`?gpu=webgpu-gl` forces the latter). Radix is pinned in the `catalog` of [`pnpm-workspace.yaml`](pnpm-workspace.yaml) and built from source on install; change the hash there to move it.
 
 ## Assets
 
-Splat files are big, so `.spz`, `.rad`, `.ply` and `.ksplat` are tracked with **git
-LFS** (see [`.gitattributes`](.gitattributes)). If you clone without git-lfs
-installed you'll get small pointer text files instead of splats and the examples
-will fail to load — install git-lfs and run `git lfs pull`.
-
-Each example loads its splats from its own `assets/` as `.spz`, through Vite's
-`?url` import.
+Splat files (`.spz`, `.rad`, `.ply`, `.ksplat`) are tracked with **git LFS** (see [`.gitattributes`](.gitattributes)). Without git-lfs you get pointer files and the examples fail to load: install it and run `git lfs pull`.
 
 [radix]: https://github.com/asundqui/radix-test
 [three]: https://threejs.org
