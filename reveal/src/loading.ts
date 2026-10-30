@@ -1,4 +1,4 @@
-import type { ProgressStage } from 'spark-radix';
+import type { ProgressStage } from '@sparkjsdev/radix';
 
 export type Loading = {
     element: HTMLElement;

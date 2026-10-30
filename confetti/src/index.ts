@@ -1,4 +1,4 @@
-import { createRenderer, SplatCollection, SplatRenderer, TSL, type TslNode } from 'spark-radix';
+import { createRenderer, SplatCollection, SplatRenderer, TSL, type TslNode } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { MeshBasicNodeMaterial, RenderPipeline, type WebGPURenderer } from 'three/webgpu';

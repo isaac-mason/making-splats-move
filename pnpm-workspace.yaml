@@ -18,12 +18,7 @@ packages:
     - 'rain'
     - 'ocean'
 
-# The renderer: spark-radix, pinned to a commit of its GitHub repo and built from
-# source on install (its `prepare` script). To move to a newer commit, change the
-# hash here and run `pnpm install`.
+# The renderer, Radix (https://sparkjs.dev/radix/), from npm. To move to a newer
+# release, change the version here and run `pnpm install`.
 catalog:
-    spark-radix: github:asundqui/radix-test#22cdb1702f66231b3cc6440f35154ec9a81242f3
-
-# A git dependency with a build step has to be allowed to run it.
-onlyBuiltDependencies:
-    - spark-radix
+    '@sparkjsdev/radix': ^0.0.1

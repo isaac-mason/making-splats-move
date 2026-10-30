@@ -23,7 +23,7 @@
  * Sections: settings · splats · the hull · the deck and cabin · the rig · building it · afloat.
  */
 
-import { type AnySplatObject, GpuArrays, SplatCollection, Splats } from 'spark-radix';
+import { type AnySplatObject, GpuArrays, SplatCollection, Splats } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 

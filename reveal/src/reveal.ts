@@ -1,4 +1,4 @@
-import { type SplatModifier, TSL, type TslNode } from 'spark-radix';
+import { type SplatModifier, TSL, type TslNode } from '@sparkjsdev/radix';
 import type * as THREE from 'three';
 
 const { If, abs, exp, hash, length, max, pow, select, sin, smoothstep, uniform, vec3 } = TSL;

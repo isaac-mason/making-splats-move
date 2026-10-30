@@ -1,4 +1,4 @@
-import { TSL, type TslNode } from 'spark-radix';
+import { TSL, type TslNode } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { PointsNodeMaterial, type WebGPURenderer } from 'three/webgpu';
 import { DEFAULT_DUST, type DustParams } from './dust';

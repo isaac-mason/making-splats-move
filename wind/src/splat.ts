@@ -1,4 +1,4 @@
-import { GpuArrays, loadSplats, SplatCollection, SplatGenerator, type SplatModifier, SplatRenderer } from 'spark-radix';
+import { GpuArrays, loadSplats, SplatCollection, SplatGenerator, type SplatModifier, SplatRenderer } from '@sparkjsdev/radix';
 import type * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 

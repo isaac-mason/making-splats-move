@@ -12,7 +12,7 @@ import {
     Splats,
     TSL,
     type TslNode,
-} from 'spark-radix';
+} from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 

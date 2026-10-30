@@ -1,6 +1,6 @@
 # fire
 
-A campfire under a starry sky, drawn by [spark-radix][radix] on three.js's `WebGPURenderer`. The splat scene is static; the flame, smoke, embers, firelight and heat shimmer are generated at render time. On WebGPU the fire rides a small compute fluid simulation; without compute it falls back to stateless generators (`?sim=0` forces that).
+A campfire under a starry sky, drawn by [Radix][radix] on three.js's `WebGPURenderer`. The splat scene is static; the flame, smoke, embers, firelight and heat shimmer are generated at render time. On WebGPU the fire rides a small compute fluid simulation; without compute it falls back to stateless generators (`?sim=0` forces that).
 
 ```bash
 pnpm --filter fire dev
@@ -15,4 +15,4 @@ pnpm --filter fire dev
 The scene came from [Marble](https://marble.worldlabs.ai/) (World Labs' 3D-world
 generator), exported as a `.spz` splat.
 
-[radix]: https://github.com/asundqui/radix-test
+[radix]: https://sparkjs.dev/radix/

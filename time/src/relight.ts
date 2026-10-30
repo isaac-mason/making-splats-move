@@ -11,7 +11,7 @@ import {
     Splats,
     TSL,
     type TslNode,
-} from 'spark-radix';
+} from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshBasicNodeMaterial, type WebGPURenderer } from 'three/webgpu';

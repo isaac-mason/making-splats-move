@@ -1,4 +1,4 @@
-import { type AnySplatObject, GpuSplatMath, GpuSplats, SplatCollection, TSL, type TslNode } from 'spark-radix';
+import { type AnySplatObject, GpuSplatMath, GpuSplats, SplatCollection, TSL, type TslNode } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { GROUND_Y, TREES } from './scene';
 import { WIND_DIRECTION } from './tree-sway';

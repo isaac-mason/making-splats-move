@@ -1,4 +1,4 @@
-import { type AnySplatObject, GpuArrays, loadSplats, SplatCollection, SplatGenerator, TSL, type TslNode } from 'spark-radix';
+import { type AnySplatObject, GpuArrays, loadSplats, SplatCollection, SplatGenerator, TSL, type TslNode } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { MeshBasicNodeMaterial, type WebGPURenderer } from 'three/webgpu';
 import dioramaUrl from '../assets/diorama.spz?url';

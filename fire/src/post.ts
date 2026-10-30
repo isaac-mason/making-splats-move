@@ -1,4 +1,4 @@
-import { TSL } from 'spark-radix';
+import { TSL } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { RenderPipeline, type WebGPURenderer } from 'three/webgpu';

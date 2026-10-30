@@ -29,7 +29,7 @@
  * Sections: settings · the waves · the sky · the froth · the sheet · the sea.
  */
 
-import { GpuSplats, SplatCollection, type SplatObject, TSL, type TslNode } from 'spark-radix';
+import { GpuSplats, SplatCollection, type SplatObject, TSL, type TslNode } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import type { Wake } from './wake';
 import { TEXELS, type Waves } from './waves';

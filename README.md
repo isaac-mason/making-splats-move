@@ -25,7 +25,7 @@ Requires **Node 24+**, **pnpm** and **[git-lfs][lfs]** (splat assets live in LFS
 
 ```bash
 git lfs install       # once per machine
-pnpm install          # also builds spark-radix from source
+pnpm install
 pnpm dev              # runs fire/ → http://localhost:5173
 ```
 
@@ -45,12 +45,12 @@ pnpm --filter fire dev
 
 ## The renderer
 
-Everything draws with **[spark-radix][radix]** on three.js r186's `WebGPURenderer`, on WebGPU or its WebGL2 backend (`?gpu=webgpu-gl` forces the latter). Radix is pinned in the `catalog` of [`pnpm-workspace.yaml`](pnpm-workspace.yaml) and built from source on install; change the hash there to move it.
+Everything draws with **[Radix][radix]** on three.js r186's `WebGPURenderer`, on WebGPU or its WebGL2 backend (`?gpu=webgpu-gl` forces the latter). Its version lives in the `catalog` of [`pnpm-workspace.yaml`](pnpm-workspace.yaml).
 
 ## Assets
 
 Splat files (`.spz`, `.rad`, `.ply`, `.ksplat`) are tracked with **git LFS** (see [`.gitattributes`](.gitattributes)). Without git-lfs you get pointer files and the examples fail to load: install it and run `git lfs pull`.
 
-[radix]: https://github.com/asundqui/radix-test
+[radix]: https://sparkjs.dev/radix/
 [three]: https://threejs.org
 [lfs]: https://git-lfs.com

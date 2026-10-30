@@ -1,6 +1,6 @@
 # birds
 
-A murmuration at dusk: eight thousand starlings wheeling overhead, each simulated on the GPU and drawn as a little bird of seven splats. Drawn by [spark-radix][radix] on three.js's `WebGPURenderer`.
+A murmuration at dusk: eight thousand starlings wheeling overhead, each simulated on the GPU and drawn as a little bird of seven splats. Drawn by [Radix][radix] on three.js's `WebGPURenderer`.
 
 ```bash
 pnpm --filter birds dev
@@ -10,4 +10,4 @@ Your cursor is a hawk: the birds part around it, and a fast swipe scatters them 
 
 On the WebGL2 backend (`?gpu=webgpu-gl`) there is no compute, so the flock churns statelessly instead of flying.
 
-[radix]: https://github.com/asundqui/radix-test
+[radix]: https://sparkjs.dev/radix/

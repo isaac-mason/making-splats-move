@@ -1,4 +1,4 @@
-import { type SplatModifier, TSL, type TslNode } from 'spark-radix';
+import { type SplatModifier, TSL, type TslNode } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import windConfig from './wind.json';
 import { windOffset, windSphereSway } from './wind-sway';

@@ -1,4 +1,4 @@
-import { createRenderer } from 'spark-radix';
+import { createRenderer } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { WebGPURenderer } from 'three/webgpu';

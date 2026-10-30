@@ -1,6 +1,6 @@
 # avatars
 
-Procedural rigged characters built out of Gaussian splats on [spark-radix][radix]: no scan, no mesh, no asset. Six of them walk a school courtyard, skinned on the GPU, with ragdoll physics when you grab them.
+Procedural rigged characters built out of Gaussian splats on [Radix][radix]: no scan, no mesh, no asset. Six of them walk a school courtyard, skinned on the GPU, with ragdoll physics when you grab them.
 
 ```bash
 pnpm --filter avatars dev
@@ -27,4 +27,4 @@ Backtick opens the debug panel.
 
 The school courtyard is a Gaussian-splat capture (`project-cartoon-school-campus-courtyard.spz`).
 
-[radix]: https://github.com/asundqui/radix-test
+[radix]: https://sparkjs.dev/radix/

@@ -27,7 +27,7 @@
  * Sections: settings · the spectrum · the FFT · the probe · reading the waves.
  */
 
-import { TSL, type TslNode, WgpuBuffer, WgpuCompute, WgpuComputeBatch } from 'spark-radix';
+import { TSL, type TslNode, WgpuBuffer, WgpuCompute, WgpuComputeBatch } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { StorageTexture, type WebGPURenderer } from 'three/webgpu';
 

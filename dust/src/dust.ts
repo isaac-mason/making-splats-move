@@ -1,4 +1,4 @@
-import { GpuSplats, SplatCollection, type SplatObject, TSL, type TslNode } from 'spark-radix';
+import { GpuSplats, SplatCollection, type SplatObject, TSL, type TslNode } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 
 const { cos, distance, float, fract, hash, mix, pow, sin, smoothstep, uint, uniform, vec3, vec4 } = TSL;

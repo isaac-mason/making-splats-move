@@ -1,4 +1,4 @@
-import { GpuSplats, type SplatModifier, TSL, type TslNode } from 'spark-radix';
+import { GpuSplats, type SplatModifier, TSL, type TslNode } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import type { Fire } from './fire';
 import { FIRE_ORIGIN } from './scene';

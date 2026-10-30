@@ -7,7 +7,7 @@
         "resolveJsonModule": true,
         "skipLibCheck": true,
 
-        /* spark-radix is linked from ../spark, with its own three types: use this app's. */
+        /* Radix brings its own three types: use this app's. */
         "paths": {
             "three": ["./node_modules/@types/three"],
             "three/*": ["./node_modules/@types/three/*"]

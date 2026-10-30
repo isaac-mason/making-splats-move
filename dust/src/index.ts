@@ -1,4 +1,4 @@
-import { type AnySplatObject, createRenderer, SplatCollection, SplatRenderer } from 'spark-radix';
+import { type AnySplatObject, createRenderer, SplatCollection, SplatRenderer } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createCameraDrift } from './camera-drift';

@@ -21,7 +21,7 @@
  * Sections: settings · the grid · the step · reading it.
  */
 
-import { TSL, type TslNode, WgpuBuffer, WgpuCompute, WgpuComputeBatch } from 'spark-radix';
+import { TSL, type TslNode, WgpuBuffer, WgpuCompute, WgpuComputeBatch } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 

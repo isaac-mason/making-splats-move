@@ -7,7 +7,7 @@ import {
     SplatCollection,
     SplatGenerator,
     SplatRenderer,
-} from 'spark-radix';
+} from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { type Air, initAir, updateAir } from './air';

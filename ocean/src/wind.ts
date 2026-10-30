@@ -14,7 +14,7 @@
  * Sections: settings · a path · splats.
  */
 
-import { GpuSplats, SplatCollection, type SplatObject, TSL, type TslNode } from 'spark-radix';
+import { GpuSplats, SplatCollection, type SplatObject, TSL, type TslNode } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { SEA } from './waves';
 

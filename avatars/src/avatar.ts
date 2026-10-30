@@ -1,4 +1,4 @@
-import { type AnySplatObject, GpuArrays } from 'spark-radix';
+import { type AnySplatObject, GpuArrays } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { type AvatarParams, DEFAULT_AVATAR } from './avatar-params';
 import { type BoneDef, initSkeleton, poseSkeleton, pushSkeleton, type Skeleton, setBoneWorld, weightsForPoint } from './bones';

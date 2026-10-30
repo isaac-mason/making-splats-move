@@ -31,7 +31,7 @@ import {
     WgpuBuffer,
     WgpuCompute,
     WgpuComputeBatch,
-} from 'spark-radix';
+} from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { MeshBasicNodeMaterial, type WebGPURenderer } from 'three/webgpu';
 

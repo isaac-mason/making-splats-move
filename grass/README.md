@@ -5,7 +5,7 @@ The hills and every blade of grass are splats generated on the GPU from their
 index and the time, so the wind costs nothing extra: each frame makes every blade
 afresh, already bent. Cloud shadows sweep across the hills.
 
-Drawn by [spark-radix][radix] on three.js's `WebGPURenderer`. **WASD** to walk,
+Drawn by [Radix][radix] on three.js's `WebGPURenderer`. **WASD** to walk,
 **shift** to run, **space** to jump, drag to look round, scroll to come closer or
 stand back.
 
@@ -311,4 +311,4 @@ too.
 | `src/field.ts` | The hills, the grass, the flowers, the butterflies, the wind, the clouds, the trampling and you, each with its tunables. |
 | `src/index.ts` | Walking and the follow camera, the sky, the post pass and the loop. |
 
-[radix]: https://github.com/asundqui/radix-test
+[radix]: https://sparkjs.dev/radix/

@@ -1,4 +1,4 @@
-import type { SplatViewParams } from 'spark-radix';
+import type { SplatViewParams } from '@sparkjsdev/radix';
 import type { WebGPURenderer } from 'three/webgpu';
 
 export type Performance = {

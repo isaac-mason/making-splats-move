@@ -1,4 +1,4 @@
-import { type SplatModifier, TSL, type TslNode } from 'spark-radix';
+import { type SplatModifier, TSL, type TslNode } from '@sparkjsdev/radix';
 import { type Fire, fireHeat } from './fire';
 import { FIRE_ORIGIN } from './scene';
 import { time, v3 } from './tsl';

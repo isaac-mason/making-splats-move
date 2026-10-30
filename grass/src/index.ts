@@ -4,12 +4,12 @@
  * shadows sweep the hills, and you walk through it all, trampling a path. The far
  * field fades into a haze that is also the sky's horizon.
  *
- * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
+ * Drawn by Radix on three's WebGPURenderer: WebGPU where there is one, its
  * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`). WASD to walk, shift to run,
  * drag to look round.
  */
 
-import { createRenderer, SplatCollection, SplatRenderer, TSL } from 'spark-radix';
+import { createRenderer, SplatCollection, SplatRenderer, TSL } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';

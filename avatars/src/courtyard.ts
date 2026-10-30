@@ -1,5 +1,5 @@
 import type { World } from 'crashcat';
-import { GpuArrays, loadSplats, SplatCollection } from 'spark-radix';
+import { GpuArrays, loadSplats, SplatCollection } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { initAvatar, setAvatarSkinned } from './avatar';

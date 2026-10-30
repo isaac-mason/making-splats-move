@@ -1,4 +1,4 @@
-import { createRenderer, SplatCollection, SplatRenderer, TSL } from 'spark-radix';
+import { createRenderer, SplatCollection, SplatRenderer, TSL } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';

@@ -1,4 +1,4 @@
-import { type SplatObject, TSL } from 'spark-radix';
+import { type SplatObject, TSL } from '@sparkjsdev/radix';
 import { FIREFLY_BACK_WIDTH, FIREFLY_EXTENT, FIREFLY_NEAR } from './scene';
 import { flameHash, particles, seed, time, v3 } from './tsl';
 

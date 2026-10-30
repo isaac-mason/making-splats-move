@@ -5,7 +5,7 @@ it. A fresh breeze's sea under a clear sky, the sun glittering off it ahead,
 the clouds in it. The boat rides the swell, leans into its turns and
 leaves a frothy wake behind it.
 
-Drawn by [spark-radix][radix] on three.js's `WebGPURenderer`. W/S to sail and
+Drawn by [Radix][radix] on three.js's `WebGPURenderer`. W/S to sail and
 slow, A/D to steer, drag to look round, scroll to come closer. Backtick hides
 the splat count.
 
@@ -81,4 +81,4 @@ A deep-blue-to-pale gradient, a small white sun with a warm glow, and clouds: pu
 noise cut off crisp, on a ceiling over the sea, so they bunch towards the
 horizon.
 
-[radix]: https://github.com/asundqui/radix-test
+[radix]: https://sparkjs.dev/radix/

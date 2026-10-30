@@ -1,4 +1,4 @@
-import { createRenderer, type GpuArrays, SplatCollection, SplatRenderer } from 'spark-radix';
+import { createRenderer, type GpuArrays, SplatCollection, SplatRenderer } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { shapes } from './1-shapes';

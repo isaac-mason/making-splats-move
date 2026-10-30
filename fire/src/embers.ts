@@ -1,4 +1,4 @@
-import { type SplatObject, TSL, type TslNode } from 'spark-radix';
+import { type SplatObject, TSL, type TslNode } from '@sparkjsdev/radix';
 import { type Air, heatAt, windAt } from './air';
 import { SPARK_ORIGIN } from './scene';
 import { flameAlignY, flameCurl, flameHash, particles, seed, time, v3 } from './tsl';

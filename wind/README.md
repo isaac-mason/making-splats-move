@@ -1,6 +1,6 @@
 # wind
 
-Trees swaying in a Gaussian-splat city street. The splat file is untouched; foliage moves because each splat's centre is displaced on the GPU every frame by a TSL modifier. Drawn by [spark-radix](https://github.com/asundqui/radix-test) on three.js's `WebGPURenderer` (`?gpu=webgpu-gl` forces the WebGL2 backend).
+Trees swaying in a Gaussian-splat city street. The splat file is untouched; foliage moves because each splat's centre is displaced on the GPU every frame by a TSL modifier. Drawn by [Radix](https://sparkjs.dev/radix/) on three.js's `WebGPURenderer` (`?gpu=webgpu-gl` forces the WebGL2 backend).
 
 ```bash
 pnpm --filter wind dev

@@ -5,12 +5,12 @@
  * steer, drag to look round, scroll to come closer. Backtick hides the splat
  * count.
  *
- * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
+ * Drawn by Radix on three's WebGPURenderer: WebGPU where there is one, its
  * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`); nothing here needs
  * compute, so both draw the same sea.
  */
 
-import { createRenderer, SplatCollection, SplatRenderer, TSL } from 'spark-radix';
+import { createRenderer, SplatCollection, SplatRenderer, TSL } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import { RenderPipeline, type WebGPURenderer } from 'three/webgpu';
 import { initBoat } from './boat';

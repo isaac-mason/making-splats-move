@@ -1,4 +1,4 @@
-import { type SplatData, Splats } from 'spark-radix';
+import { type SplatData, Splats } from '@sparkjsdev/radix';
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 

@@ -1,4 +1,4 @@
-import { type ArrayData, Splats } from 'spark-radix';
+import { type ArrayData, Splats } from '@sparkjsdev/radix';
 import type * as THREE from 'three';
 
 const SIGMAS = 3;

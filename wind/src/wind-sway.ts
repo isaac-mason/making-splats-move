@@ -1,4 +1,4 @@
-import { TSL, type TslNode } from 'spark-radix';
+import { TSL, type TslNode } from '@sparkjsdev/radix';
 
 const { Fn, clamp, cos, distance, fract, max, pow, sin, smoothstep, step, vec2, vec3 } = TSL;
 
