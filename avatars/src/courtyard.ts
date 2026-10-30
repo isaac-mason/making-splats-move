@@ -1,8 +1,3 @@
-/**
- * The default scene: the cast walking a captured school courtyard, and the toolbar's
- * customize, grab and camera tools wired up against them.
- */
-
 import type { World } from 'crashcat';
 import { GpuArrays, loadSplats, SplatCollection } from 'spark-radix';
 import * as THREE from 'three';
@@ -49,7 +44,6 @@ import {
 import { displayColor, type Stage, stageAdd, stageRemove } from './splats';
 
 const WALKERS = CAST.length;
-/** Only seeds the splat jitter: who's in the crowd is the cast. */
 const CROWD_SEED = 7;
 
 export type Courtyard = {
@@ -61,9 +55,7 @@ export type Courtyard = {
     toolbar: Toolbar;
     editor: AvatarEditor;
     boundsBox: THREE.LineSegments;
-    /** Null under `?bare`, with no capture. */
     leaves: Leaves | null;
-    /** Whether the leaves are on the stage: the debug toggle takes them off it. */
     leavesShown: boolean;
 };
 
@@ -88,7 +80,6 @@ export async function initCourtyard(context: CourtyardContext): Promise<Courtyar
 
     let leaves: Leaves | null = null;
     if (!options.bare) {
-        // Decoded on a worker, then one object on the stage, placed by a group.
         const world = new THREE.Group();
         world.scale.setScalar(SPLAT_SCALE);
         world.position.set(...SPLAT_OFFSET);
@@ -116,7 +107,6 @@ export async function initCourtyard(context: CourtyardContext): Promise<Courtyar
     });
     controls.enabled = false;
 
-    // Customize: click a walker and they run to the front, with the editor bound to them.
     attachPicking(physics, camera, crowd, domElement, (pick) => {
         debug.selected = pick?.index ?? -1;
         if (toolbar.tool !== 'customize') return;
@@ -137,7 +127,6 @@ export async function initCourtyard(context: CourtyardContext): Promise<Courtyar
         setAvatarEditorVisible(editor, true);
     });
 
-    // Grab: press and they go limp and come with you; let go and they fall.
     attachGrabbing({
         world: physics,
         grab,
@@ -192,7 +181,6 @@ export function courtyardSplats(courtyard: Courtyard): number {
     return courtyard.crowd.walkers.reduce((n, w) => n + w.avatar.count, 0);
 }
 
-/** The box the crowd may wander inside, turned like the walk area. */
 function addBoundsBox(scene: THREE.Scene): THREE.LineSegments {
     const height = 1.8;
     const box = new THREE.LineSegments(

@@ -1,14 +1,3 @@
-/**
- * Procedural characters built from splats and skinned on the GPU — no scan, no
- * mesh, no asset. The README tells the story.
- *
- * Two scenes share the avatar: `courtyard.ts`, the default, and `workbench.ts`, one
- * avatar on a plain stage (`?view`, `?face`, `?editor`, `?crowd=N`).
- *
- * Drawn by spark-radix: every splat in the scene is one collection (the stage in
- * splats.ts), and skinning is a generator over each avatar's table.
- */
-
 import { createRenderer } from 'spark-radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -77,10 +66,7 @@ async function init(): Promise<State> {
     return { options, scene, camera, renderer, stage, sway, controls, debug, courtyard, bench };
 }
 
-/**
- * `?cam` and `?look` win over everything. The named views exist because front-on, a
- * head buried in a chest and a clean join look identical; the side view tells the truth.
- */
+/** `?cam` and `?look` win over everything. */
 function frameCamera(camera: THREE.PerspectiveCamera, controls: OrbitControls, options: Options): void {
     const dist = options.face ? 1.55 : 2.8;
     const eyeY = options.face ? 1.34 : 1.15;
@@ -90,7 +76,6 @@ function frameCamera(camera: THREE.PerspectiveCamera, controls: OrbitControls, o
     else if (options.view === 'front') camera.position.set(0, eyeY, dist);
     else if (options.view === 'side') camera.position.set(dist, eyeY, 0);
     else if (options.view === 'top') camera.position.set(0, eyeY + dist, 0.01);
-    // Framed to match reference/avatar-target.png, for side-by-side comparison.
     else if (options.view === 'bust') camera.position.set(0, 1.4, 1.2);
     else camera.position.set(dist * 0.55, eyeY, dist * 0.84);
 

@@ -1,14 +1,3 @@
-/**
- * A campfire in a captured clearing: a procedural flame, smoke, embers and
- * fireflies, all splats generated on the GPU, sorted in with the scene's own. The
- * fire lights the clearing and shimmers the air above it, and a tap stokes it.
- *
- * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
- * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`). On WebGPU the flame, smoke
- * and embers ride a fluid simulation (sim.ts); elsewhere, or with `?sim=0`, they're
- * the stateless closed-form particles.
- */
-
 import {
     type AnySplatObject,
     createRenderer,
@@ -42,9 +31,7 @@ import { initSmoke, updateSmoke } from './smoke';
 import { time } from './tsl';
 import './style.css';
 
-/** So a stall or a tab switch can't jump the animation forward. */
 const MAX_DT = 0.1;
-/** `?record`: render a take on a fixed clock into an MP4 instead of running live (record.ts). */
 const RECORDING = recordingFromUrl();
 
 async function init() {
@@ -58,13 +45,9 @@ async function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     (document.querySelector<HTMLDivElement>('#app') ?? document.body).appendChild(renderer.domElement);
 
-    // Decoded on a worker.
     const data = await loadSplats(SPLAT_URL);
     const arrays = GpuArrays.fromData(renderer, data);
 
-    // The lighting and the heat shimmer are modifiers on the capture's own
-    // generator, not the renderer's, so the fire's particles are left alone. The
-    // capture sits at the origin, so its object space is world space.
     const heat = initHeat();
     const lighting = initLighting();
     const capture = SplatCollection.object({
@@ -74,13 +57,10 @@ async function init() {
     });
 
     const splats = new SplatRenderer({ renderer, params: { minAlpha: 0.15 / 255 } });
-    // A mesh to three, but there's nothing to hit: debug clicks go through the picker.
     splats.raycast = () => {};
     scene.add(splats);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    // The shot is the fixed framing plus the parallax lean; free-look is a measuring
-    // tool, behind the debug panel's `orbit camera`.
     controls.enabled = false;
     controls.enableDamping = true;
     controls.target.set(...CAMERA_TARGET);
@@ -96,8 +76,6 @@ async function init() {
             onOrbitChange: (orbit) => {
                 controls.enabled = orbit;
                 if (orbit) return;
-                // Back to the presentation shot. Clear the lean first, or the offset it
-                // holds stays baked into the position set out from under it.
                 drift.clear();
                 camera.position.set(...CAMERA_POSITION);
                 controls.target.set(...CAMERA_TARGET);
@@ -106,7 +84,6 @@ async function init() {
     );
     scene.add(debug.raycastMarker);
 
-    // Built on the first measuring click: it keeps a copy of every centre.
     let picker: SplatPicker | null = null;
     const pick = (ray: THREE.Ray) => {
         picker ??= createSplatPicker(data);
@@ -123,7 +100,6 @@ async function init() {
     const coals = initCoals();
     const fireflies = initFireflies();
 
-    // While the debug panel is open, clicks raycast instead.
     attachInteraction(renderer.domElement, {
         onStoke: () => stokeFire(fire),
         enabled: () => !debug.enabled,
@@ -143,7 +119,6 @@ async function init() {
         post: initPost(renderer, scene, camera),
         splats,
         capture,
-        /** Which layers the collection was last built from. */
         shown: '',
         controls,
         drift,
@@ -177,10 +152,6 @@ function initStateless(air: Air) {
     };
 }
 
-/**
- * The renderer draws an immutable collection, so hiding a layer means a new one.
- * Only when the toggles change: making one compiles nothing, but it's no per-frame job.
- */
 function syncCollection(state: State) {
     const { debug } = state;
     const layers: [boolean, AnySplatObject][] = [
@@ -200,7 +171,6 @@ function syncCollection(state: State) {
 function update(state: State, elapsed: number, dt: number, render = true) {
     const { debug, fire, lighting } = state;
 
-    // First, so every system reads this frame's heat.
     fire.override = debug.heatOverride;
     updateFire(fire, dt);
     time.value = elapsed;
@@ -209,7 +179,6 @@ function update(state: State, elapsed: number, dt: number, render = true) {
     syncCollection(state);
     state.effects.step(dt, elapsed, fire, state.air.wind);
     updateCoals(state.coals, fire);
-    // In place of controls.update(). The lean stands down while free-look is on.
     state.drift.apply(dt, !debug.orbit);
     updateLighting(
         lighting,
@@ -227,8 +196,7 @@ function update(state: State, elapsed: number, dt: number, render = true) {
     if (!RECORDING) applyPerformance(state.perf, state.renderer);
     updateDebugOverlay(debug, state.camera, state.controls, fire, state.splats.collection.count, state.perf);
 
-    // The GPU sort sees the particles move every frame. The WebGL2 backend's CPU
-    // sort doesn't, so ask it each frame: everything here moves all the time.
+    // The WebGL2 backend's CPU sort only runs when asked.
     if (state.splats.sortMode === 'cpu') state.splats.requestSort();
     state.post.strength.value = debug.bloom;
     if (render) state.post.pipeline.render();
@@ -238,10 +206,9 @@ function hideLoading() {
     const el = document.getElementById('loading');
     if (!el) return;
     el.classList.add('hidden');
-    setTimeout(() => el.remove(), 700); // after the CSS fade
+    setTimeout(() => el.remove(), 700);
 }
 
-/** The take: the canvas at the recording's size, frames on its clock, stokes on cue, then the download. */
 async function recordTake(state: State, recording: Recording) {
     const { renderer, camera } = state;
     renderer.setPixelRatio(1);
@@ -263,14 +230,11 @@ async function recordTake(state: State, recording: Recording) {
         const blob = await record(
             renderer.domElement,
             recording,
-            // `time` is seconds into the take; the warmup comes before it, unrecorded.
             (index, time, dt) => {
                 while (stokes.length && stokes[0] <= time) {
                     stokeFire(state.fire);
                     stokes.shift();
                 }
-                // The camera move, through the warmup too, so the lean is already
-                // moving on the first frame.
                 const [x, y] = move(time);
                 state.drift.drive(x, y, first);
                 first = false;
@@ -306,7 +270,6 @@ async function start() {
         elapsed += dt;
         update(state, elapsed, dt);
 
-        // A few frames in, past the first frame's shader compiles.
         if (++frames === 3) hideLoading();
     });
 }

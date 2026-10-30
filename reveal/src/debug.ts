@@ -2,12 +2,6 @@ import type * as THREE from 'three';
 import type { Performance } from './performance';
 import type { Reveal } from './reveal';
 
-/**
- * The debug panel the other examples have: backtick to toggle, click-to-copy
- * coordinates, the render scale, and — since the whole thing is over in two
- * seconds — a button to watch it again without reloading 66MB.
- */
-
 export type DebugOverlay = {
     element: HTMLDivElement;
     enabled: boolean;
@@ -30,7 +24,6 @@ function createReadoutRow(label: string): { row: HTMLDivElement; value: HTMLSpan
     return { row, value };
 }
 
-/** Copy a readout to the clipboard on click, and flash to confirm. */
 function makeCopyable(value: HTMLSpanElement): void {
     value.style.cursor = 'pointer';
     value.title = 'click to copy';
@@ -40,7 +33,7 @@ function makeCopyable(value: HTMLSpanElement): void {
         try {
             await navigator.clipboard.writeText(text);
         } catch {
-            return; // clipboard blocked (insecure context) — nothing to flash
+            return;
         }
         value.style.color = '#fff';
         setTimeout(() => {
@@ -49,7 +42,6 @@ function makeCopyable(value: HTMLSpanElement): void {
     });
 }
 
-/** A labelled slider, with its value alongside. */
 function createRange(
     label: string,
     { min, max, step, value }: { min: number; max: number; step: number; value: number },
@@ -59,7 +51,6 @@ function createRange(
     row.style.cssText = 'display:flex;gap:6px;align-items:center;cursor:pointer;user-select:none';
     const slider = document.createElement('input');
     slider.type = 'range';
-    // In order: the value has to come after min and max, or it's clamped to 0..100.
     slider.min = String(min);
     slider.max = String(max);
     slider.step = String(step);

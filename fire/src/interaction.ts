@@ -1,14 +1,8 @@
-/**
- * Tap anywhere to throw a log on the fire. A *tap*, not any press: a press that
- * travels or lingers is someone orbiting the camera, not stoking.
- */
-
 const TAP_MOVE_PX = 6;
 const TAP_MS = 400;
 
 export type InteractionOptions = {
     onStoke: () => void;
-    /** Return false to swallow taps (while the debug panel owns clicks). */
     enabled?: () => boolean;
 };
 

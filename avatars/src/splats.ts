@@ -1,19 +1,3 @@
-/**
- * The avatars on radix: a builder their shells push splats into, dual-quaternion
- * skinning over them (after Spark's SplatSkinning, same maths), the face-part mask,
- * and the STAGE: the one collection every splat in the scene is drawn from.
- *
- * Skinning is a generator: the stored splats, then each one moved by the blend of
- * its bones' transforms. Per splat, four bone indices and four weights are a bundle
- * next to the splats, as is its face part; the bones' transforms (relative to rest,
- * as dual quaternions) are a small table uploaded each frame. One program serves
- * every avatar: what differs between them is bound per object, not compiled.
- *
- * Radix collections are immutable, so the stage keeps a list and rebuilds the
- * collection when the list changes (an avatar added, removed or rebuilt), never
- * per frame: moving an avatar is its group's matrixWorld, which is live.
- */
-
 import {
     type AnySplatObject,
     ArrayData,
@@ -38,10 +22,7 @@ const { If, dot, float, length, max, select, uint, uniform, vec3, vec4 } = TSL;
 
 /* colours */
 
-/**
- * Radix draws straight to the canvas with no output transform, so three's colours
- * are written as given: a display (sRGB) value, kept as it is rather than decoded.
- */
+/** Radix has no output transform: keep the sRGB value as given, don't decode it. */
 export const displayColor = (hex: number): THREE.Color =>
     new THREE.Color().setRGB(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255, THREE.LinearSRGBColorSpace);
 
@@ -49,7 +30,6 @@ export const displayColor = (hex: number): THREE.Color =>
 
 const FLOATS = 14;
 
-/** Splats one at a time, in Spark's pushSplat order, then a table of them. */
 export class SplatBuilder {
     private values = new Float32Array(4096 * FLOATS);
     count = 0;
@@ -108,11 +88,8 @@ export class SplatBuilder {
 
 /* skinning */
 
-/** Per splat: four bone indices (x, a byte each) and four weights (y, a byte each). */
 const SKIN = defineBundle({ skin: 'uint32x2' });
-/** Per bone: the transform from rest to now, as a dual quaternion. */
 const BONES = defineBundle({ real: 'float32x4', dual: 'float32x4' });
-/** Per splat: its face part + 1, or 0 for the body. */
 const PART = defineBundle({ part: 'uint32' });
 
 const relQuat = new THREE.Quaternion();
@@ -148,7 +125,6 @@ export class Skinning {
         this.setBoneQuatPos(bone, quat, pos);
     }
 
-    /** The bone's transform now, in the space the rest pose was given in. See bones.ts for what that means. */
     setBoneQuatPos(bone: number, quat: THREE.Quaternion, pos: THREE.Vector3): void {
         const rest = this.rest[bone];
         relQuat.copy(rest.quat).invert();
@@ -159,7 +135,6 @@ export class Skinning {
         this.dual.set([dual.x * 0.5, dual.y * 0.5, dual.z * 0.5, dual.w * 0.5], bone * 4);
     }
 
-    /** Up to four bones per splat; unused ones take weight 0. */
     setSplatBones(splat: number, indices: THREE.Vector4, weights: THREE.Vector4): void {
         const byte = (w: number) => Math.min(255, Math.max(0, Math.round(w * 255)));
         this.skin[splat * 2] = (indices.x | (indices.y << 8) | (indices.z << 16) | (indices.w << 24)) >>> 0;
@@ -167,12 +142,10 @@ export class Skinning {
             (byte(weights.x) | (byte(weights.y) << 8) | (byte(weights.z) << 16) | (byte(weights.w) << 24)) >>> 0;
     }
 
-    /** Adds the per-splat bones to the splats' table. Once, before uploading it. */
     addTo(data: SplatData): void {
         data.addBundle('skin', SKIN, { data: { skin: this.skin } });
     }
 
-    /** The bones as they are now, onto the GPU: every frame after moving them. */
     updateBones(): GpuArrays {
         if (this.bonesGpu) this.bonesGpu.upload(this.bones);
         else this.bonesGpu = GpuArrays.fromData(this.renderer, this.bones);
@@ -185,7 +158,6 @@ export class Skinning {
     }
 }
 
-/** Adds each splat's face part (+1; 0 for the body) to the splats' table. */
 export function addParts(data: SplatData, partOf: ArrayLike<number>): void {
     const part = new Uint32Array(data.count);
     for (let i = 0; i < data.count; i++) part[i] = partOf[i] + 1;
@@ -194,7 +166,6 @@ export function addParts(data: SplatData, partOf: ArrayLike<number>): void {
 
 /* generators */
 
-/** An avatar's data: its splats (with skin and part bundles), its bones, and which face parts show. */
 export type AvatarData = { splats: GpuArrays; bones: GpuArrays; face: { mask: number } };
 
 const stored = Generators.fromSplats({ layout: 'extSplats' });
@@ -204,7 +175,6 @@ const partReader = new GpuArrayReader(PART);
 /** Bitmask of the face parts showing: set per object by bind, so one program serves every face. */
 const showing = uniform(0, 'uint');
 
-/** Zeroes the opacity of every face part not in the mask. Body splats pass through. */
 function applyFace(s: SplatNode, index: TslNode): void {
     const part = partReader.load('part', index).toVar();
     const hidden = part.greaterThan(uint(0)).and(
@@ -258,7 +228,6 @@ function bindAvatar(data: AvatarData): void {
     showing.value = data.face.mask;
 }
 
-/** The avatar posed by its bones. */
 export const avatarSkinned: SplatGenerator<AvatarData> = {
     generateSplat(index) {
         const s = stored.generateSplat?.(index).toVar() as SplatNode;
@@ -273,7 +242,6 @@ export const avatarSkinned: SplatGenerator<AvatarData> = {
     },
 };
 
-/** The avatar in its rest pose (the debug panel's skinning toggle). */
 export const avatarPlain: SplatGenerator<AvatarData> = {
     generateSplat(index) {
         const s = stored.generateSplat?.(index).toVar() as SplatNode;
@@ -286,7 +254,6 @@ export const avatarPlain: SplatGenerator<AvatarData> = {
 /** Past-opaque splats keep their hard edge rather than growing (the LoD reading of opacity > 1). */
 export const HARD_PARAMS = { lodInflate: false };
 
-/** An avatar's splats as one object, placed by `holder`, skinned or at rest. */
 export function avatarObject(data: AvatarData, count: number, holder: THREE.Object3D, skinned: boolean): AnySplatObject {
     return SplatCollection.object({
         generator: skinned ? avatarSkinned : avatarPlain,
@@ -298,6 +265,8 @@ export function avatarObject(data: AvatarData, count: number, holder: THREE.Obje
 }
 
 /* stage */
+
+// Radix collections are immutable: rebuilt when the list changes, never per frame.
 
 export type Stage = {
     renderer: WebGPURenderer;
@@ -324,7 +293,6 @@ export function stageRemove(stage: Stage, object: AnySplatObject): void {
     stage.dirty = true;
 }
 
-/** Before each render: a new collection if the objects changed; the CPU sort asked to keep up. */
 export function syncStage(stage: Stage, moving: boolean): void {
     if (stage.dirty) {
         stage.splats.collection = new SplatCollection(stage.objects);

@@ -1,23 +1,3 @@
-/**
- * Smoke: the layer above the flame, and what sells "burning" over "glowing". Each
- * puff lives ten seconds or more, rising, spreading and thinning to nothing.
- *
- * Heat is DELAYED: each puff reads the fire's heat as it was at its own birth, from
- * the air's history (air.ts), so a stoke travels up the column as a gout instead of the whole
- * column lurching at once.
- *
- * Two things give it shape:
- *
- *   break-up — it rises clean and narrow at first, then past a wavering height the
- *              turbulence takes over and it shreds and spreads, as real smoke does.
- *   density  — puffs from the middle of the bed make the column's dense core: they
- *              are darker and shade the firelight for the smoke above them, while
- *              thin edge puffs stay pale and catch the light.
- *
- * Colour is written straight, not premultiplied: the draw premultiplies, and doing
- * it here too leaves the puffs a near-black filter.
- */
-
 import { type SplatObject, TSL, type TslNode } from 'spark-radix';
 import { type Air, heatAt, windAt } from './air';
 import { type Fire, fireHeat } from './fire';
@@ -41,10 +21,8 @@ const S = {
     /** Metres above the fire where the column breaks up, and how far that wavers. */
     breakHeight: 1.3,
     breakWaver: 0.3,
-    /** Turbulence below the break and after it, as multiples of `turbulence`. */
     laminar: 0.12,
     shredded: 2.2,
-    /** How hard the dense core shades the light from below. */
     selfShadow: 2.5,
     curlScale: 0.7,
     curlScroll: 0.12,
@@ -53,11 +31,9 @@ const S = {
     startSize: 0.05,
     endSize: 0.5,
     opacity: 0.028,
-    /** Thin, pale edges and the dark, dense core; drifting cooler and bluer with age. */
     edge: [0.2, 0.19, 0.21],
     core: [0.07, 0.07, 0.08],
     cool: [0.1, 0.11, 0.15],
-    /** The flame's light on the smoke's underside, and how quickly it fades with height. */
     firelit: [1.0, 0.6, 0.3],
     firelitHeight: 0.6,
 } as const;
@@ -81,7 +57,6 @@ export function initSmoke(air: Air): Smoke {
         const handoverHeight = rand2.x.mul(0.8).add(0.6).mul(S.liftOff);
         const pos = origin.add(vec3(cos(bedAngle).mul(bedRadius), handoverHeight, sin(bedAngle).mul(bedRadius))).toVar();
 
-        // Where the column breaks: one height for everyone, wavering slowly.
         const breakHeight = sin(time.mul(0.23)).mul(S.breakWaver).add(S.breakHeight).toVar();
         const shredAt = (height: TslNode) => smoothstep(breakHeight.mul(0.75), breakHeight.mul(1.5), height);
 
@@ -121,10 +96,8 @@ export function initSmoke(air: Air): Smoke {
 
         const fade = smoothstep(0, 0.1, age).mul(pow(max(age.oneMinus(), 0), 2.2));
 
-        // Density: core puffs are thick, thinning as the column spreads and shreds.
         const height = pos.y.sub(origin.y).toVar();
         const thick = sqrt(rand.z).oneMinus().mul(age.mul(-0.6).add(1)).mul(shredAt(height).mul(-0.5).add(1)).toVar();
-        // The light from below, after the dense smoke it has come up through.
         const transmitted = exp(thick.mul(smoothstep(0, 1.2, height)).mul(-S.selfShadow)).toVar();
         const firelit = v3(S.firelit)
             .mul(exp(max(height.sub(0.3), 0).div(-S.firelitHeight)))
@@ -135,7 +108,6 @@ export function initSmoke(air: Air): Smoke {
         return {
             center: pos,
             scales: vec3(mix(float(S.startSize), float(S.endSize), pow(age, 0.7))),
-            // Lit from below by the flame as it is now: the column glows over the fire.
             rgb: base.mul(transmitted.mul(0.4).add(0.6)).add(firelit),
             opacity: fade.mul(heatAtBirth.mul(1.1).add(0.25)).mul(thick.mul(1.2).add(0.6)).mul(S.opacity),
         };

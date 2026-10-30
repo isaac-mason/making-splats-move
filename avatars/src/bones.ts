@@ -1,28 +1,13 @@
 /**
- * Posing bones, and a small forward-kinematics skeleton to drive them.
- *
- * Read `setBoneWorld`: the bone API (Spark's, kept as it was) does not mean what it
- * looks like. `setBoneQuatPos(i, quat, pos)` reads as "put bone i at pos, rotated by
- * quat". It isn't. It stores
- *
- *     R = restQuat⁻¹ · quat        t = pos − restPos
- *
- * and the shader applies `v → R·v + t`. R rotates about the WORLD ORIGIN and t is a
- * plain translation delta — not the `current · rest⁻¹` matrix skinning normally
- * means. Hand it a joint as `pos` and the limb tears off and orbits.
- *
- * The transform we want is the standard one:
- *
- *     v → Rm·(v − restPos) + curPos,   Rm = curQuat · restQuat⁻¹
- *
- * so pass `quat = restQuat · Rm` and `pos = restPos + curPos − Rm·restPos`. That's
- * all `setBoneWorld` does, and every bone goes through it.
+ * Spark's `setBoneQuatPos(i, quat, pos)` stores R = restQuat⁻¹ · quat and t = pos − restPos,
+ * and the shader applies v → R·v + t: R turns about the world origin, t is a plain delta.
+ * To get v → Rm·(v − restPos) + curPos (Rm = curQuat · restQuat⁻¹), pass
+ * quat = restQuat · Rm and pos = restPos + curPos − Rm·restPos. `setBoneWorld` does this.
  */
 
 import * as THREE from 'three';
 import type { Skinning } from './splats';
 
-// Scratch: this runs per bone, per avatar, per frame.
 const rmScratch = new THREE.Quaternion();
 const quatScratch = new THREE.Quaternion();
 const posScratch = new THREE.Vector3();
@@ -43,25 +28,18 @@ export function setBoneWorld(
     skinning.setBoneQuatPos(bone, quatScratch, posScratch);
 }
 
-/** A bone in the rest skeleton: a segment, plus who it hangs off. */
 export type BoneDef = {
     name: string;
-    /** Index into the bone list, or -1 for the root. */
     parent: number;
-    /** Rest-pose endpoints in world space. `head` is the joint it pivots about. */
     head: THREE.Vector3;
     tail: THREE.Vector3;
-    /** How far the flesh extends around this segment. Also sets the weight falloff. */
     radius: number;
 };
 
 export type Skeleton = {
     bones: BoneDef[];
-    /** Per-bone local rotation, relative to the parent. Animate these. */
     pose: THREE.Quaternion[];
-    /** Whole-body offset, for a bob or a step. */
     rootOffset: THREE.Vector3;
-    /** World transforms, rebuilt by poseSkeleton (or read out of the ragdoll). */
     worldQuat: THREE.Quaternion[];
     worldPos: THREE.Vector3[];
 };
@@ -79,10 +57,6 @@ export function initSkeleton(bones: BoneDef[]): Skeleton {
 const restIdentity = new THREE.Quaternion(); // every bone rests world-aligned
 const offsetScratch = new THREE.Vector3();
 
-/**
- * Forward kinematics: fill in every bone's world transform. Separate from the push
- * because a ragdoll writes the same arrays from its bodies instead.
- */
 export function poseSkeleton(skeleton: Skeleton): void {
     const { bones, pose, worldQuat, worldPos } = skeleton;
     for (let i = 0; i < bones.length; i++) {
@@ -91,7 +65,6 @@ export function poseSkeleton(skeleton: Skeleton): void {
             worldQuat[i].copy(pose[i]);
             worldPos[i].copy(bone.head).add(skeleton.rootOffset);
         } else {
-            // Bones rest world-aligned, so there's no rest orientation to unwind.
             worldQuat[i].copy(worldQuat[bone.parent]).multiply(pose[i]);
             offsetScratch.copy(bone.head).sub(bones[bone.parent].head).applyQuaternion(worldQuat[bone.parent]);
             worldPos[i].copy(worldPos[bone.parent]).add(offsetScratch);
@@ -99,7 +72,6 @@ export function poseSkeleton(skeleton: Skeleton): void {
     }
 }
 
-/** Hand the current world transforms to the GPU. */
 export function pushSkeleton(skeleton: Skeleton, skinning: Skinning): void {
     const { bones, worldQuat, worldPos } = skeleton;
     for (let i = 0; i < bones.length; i++) {
@@ -108,30 +80,20 @@ export function pushSkeleton(skeleton: Skeleton, skinning: Skinning): void {
     skinning.updateBones();
 }
 
-/**
- * Bone weights by distance to each bone's segment, with a Gaussian falloff scaled by
- * the bone's radius so a thick thigh claims further than a thin forearm. The best
- * four (all the skinning stores), normalised.
- */
 export function weightsForPoint(
     point: THREE.Vector3,
     bones: BoneDef[],
     outIndices: THREE.Vector4,
     outWeights: THREE.Vector4,
-    /**
-     * The bone this splat was built as part of, favoured over its neighbours. Distance
-     * alone gets it wrong where a hand passes a hip, and the splat leaves with the hip.
-     */
+    /** Favours the bone the splat was built as part of: distance alone mis-assigns a hand passing a hip. */
     owner?: number,
 ): void {
-    // Insertion into a fixed top four: this runs for every splat, so nothing allocates.
     bestWeight[0] = bestWeight[1] = bestWeight[2] = bestWeight[3] = 0;
     bestIndex[0] = bestIndex[1] = bestIndex[2] = bestIndex[3] = 0;
 
     for (let i = 0; i < bones.length; i++) {
         const d = distanceToSegment(point, bones[i].head, bones[i].tail);
         const sigma = bones[i].radius * 1.6;
-        // Neighbours still get a say — that's what feathers the joints.
         const bias = owner === undefined || i === owner ? 1 : OTHER_BONE_BIAS;
         const w = Math.exp(-((d / sigma) ** 2)) * bias;
         if (w <= bestWeight[3]) continue;

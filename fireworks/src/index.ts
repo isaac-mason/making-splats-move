@@ -1,14 +1,3 @@
-/**
- * A fireworks show, nothing captured: shells climbing, bursting and falling,
- * every spark a splat worked out from the time (fireworks.ts), over a line of
- * dark hills under a starry night. Drag to orbit, right-drag or shift-drag to
- * pan, scroll to move in.
- *
- * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
- * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`); nothing here needs
- * compute, so both draw the same show.
- */
-
 import { createRenderer, SplatCollection, SplatRenderer, TSL, type TslNode } from 'spark-radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -41,7 +30,6 @@ const {
     vec4,
 } = TSL;
 
-/** Splats are fill-bound: past this, more pixels cost more than they show. */
 const MAX_PIXEL_RATIO = 1.5;
 
 const colour = (hex: string): TslNode => {
@@ -51,33 +39,17 @@ const colour = (hex: string): TslNode => {
 
 /* the night */
 
-/** A clear night, in sRGB: a deep blue glow low down, near black overhead, the hills black against it. */
 const NIGHT = { horizon: '#1b2240', zenith: '#03050b', hills: '#020305' };
 
-/**
- * The hills' line, as the sine of its height above the level of your eye, round
- * the horizon: a low rise and a few gentle bumps.
- */
 const HILLS = { base: 0.035, bumps: [0.018, 0.011, 0.006], every: [2, 5, 11] };
 
-/** The stars: one in so many cells of a grid over the sky's directions, each a point of its own brightness. */
 const STARS = { cells: 260, share: 0.004, size: 0.22, bright: 0.5, from: [0.1, 0.5] };
 
-/** Fract-sine hash of a cell. */
 const cellHash = (cell: TslNode, k: number): TslNode =>
     fract(sin(dot(cell, vec3(12.9898 + k, 78.233, 37.719 - k))).mul(43758.5453));
 
-/**
- * The night lit by the show: each burst lifts the whole sky a touch in its
- * colour and glows round itself, a flash as it bursts then a lower glow while
- * its stars burn; and catches the hills' crest. (How much the flash and the burn
- * light, how tight the glow round a burst is and how bright, how much the whole
- * sky lifts, and how much the crest catches.) The sky works the shells out from
- * the clock itself, the same way the splats do, so they agree.
- */
 const GLOW = { flash: 1, burn: 0.35, tight: 30, halo: 0.05, lift: 0.006, crest: 0.6 };
 
-/** Seconds since the show started: the sky's own clock. */
 const skyTime = uniform(0);
 
 function showLight(dir: TslNode): TslNode {
@@ -122,23 +94,13 @@ function skyNode(): TslNode {
 
 /* the view */
 
-/** Where you stand: on the ground, the show out in front of you, looking up at it. */
 const VIEW = { fov: 55, eye: [0, 2, 0] };
 
 /* post */
 
-/**
- * Bloom: only what's past white, which is the sparks and the flashes, so they
- * glow and the night stays black. Then a darkening at the corners, and the
- * dither that keeps the dark sky from banding.
- */
 const BLOOM = { strength: 0.15, radius: 0.3, threshold: 1.2 };
 const GRADE = { vignette: 0.3, dither: 1.5 };
 
-/**
- * Splats blend sRGB-encoded but land in the pass decoded to linear: encode back,
- * no tone mapping. Bloom, a vignette and a dither.
- */
 function initPost(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera): RenderPipeline {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping;
@@ -199,7 +161,6 @@ async function start() {
         // The WebGL2 backend sorts on the CPU and only when asked; everything moves.
         if (splats.sortMode === 'cpu') splats.requestSort();
         pipeline.render();
-        // A few frames in, past the first frame's shader compiles.
         if (++frames === 3) document.getElementById('loading')?.classList.add('hidden');
     });
 }

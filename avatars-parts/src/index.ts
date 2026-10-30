@@ -1,13 +1,3 @@
-/**
- * How the avatars are drawn, in five steps sized for showing on screen: splat shapes
- * (1-shapes.ts), a face built from them (2-face.ts), a body (3-body.ts), that body
- * skinned to a few bones (4-skinning.ts), and a flower whose stem bends (5-bend.ts).
- * `?step=1..5`, or the buttons, pick one; `?bones` draws the skeleton.
- *
- * Drawn by spark-radix: the splats are built on the CPU into a table, and skinning
- * is a generator over it (splats.ts).
- */
-
 import { createRenderer, type GpuArrays, SplatCollection, SplatRenderer } from 'spark-radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -66,7 +56,6 @@ function applyBones() {
     bones.textContent = showBones ? 'hide bones' : 'show bones';
 }
 
-/** The step on show: its splats on the GPU, the group it's placed by, and its animation if any. */
 let current: { holder: THREE.Group; arrays: GpuArrays; skinning?: Skinning; animate?: (time: number) => void } | null = null;
 
 function show(step: number) {

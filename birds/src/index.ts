@@ -1,22 +1,3 @@
-/**
- * A murmuration: eight thousand starlings wheeling overhead at dusk, every one
- * of them simulated and drawn as a little bird of splats (flock.ts). You lie
- * back and look up: the sun has just gone, its glow low at the bottom of the
- * sky, the first stars are out overhead, and the flock pours, folds and turns
- * itself inside out above you. Now and then a falcon dives through, and the
- * flock flashes open round it.
- *
- * Your cursor is a hawk: the birds part wide round it, and swipe it through the
- * flock and the ones it startles scatter, the fright running out across the
- * whole flock in a wave. Drag to orbit the flock, right-drag or shift-drag to
- * pan, scroll to move in among the birds; let go, and after a few seconds
- * you're eased back to looking up.
- *
- * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
- * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`), where there's no compute
- * and the flock only churns.
- */
-
 import { createRenderer, getGpuCaps, SplatCollection, SplatRenderer, TSL, type TslNode } from 'spark-radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -54,29 +35,17 @@ const MAX_PIXEL_RATIO = 1.5;
 
 /* the dusk */
 
-/**
- * The sky just after sunset, linear: a hot band hugging the horizon under where
- * the sun went, dusty pink along the rest of it, through a mauve-blue into deep
- * blue overhead. Smooth and clean, so the flock is all there is in it.
- */
 const SKY = {
     zenith: [0.025, 0.04, 0.12],
     middle: [0.12, 0.12, 0.28],
     pink: [0.4, 0.22, 0.27],
     glow: [1.15, 0.42, 0.12],
-    /** How high the horizon band reaches, as the sine of its height. */
     band: 0.11,
-    /** The glow round where the sun went: how tight, and how much. */
     bloom: { power: 10, amount: 0.5 },
 };
 
-/**
- * The first stars, only high up where the blue is deep: one in so many cells of
- * a grid over the sky's directions, each a point of its own brightness.
- */
 const STARS = { cells: 260, share: 0.004, size: 0.22, bright: 0.45, from: [0.35, 0.9] };
 
-/** Fract-sine hash of a cell. */
 const cellHash = (cell: TslNode, k: number): TslNode =>
     fract(sin(dot(cell, vec3(12.9898 + k, 78.233, 37.719 - k))).mul(43758.5453));
 
@@ -107,11 +76,6 @@ function skyNode(): TslNode {
 
 /* the view */
 
-/**
- * You lie back and look up: the view follows the flock round the sky, a beat
- * behind it, and never drops lower than to keep the glow at the
- * bottom of the frame.
- */
 const WATCH = { fov: 62, follow: 1.2, minPitch: 0.55, maxPitch: 1.35 };
 
 /** After you let go, seconds before you're brought back, and seconds to ease back. */
@@ -119,14 +83,9 @@ const HANDOFF = { idle: 5, ease: 4 };
 
 /* post */
 
-/** A darkening at the corners, and the dither that keeps a dusk gradient from banding. */
 const GRADE = { vignette: 0.35, dither: 1.5 };
 
-/**
- * Splats blend sRGB-encoded but land in the pass decoded to linear: encode back,
- * no tone mapping. A vignette, and a dither of about a step of the 8-bit output,
- * scaled into linear.
- */
+/** Splats blend sRGB-encoded but reach the pass as linear: encode back, no tone mapping. */
 function initPost(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera): RenderPipeline {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping;
@@ -159,7 +118,6 @@ async function start() {
     splats.collection = new SplatCollection([birds.object]);
     scene.add(splats);
 
-    // Looking up: turned towards the flock, eased.
     const eye = new THREE.Vector3();
     const watched = birds.roost.clone();
     const watch = { position: eye.clone(), quaternion: new THREE.Quaternion() };
@@ -175,8 +133,6 @@ async function start() {
     camera.position.copy(eye);
     camera.quaternion.copy(watch.quaternion);
 
-    // Grab the view and the controls have it, orbiting the flock; let go, and
-    // after a while you're eased back to looking up.
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.screenSpacePanning = true;
@@ -201,7 +157,6 @@ async function start() {
 
     const pipeline = initPost(renderer, scene, camera);
 
-    // Your cursor over the sky, as a ray from your eye through it: the birds flee it.
     const pointer = new THREE.Vector2();
     let pointing = false;
     const raycaster = new THREE.Raycaster();
@@ -251,7 +206,6 @@ async function start() {
         // The WebGL2 backend sorts on the CPU and only when asked; everything moves.
         if (splats.sortMode === 'cpu') splats.requestSort();
         pipeline.render();
-        // A few frames in, past the first frame's shader compiles.
         if (++frames === 3) document.getElementById('loading')?.classList.add('hidden');
     });
 }

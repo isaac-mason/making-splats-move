@@ -1,13 +1,3 @@
-/**
- * Ray picking against the captured splats, on the CPU, for the debug panel's
- * measuring clicks. Radix draws splats but doesn't raycast them, so this is
- * adapted from its Spark ports (examples/spark/js/raycast.ts).
- *
- * Each splat near the ray adds its Gaussian's opacity where the ray passes closest
- * to it; the hit is where the accumulated opacity first reaches `COVERAGE`, so many
- * faint splats (grass, leaves) stop the ray like one opaque one.
- */
-
 import { type ArrayData, Splats } from 'spark-radix';
 import type * as THREE from 'three';
 
@@ -18,7 +8,6 @@ const MIN_OPACITY = 0.02;
 type Approach = { t: number; alpha: number };
 
 export type SplatPicker = {
-    /** The nearest hit along `ray` (world space: the scene sits at the origin), or null. */
     intersect(ray: THREE.Ray): number | null;
 };
 
@@ -27,7 +16,6 @@ export function createSplatPicker(data: ArrayData): SplatPicker {
     const count = data.count;
     const splat = Splats.makeExtSplat();
 
-    // A bounding sphere per splat, so most are skipped without decoding.
     const centers = new Float32Array(count * 3);
     const radii = new Float32Array(count);
     for (let i = 0; i < count; i++) {
@@ -44,7 +32,6 @@ export function createSplatPicker(data: ArrayData): SplatPicker {
         const sx = Math.max(splat.scales.x, 1e-9);
         const sy = Math.max(splat.scales.y, 1e-9);
         const sz = Math.max(splat.scales.z, 1e-9);
-        // Into the splat's frame, where its Gaussian is a unit sphere.
         const { origin: o, direction: d } = ray;
         const p = rotateConjugate(o.x - centers[i * 3], o.y - centers[i * 3 + 1], o.z - centers[i * 3 + 2], qx, qy, qz, qw);
         const v = rotateConjugate(d.x, d.y, d.z, qx, qy, qz, qw);
@@ -92,13 +79,11 @@ export function createSplatPicker(data: ArrayData): SplatPicker {
                 if (hit.alpha > best.alpha) best = hit;
                 if (1 - transmittance >= COVERAGE) return hit.t;
             }
-            // A thin cloud: its most opaque point.
             return best.t;
         },
     };
 }
 
-/** v rotated by the conjugate of the unit quaternion q. */
 function rotateConjugate(vx: number, vy: number, vz: number, qx: number, qy: number, qz: number, qw: number) {
     const x = -qx;
     const y = -qy;

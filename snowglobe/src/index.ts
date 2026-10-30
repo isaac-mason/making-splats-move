@@ -1,14 +1,3 @@
-/**
- * A snow globe of the anime city, nothing added to the capture but snow: its
- * street crossing cut into a diorama under glass (globe.ts), the snow settling
- * on its roofs and streets (snow.ts). Press space to shake it (hold it to keep
- * shaking), and the snow whirls up and slowly settles again. Drag to orbit,
- * right-drag or shift-drag to pan, scroll to move in.
- *
- * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
- * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`).
- */
-
 import { createRenderer, getGpuCaps, SplatCollection, SplatRenderer, TSL, type TslNode } from 'spark-radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -35,7 +24,6 @@ const {
     vec4,
 } = TSL;
 
-/** Splats are fill-bound: past this, more pixels cost more than they show. */
 const MAX_PIXEL_RATIO = 1.5;
 
 const colour = (hex: string): TslNode => {
@@ -43,7 +31,6 @@ const colour = (hex: string): TslNode => {
     return vec3(c.r, c.g, c.b);
 };
 
-/** A dim, warm room behind the globe, in sRGB: darker up and away, a glow low down where a lamp would be. */
 const ROOM = { low: '#3a2f27', high: '#110d0b' };
 
 function room(): TslNode {
@@ -51,26 +38,14 @@ function room(): TslNode {
     return mix(colour(ROOM.low), colour(ROOM.high), smoothstep(-0.3, 0.7, up));
 }
 
-/** Where you look from: across and down into the globe, as on a table in front of you. */
 const VIEW = { fov: 40, distance: 54, pitch: 0.5, turn: 0.42 };
 
-/**
- * Shaking: each press of space (and each repeat while it's held) jolts the globe
- * sideways this fast (m/s, give or take), in a direction of its own; it's held
- * on a spring, how stiff and how damped (under 1, so it wobbles back).
- */
 const SHAKE = { jolt: [9, 14], stiffness: 90, damping: 0.35 };
 
-/** So a stall or a tab switch can't jump the snow forward. */
 const MAX_DT = 0.1;
 
-/** A darkening at the corners, and the dither that keeps the room from banding. */
 const GRADE = { vignette: 0.45, dither: 1.5 };
 
-/**
- * Splats blend sRGB-encoded but land in the pass decoded to linear: encode back,
- * no tone mapping. A vignette and a dither.
- */
 function initPost(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera): RenderPipeline {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping;
@@ -95,7 +70,6 @@ async function start() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     (document.querySelector<HTMLDivElement>('#app') ?? document.body).appendChild(renderer.domElement);
 
-    // The globe moves as one when it's shaken: the glass in a group, the city by its matrix.
     const globe = new THREE.Group();
     globe.add(glass());
     const diorama = await loadDiorama(renderer);
@@ -120,7 +94,6 @@ async function start() {
 
     const pipeline = initPost(renderer, scene, camera);
 
-    // Space jolts the globe sideways, a different way each time; it springs back.
     const shake = { velocity: new THREE.Vector3(), accel: new THREE.Vector3() };
     window.addEventListener('keydown', (event) => {
         if (event.code !== 'Space') return;
@@ -148,7 +121,6 @@ async function start() {
         last = now;
         controls.update();
 
-        // The globe on its spring, and how hard it's being thrown about, for the snow.
         const damping = 2 * Math.sqrt(SHAKE.stiffness) * SHAKE.damping;
         shake.accel.copy(globe.position).multiplyScalar(-SHAKE.stiffness).addScaledVector(shake.velocity, -damping);
         shake.velocity.addScaledVector(shake.accel, dt);
@@ -159,7 +131,6 @@ async function start() {
         // The WebGL2 backend sorts on the CPU and only when asked.
         if (splats.sortMode === 'cpu') splats.requestSort();
         pipeline.render();
-        // A few frames in, past the first frame's shader compiles.
         if (++frames === 3) document.getElementById('loading')?.classList.add('hidden');
     });
 }

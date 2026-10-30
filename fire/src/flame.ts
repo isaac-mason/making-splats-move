@@ -1,21 +1,3 @@
-/**
- * The flame: splats generated on the GPU each frame, nothing stored. Being splats,
- * it sorts with the capture, so the logs and stones in front of it hide it.
- *
- * Stateless, like the dust: every particle is a closed-form function of its index
- * and the time, with `age = fract(seed + time * rate)`. Colour and brightness follow
- * a TEMPERATURE carried along each particle's path, not its age — keyed to age, a
- * lick flung into cold air would glow as bright as one up the core.
- *
- * Two things make it move like a fire rather than a fountain:
- *
- *   puffing — a pool fire breathes at about 1.5 Hz: a gentle necking wave
- *             spirals up the column, pinching gas in and lifting it, so tongues
- *             swell, pinch off and rise away.
- *   wind    — each step of a particle's path is pushed by the wind blowing at that
- *             moment (air.ts), anchored at the bed, so a gust bends it from the top.
- */
-
 import { type SplatObject, TSL, type TslNode } from 'spark-radix';
 import { type Air, windAt } from './air';
 import { type Fire, fireHeat } from './fire';
@@ -70,10 +52,6 @@ const F = {
     glowSize: 0.1,
     glowOpacity: 0.022,
     glowSharpness: 4.0,
-    /**
-     * Breaths per second. Fixed: the phase is time × rate, so a rate that followed
-     * the fire's heat would jump the whole flame many cycles at every crackle.
-     */
     puffRate: 1.5,
     /** The puff wave's length up the column, metres. */
     puffWavelength: 0.85,
@@ -130,8 +108,6 @@ export function initFlame(air: Air): Flame {
                 .mul(lifeFraction.mul(0.9).add(0.56).mul(coolGasWanders).mul(F.turbulence))
                 .toVar();
 
-            // The puff: a wave travelling up, a turn out of phase around the bed, so
-            // tongues spiral up rather than the whole flame pulsing as one.
             const height = pos.y.sub(origin.y);
             const neck = sin(
                 stepTime
@@ -178,7 +154,6 @@ export function initFlame(air: Air): Flame {
         const heatBoost = heat.mul(0.6).add(0.55);
         const hotness = max(temp, 0);
 
-        // The last GLOW_COUNT are a few wide, faint splats that haze the flame's body.
         const isGlow = index.greaterThanEqual(uint(COUNT));
         const glowFade = smoothstep(0, 0.1, age).mul(smoothstep(0.55, 1, age).oneMinus());
         const glowScale = rand.x.mul(0.6).add(0.7).mul(F.glowSize);

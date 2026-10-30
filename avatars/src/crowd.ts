@@ -1,20 +1,3 @@
-/**
- * Everything the avatars DO. Each walker is in exactly one state, and each state is
- * one function below:
- *
- *   walking  — steering about the walk area, posed by the gait
- *   pausing  — stood still a moment, looking about or at someone
- *   showing  — called to the front to be customised: runs there, then stands
- *   limp     — knocked down: physics owns the body, the pose is read out of it
- *   rising   — back on its feet, blending out of the sprawl it woke up in
- *
- * On top of that, each has a FACE (where they look, how they blink) and a
- * PERSONALITY, keyed by cast name, that tunes both.
- *
- * The gait rate is derived from leg length (`strideLength`), not chosen: any
- * constant and the feet slide.
- */
-
 import type { World } from 'crashcat';
 import * as THREE from 'three';
 import { type Avatar, type Expression, HEAD, initAvatar, PELVIS, poseAvatar, pushAvatar, strideLength } from './avatar';
@@ -52,28 +35,21 @@ export type Walker = {
     avatar: Avatar;
     puppet: Puppet;
     state: WalkerState;
-    /** On the ground plane. */
     position: THREE.Vector3;
     heading: number;
     targetHeading: number;
     speed: number;
     /** Gait phase in radians; 2π is two steps. */
     phase: number;
-    /** 1 walking, 0 standing still. */
     gait: number;
     face: Face;
-    /** Held by the pointer: nobody gets up mid-carry. */
     held: boolean;
 
     /* per-state bookkeeping */
-    /** walking: seconds until a new direction, and until the next pause. */
     secondsUntilTurn: number;
     pauseIn: number;
-    /** pausing: `toward` is a heading to turn to, or null to just look about. */
     pause: { t: number; duration: number; toward: number | null };
-    /** limp: seconds on the floor. */
     downFor: number;
-    /** rising: 0..1 through the get-up, blending out of this sprawl. */
     riseT: number;
     sprawlQuat: THREE.Quaternion[];
     sprawlPos: THREE.Vector3[];
@@ -81,7 +57,6 @@ export type Walker = {
 
 export type Crowd = {
     walkers: Walker[];
-    /** Off, they walk on the spot — for studying the gait. */
     moving: boolean;
 };
 
@@ -95,12 +70,9 @@ const FOOT_LIFT = 0.02;
 // walking (seconds, metres, radians)
 const TURN_RATE = 1.6;
 const TURN_EVERY: [number, number] = [2.5, 6.0];
-/** Closer than this and they steer round each other. */
 const PERSONAL_SPACE = 1.4;
-/** Back up to pace after standing. */
 const RESUME_TIME = 0.5;
 
-// pausing
 const PAUSE_TIME: [number, number] = [1.8, 3.2];
 /** How near, and how nearly in front, someone must be to be turned to. */
 const NOTICE_REACH = 3;
@@ -110,9 +82,7 @@ const NOTICE_CONE = 1.1;
 /** Speed multiple out to the front. The gait rate follows speed, so it reads as a run. */
 const SHOW_RUN = 3.0;
 const SHOW_ARRIVED = 0.16;
-/** Walk fading into a stance. */
 const PARK_TIME = 0.4;
-/** Phase rate stood still: nothing swings, it only drives the breathing. */
 const BREATH_RATE = 1.5;
 const SPIN_RATE = 4.5;
 
@@ -122,7 +92,6 @@ const SETTLE_TIME = 2.2;
 const MAX_DOWN_TIME = 9;
 const AT_REST_SPEED = 0.25;
 const RISE_TIME = 0.9;
-/** Still seeing stars this far through getting up. */
 const DIZZY_UNTIL = 0.6;
 
 /* personality */
@@ -164,7 +133,6 @@ const BASE: Personality = {
     greetChance: 0.5,
 };
 
-/** By cast name. Anyone else gets BASE. */
 const PERSONALITIES: Record<string, Partial<Personality>> = {
     // Easygoing; the default.
     Mo: {},
@@ -195,14 +163,12 @@ function personalityOf(name: string): Personality {
 
 /* setup */
 
-/** One of each of the cast (cycling, if `count` is larger). */
 export function initCrowd(world: World, count: number, seed = 1): Crowd {
     const walkers: Walker[] = [];
     for (let i = 0; i < count; i++) {
         const params = CAST[i % CAST.length];
         const avatar = initAvatar(params, seed + i * 977);
 
-        // A ring rather than a grid, so they don't read as a formation.
         const angle = (i / count) * Math.PI * 2 + 0.6;
         const [x, z] = walkWorld(Math.cos(angle) * WALK_HALF_ACROSS * 0.6, Math.sin(angle) * WALK_HALF_DEEP * 0.6);
         const position = new THREE.Vector3(x, GROUND_Y, z);
@@ -233,7 +199,6 @@ export function initCrowd(world: World, count: number, seed = 1): Crowd {
     return { walkers, moving: true };
 }
 
-/** Swap in a rebuilt avatar, keeping position, heading and phase. The bodies are rebuilt too: they're sized from it. */
 export function rebuildWalker(world: World, walker: Walker, index: number, avatar: Avatar): void {
     disposePuppet(world, walker.puppet);
     walker.avatar.dispose();
@@ -249,7 +214,6 @@ export function rebuildWalker(world: World, walker: Walker, index: number, avata
 
 /* commands */
 
-/** Call this walker to the front to be looked at. */
 export function showWalker(walker: Walker): void {
     if (walker.state === 'limp') return;
     if (walker.state === 'pausing') endPause(walker);
@@ -264,7 +228,6 @@ export function unshowWalker(walker: Walker): void {
     walker.secondsUntilTurn = 0.4;
 }
 
-/** Knock someone down. Safe to call on someone already down. */
 export function knockDown(world: World, walker: Walker): void {
     if (walker.state === 'pausing') endPause(walker);
     walker.state = 'limp';
@@ -274,7 +237,6 @@ export function knockDown(world: World, walker: Walker): void {
 
 /* each frame */
 
-/** `viewer` is the camera: who they look at while being shown off or carried. */
 export function updateCrowd(crowd: Crowd, world: World, dt: number, viewer: THREE.Vector3 | null = null): void {
     // Move everyone, then untangle them, then pose — so nobody is drawn standing
     // inside someone who's pushed out of them a moment later.
@@ -308,7 +270,6 @@ function draw(crowd: Crowd, w: Walker, dt: number, viewer: THREE.Vector3 | null)
     updateFace(w, crowd.walkers, viewer, dt);
 
     if (w.state === 'limp') {
-        // Physics owns the pose: read the bodies back into the frame they fell in.
         readPuppet(w.puppet, w.avatar.skeleton);
         pushAvatar(w.avatar);
         return;
@@ -320,7 +281,6 @@ function draw(crowd: Crowd, w: Walker, dt: number, viewer: THREE.Vector3 | null)
 
     poseAvatar(w.avatar, w.phase, w.gait);
     if (w.state === 'rising') {
-        // Blend the walk pose in over the sprawl they woke up in.
         const t = THREE.MathUtils.smoothstep(w.riseT, 0, 1);
         const { worldQuat, worldPos } = w.avatar.skeleton;
         for (let i = 0; i < worldQuat.length; i++) {
@@ -342,7 +302,6 @@ function expressionFor(w: Walker, dt: number): Expression {
 
 const push = new THREE.Vector3();
 
-/** walking: wander, steer round people, turn back at the edges, stop now and then. */
 function walk(crowd: Crowd, w: Walker, dt: number): void {
     if (crowd.moving) {
         w.pauseIn -= dt;
@@ -358,7 +317,6 @@ function walk(crowd: Crowd, w: Walker, dt: number): void {
     // what makes it look like a decision; shoving positions apart looks magnetic.
     push.set(0, 0, 0);
     for (const other of crowd.walkers) {
-        // Someone on the floor is something to trip over, not walk around.
         if (other === w || other.state === 'limp') continue;
         const dx = w.position.x - other.position.x;
         const dz = w.position.z - other.position.z;
@@ -370,7 +328,6 @@ function walk(crowd: Crowd, w: Walker, dt: number): void {
     }
     const crowding = Math.hypot(push.x, push.z);
     if (crowding > 1e-3) {
-        // A brush past is a nudge, a head-on a swerve.
         w.targetHeading += wrap(Math.atan2(push.x, push.z) - w.targetHeading) * Math.min(1, crowding) * 0.6;
     }
 
@@ -395,7 +352,6 @@ function walk(crowd: Crowd, w: Walker, dt: number): void {
     w.phase += ((Math.PI * w.speed) / strideLength(w.avatar.params)) * dt;
 }
 
-/** Stop: turn to whoever's in front, if the mood takes them, or just look about. */
 function startPause(crowd: Crowd, w: Walker): void {
     const near = nearestInFront(crowd, w);
     const turning = near !== null && Math.random() < w.face.personality.greetChance;
@@ -405,7 +361,6 @@ function startPause(crowd: Crowd, w: Walker): void {
     w.pause.toward = turning && near ? Math.atan2(near.position.x - w.position.x, near.position.z - w.position.z) : null;
 }
 
-/** pausing: ease into a stance, turning to them if that's the plan. */
 function linger(w: Walker, dt: number): void {
     w.pause.t += dt;
     standStill(w, dt);
@@ -420,7 +375,6 @@ function endPause(w: Walker): void {
     w.secondsUntilTurn = 0.3;
 }
 
-/** showing: run to the front, then turn to face the camera and stand. */
 function present(w: Walker, dt: number): void {
     const dx = SHOWCASE_SPOT[0] - w.position.x;
     const dz = SHOWCASE_SPOT[2] - w.position.z;
@@ -429,7 +383,6 @@ function present(w: Walker, dt: number): void {
     if (distance > SHOW_ARRIVED) {
         const speed = w.speed * SHOW_RUN;
         turnToward(w, Math.atan2(dx, dz), SPIN_RATE, dt);
-        // Never overshoot the spot on a long frame.
         const step = Math.min(speed * dt, distance);
         w.position.x += Math.sin(w.heading) * step;
         w.position.z += Math.cos(w.heading) * step;
@@ -446,19 +399,13 @@ function present(w: Walker, dt: number): void {
 const pelvis = new THREE.Vector3();
 const head = new THREE.Vector3();
 
-/**
- * limp: once they've stopped falling, stand them up where they landed.
- *
- * Move the mesh frame to where they'll stand FIRST, then read the bodies against it:
- * the sprawl then comes out in the same space as the walk pose, so the two just mix.
- */
+/** Move the mesh frame to where they'll stand first, so the sprawl is read in the walk pose's space. */
 function settle(world: World, w: Walker, dt: number): void {
     w.downFor += dt;
     if (w.held) return;
     const stillTumbling = bodySpeed(w.puppet.bodies[PELVIS]) > AT_REST_SPEED;
     if ((w.downFor < SETTLE_TIME || stillTumbling) && w.downFor < MAX_DOWN_TIME) return;
 
-    // Up where they lie (kept inside the walk area), facing the way the body points.
     bodyPosition(pelvis, w.puppet.bodies[PELVIS]);
     bodyPosition(head, w.puppet.bodies[HEAD]);
     const [across, deep] = walkLocal(pelvis.x, pelvis.z);
@@ -485,7 +432,6 @@ function settle(world: World, w: Walker, dt: number): void {
     w.riseT = 0;
 }
 
-/** rising: the blend itself happens in `draw`, over the freshly posed walk. */
 function rise(w: Walker, dt: number): void {
     w.riseT = Math.min(1, w.riseT + dt / RISE_TIME);
     if (w.riseT >= 1) w.state = 'walking';
@@ -495,15 +441,11 @@ function rise(w: Walker, dt: number): void {
 
 type Face = {
     personality: Personality;
-    /** The idle glance being held, and seconds until the next. */
     glance: THREE.Vector2;
     glanceIn: number;
-    /** Who they're looking at, and for how long. */
     contact: Walker | 'viewer' | null;
     contactFor: number;
-    /** Seconds left looking away after holding someone's eye too long. */
     shyFor: number;
-    /** Seconds to the next blink; negative while shut. */
     blinkIn: number;
 };
 
@@ -520,7 +462,6 @@ function initFace(name: string): Face {
     };
 }
 
-/** True while the eyes should be shut. */
 function blinking(face: Face, dt: number): boolean {
     face.blinkIn -= dt;
     if (face.blinkIn < -face.personality.blinkTime) {
@@ -546,18 +487,13 @@ const target = new THREE.Vector3();
 const wantGaze = new THREE.Vector2();
 const wantLook = new THREE.Vector2();
 
-/** Roughly where a walker's eyes are, in world space. */
 function eyesOf(out: THREE.Vector3, w: Walker): THREE.Vector3 {
     const { skeleton, params } = w.avatar;
     const height = skeleton.bones[HEAD].tail.y - params.headRadius;
     return out.copy(w.avatar.mesh.position).setY(w.avatar.mesh.position.y + height);
 }
 
-/**
- * Aim the eyes and head — before posing, which reads the head turn. Look at the
- * camera if being shown off or carried, else the nearest person in front (fallen
- * ones included), else let the eyes wander.
- */
+/** Run before posing, which reads the head turn. */
 function updateFace(w: Walker, others: readonly Walker[], viewer: THREE.Vector3 | null, dt: number): void {
     const face = w.face;
     const p = face.personality;
@@ -576,7 +512,6 @@ function updateFace(w: Walker, others: readonly Walker[], viewer: THREE.Vector3 
             eyesOf(target, other);
             const dist = target.distanceTo(eye);
             if (dist >= best) continue;
-            // In front of them only: nobody looks over their shoulder at a stranger.
             const yaw = yawTo(w, target);
             if (Math.abs(yaw) > BEHIND) continue;
             best = dist;
@@ -585,7 +520,6 @@ function updateFace(w: Walker, others: readonly Walker[], viewer: THREE.Vector3 
         if (want) eyesOf(target, want);
     }
 
-    // Hold their eye for a while, then look away for a moment.
     if (want !== face.contact) {
         face.contact = want;
         face.contactFor = 0;
@@ -619,7 +553,6 @@ function updateFace(w: Walker, others: readonly Walker[], viewer: THREE.Vector3 
             const r = Math.sqrt(Math.random()) * p.wander;
             face.glance.set(p.rest[0] + Math.cos(a) * r, p.rest[1] + Math.sin(a) * r * 0.6);
         }
-        // Shy: down and to one side.
         if (face.shyFor > 0) face.glance.set(face.glance.x > 0 ? 0.7 : -0.7, -0.6);
         wantGaze.copy(face.glance).clampScalar(-1, 1);
         wantLook.set(wantGaze.x * EYE_YAW * p.headFollow * 0.4, wantGaze.y * EYE_PITCH * p.headFollow * 0.3);
@@ -629,7 +562,6 @@ function updateFace(w: Walker, others: readonly Walker[], viewer: THREE.Vector3 
     w.avatar.look.lerp(wantLook, 1 - Math.exp(-HEAD_SPEED * dt));
 }
 
-/** Bearing of a point from the walker, relative to which way they face. +x is their left. */
 function yawTo(w: Walker, point: THREE.Vector3): number {
     const dx = point.x - w.position.x;
     const dz = point.z - w.position.z;
@@ -642,7 +574,6 @@ function yawTo(w: Walker, point: THREE.Vector3): number {
 
 /* helpers */
 
-/** Wrap an angle into -PI..PI, for turning the shortest way round. */
 function wrap(angle: number): number {
     return Math.atan2(Math.sin(angle), Math.cos(angle));
 }
@@ -651,16 +582,12 @@ function turnToward(w: Walker, heading: number, rate: number, dt: number): void 
     w.heading += THREE.MathUtils.clamp(wrap(heading - w.heading), -rate * dt, rate * dt);
 }
 
-/**
- * Standing is not stopping: freeze the phase and they're caught mid-step. Fading
- * `gait` to zero lands on the rest stance; the phase keeps ticking for the breath.
- */
+/** Freezing the phase would catch them mid-step: fade `gait` to zero instead and keep the phase ticking for the breath. */
 function standStill(w: Walker, dt: number): void {
     w.gait = Math.max(0, w.gait - dt / PARK_TIME);
     w.phase += BREATH_RATE * dt;
 }
 
-/** The nearest upright walker roughly in front, within reach. */
 function nearestInFront(crowd: Crowd, w: Walker): Walker | null {
     let nearest: Walker | null = null;
     let best = NOTICE_REACH;
@@ -677,11 +604,7 @@ function nearestInFront(crowd: Crowd, w: Walker): Walker | null {
     return nearest;
 }
 
-/**
- * Steering only nudges headings, so someone stood still or a head-on can still close
- * the gap. After everyone moves, push any overlapping pair apart, half each. The
- * fallen are physics' business; someone being shown stays put.
- */
+/** Steering only nudges headings, so push overlapping pairs apart, half each. */
 function separate(walkers: readonly Walker[]): void {
     for (let a = 0; a < walkers.length; a++) {
         const wa = walkers[a];
@@ -703,7 +626,6 @@ function separate(walkers: readonly Walker[]): void {
     }
 }
 
-/** Radius from above: the head, the widest thing on them. */
 function girth(w: Walker): number {
     const p = w.avatar.params;
     return p.headRadius * p.headWidth * p.hairThickness;
@@ -711,10 +633,7 @@ function girth(w: Walker): number {
 
 const scratch = new THREE.Vector3();
 
-/**
- * Where the MESH goes for a ground point: lifted by its sole height. In one place
- * because the bodies must be built at exactly the origin the splats are drawn at.
- */
+/** The bodies must be built at exactly the origin the splats are drawn at. */
 function footing(out: THREE.Vector3, position: THREE.Vector3, feetY: number): THREE.Vector3 {
     return out.copy(position).setY(position.y - feetY + FOOT_LIFT);
 }

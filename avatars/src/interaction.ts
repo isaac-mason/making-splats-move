@@ -1,8 +1,3 @@
-/**
- * Everything you can do to the crowd with the pointer: the toolbar, picking a walker,
- * grabbing one and carrying it about, and the camera move that shows one off.
- */
-
 import {
     ConstraintSpace,
     type DistanceConstraint,
@@ -21,9 +16,6 @@ import { bodyPosition, LAYER_HAND, type Puppet, pickBody, puppetOwns } from './p
 import { CAMERA_POSITION, CAMERA_TARGET, SHOWCASE_CAMERA, SHOWCASE_LOOK_Y } from './scene';
 
 /* toolbar */
-
-// Customize (click a walker to edit them), grab (drag one about) and camera (orbit)
-// all want the same pointer, so the mode is explicit and always on screen.
 
 export type Tool = 'customize' | 'grab' | 'camera';
 
@@ -123,7 +115,6 @@ export function initToolbar(onChange?: (tool: Tool) => void): Toolbar {
     return toolbar;
 }
 
-/** The cursor says which tool is live. */
 export function setToolCursor(domElement: HTMLElement, tool: Tool, dragging = false): void {
     if (tool === 'grab') domElement.style.cursor = dragging ? 'grabbing' : 'grab';
     else if (tool === 'camera') domElement.style.cursor = 'move';
@@ -142,7 +133,6 @@ const PICK_RANGE = 60;
 export type Pick = {
     walker: Walker;
     index: number;
-    /** Where on them the ray landed, in world space. */
     point: THREE.Vector3;
 };
 
@@ -150,7 +140,6 @@ const ndc = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
 const point = new THREE.Vector3();
 
-/** The ray under the pointer. Shared: valid until the next call. */
 function pointerRay(camera: THREE.Camera, domElement: HTMLElement, event: { clientX: number; clientY: number }): THREE.Ray {
     const rect = domElement.getBoundingClientRect();
     ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -174,7 +163,6 @@ function pickWalker(
     return { walker: crowd.walkers[index], index, point: point.clone() };
 }
 
-/** Click a walker; null when the click hit nobody. */
 export function attachPicking(
     world: World,
     camera: THREE.Camera,
@@ -195,9 +183,7 @@ export function attachPicking(
 
 export type Grab = {
     hand: RigidBody;
-    /** Live while something is held. */
     constraint: DistanceConstraint | null;
-    /** Where the hand is heading. */
     target: THREE.Vector3;
 };
 
@@ -213,7 +199,6 @@ export function initGrab(world: World): Grab {
 
 const toBody = new THREE.Vector3();
 
-/** Take hold of the limb nearest `point`. */
 function grabPuppet(world: World, grab: Grab, puppet: Puppet, point: THREE.Vector3): void {
     releaseGrab(world, grab);
 
@@ -267,9 +252,7 @@ export type GrabOptions = {
     camera: THREE.PerspectiveCamera;
     crowd: Crowd;
     domElement: HTMLElement;
-    /** Switched off for the length of a drag. */
     controls: { enabled: boolean };
-    /** Whether the grab tool is selected. */
     isEnabled: () => boolean;
     onDragChange?: (dragging: boolean) => void;
     knockDown: (walker: Walker) => void;
@@ -327,15 +310,11 @@ export function attachGrabbing(options: GrabOptions): void {
 
 export type Showcase = {
     walker: Walker | null;
-    /** 0 = the scene camera, 1 = the portrait. */
     t: number;
-    /** Which way `t` is heading. */
     closing: boolean;
-    /** Damped toward the walker, so switching subjects mid-showcase doesn't jump. */
     look: THREE.Vector3;
 };
 
-/** Seconds each way. */
 const TRAVEL = 0.85;
 const AIM_TAU = 0.42;
 /** m/s. Damping alone whips on a long switch; this is well above a runner's pace. */
@@ -372,7 +351,6 @@ export function endShowcase(showcase: Showcase): void {
 
 export function updateShowcase(showcase: Showcase, camera: THREE.Camera, controls: OrbitControls, dt: number): void {
     const target = showcase.closing || !showcase.walker ? 0 : 1;
-    // Home and idle: hands off the camera.
     if (showcase.t === target && target === 0) return;
     showcase.t = THREE.MathUtils.clamp(showcase.t + (target === 1 ? dt / TRAVEL : -dt / TRAVEL), 0, 1);
 

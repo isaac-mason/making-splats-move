@@ -1,34 +1,11 @@
-/**
- * Perfect recordings: the frames rendered on a fixed clock and encoded in the page,
- * not a screen recording hoping to keep up. Each frame is exactly 1/fps on from the
- * last, at whatever size you ask for, so the file is constant-rate at any rate the
- * display can't do, and rendering slower than real time costs nothing.
- *
- * Encoding is WebCodecs (the hardware H.264 encoder, VP9 if it can't do the size and
- * rate) muxed to an MP4 in memory, then downloaded.
- *
- *   ?record=1              the take, as designed below
- *   &fps=60&width=3840&height=2160&mbps=150   the output format, when not 1080p120
- *
- * The take is designed here, not in the URL. The fire burns through a warmup
- * before the first frame, gets one stoke a third of the way in, and the camera
- * sways once across and back over the whole take, ending exactly as it began, so
- * the clip loops.
- */
-
 import { ArrayBufferTarget, Muxer } from 'mp4-muxer';
 
 /* the take */
 
-/** Seconds of video. */
 const SECONDS = 12;
-/** Seconds simulated before the first frame, so the fire is already going. */
 const WARMUP = 5;
-/** Seconds into the take to stoke the fire. */
 const STOKES = [4];
-/** The sway's reach, where 1 is the lean at the window's edge. */
 const SWAY = 1.5;
-/** Its lift, the same scale: a touch of rise with the sway, not a circle. */
 const LIFT = 0.22;
 
 export type Recording = {
@@ -36,7 +13,6 @@ export type Recording = {
     seconds: number;
     width: number;
     height: number;
-    /** Video bitrate, megabits per second. */
     mbps: number;
     stokes: number[];
     warmup: number;
@@ -60,12 +36,6 @@ export function recordingFromUrl(): Recording | null {
     };
 }
 
-/**
- * Where the lean heads at `time`: one sine across the take, so it's at the same
- * place with the same velocity on the last frame as the first. The lift lags the
- * sway a little, a slanted, narrow loop rather than a circle. On top, a breath of
- * two slow sines that don't divide the take, so no run is dead straight.
- */
 export function cameraPath({ seconds }: Recording): (time: number) => [number, number] {
     return (time) => {
         const phase = (2 * Math.PI * time) / seconds;
@@ -79,7 +49,6 @@ export function cameraPath({ seconds }: Recording): (time: number) => [number, n
 
 /* encoding */
 
-/** H.264 at the level the size and rate need, else VP9. */
 async function pickCodec(width: number, height: number, framerate: number, bitrate: number) {
     const candidates: [string, 'avc' | 'vp9'][] = [
         ['avc1.64003C', 'avc'],
@@ -94,10 +63,6 @@ async function pickCodec(width: number, height: number, framerate: number, bitra
     throw new Error(`No video encoder for ${width}x${height} at ${framerate} fps`);
 }
 
-/**
- * Renders and encodes every frame of the take: `frame(index, time, dt)` must draw
- * frame `index` into `canvas` before it returns. Resolves to the MP4.
- */
 export async function record(
     canvas: HTMLCanvasElement,
     { fps, seconds, width, height, mbps, warmup }: Recording,
@@ -109,7 +74,6 @@ export async function record(
     const { codec, mux } = await pickCodec(width, height, fps, bitrate);
     const dt = 1 / fps;
 
-    // Negative frame indices: the warmup, stepped but not encoded.
     const lead = Math.round(fps * warmup);
     for (let f = -lead; f < 0; f++) {
         frame(f, f * dt, dt);

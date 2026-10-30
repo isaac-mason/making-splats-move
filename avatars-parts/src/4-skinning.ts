@@ -35,7 +35,6 @@ export type Bone = {
     weights?: (at: Vec3, bones: Vec4, amounts: Vec4) => void;
 };
 
-/** A skinned, animated thing: its bones to upload each frame, and the step that poses them. */
 export type Skinned = { skinning: Skinning; animate: (time: number) => void };
 
 const BONES: Bone[] = [

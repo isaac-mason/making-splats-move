@@ -1,19 +1,3 @@
-/**
- * A glide through broken cumulus at golden hour, every splat of it procedural
- * (clouds.ts). The camera flies on forever at cloud height, weaving from under
- * the bases up among the towers and banking through slow turns; the clouds wrap
- * round it, so there is no end and no seam. The sun is low and a little off the
- * line of flight, so clouds keep crossing it: it hides, peeks out between them,
- * and throws shafts of light (a radial blur of what's bright around it). Far
- * below, the land lies in patches of sun and of each cloud's own shadow.
- *
- * Grab it any time: drag to orbit, right-drag or shift-drag to pan, scroll to
- * move. Let go, and after a few seconds the glide eases back in.
- *
- * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
- * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`).
- */
-
 import { createRenderer, SplatCollection, SplatRenderer, TSL, type TslNode } from 'spark-radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -48,24 +32,13 @@ const {
 
 const v3 = ([x, y, z]: readonly number[]): TslNode => vec3(x, y, z);
 
-/** So a stall or a tab switch can't jump the flight forward. */
 const MAX_DT = 0.1;
-/** Splats are fill-bound: past this, more pixels cost more than they show. */
 const MAX_PIXEL_RATIO = 1.5;
 
 /* the take */
 
 const SUN_HEADING = Math.atan2(SUN_DIRECTION.z, SUN_DIRECTION.x);
 
-/**
- * The glide, designed: under the deck, never in it. A sky this full has no lanes
- * through its middle, so the camera flies beneath the flat bases, looking a
- * little up: bases sweeping overhead, towers stacking towards the horizon, the
- * land below. The low sun's line of sight has to cross the whole layer, so it
- * really does hide and peek through the gaps. A steady speed on a heading that
- * keeps the sun ahead and to one side, weaving either way on two slow sines, and
- * a gentle rise and fall on a third, starting at its lowest.
- */
 const GLIDE = {
     /** Metres a second: a cell of the field every ten seconds. Faster, and bases this near whip past. */
     speed: 17,
@@ -76,13 +49,8 @@ const GLIDE = {
         { amount: 0.12, period: 47, phase: 1 },
     ],
     /** Altitude, metres: the middle, how far either side, and seconds round. The bases are at 150. */
-    // Low enough that the nearest bases are 90 m off or more: any nearer and their
-    // splats are big enough on screen to read as a blur.
+    // Keeps the nearest bases 90 m+ away; nearer, their splats blur on screen.
     altitude: { middle: 50, swing: 10, period: 70 },
-    /**
-     * Looking up, 21°: the clouds fill the frame, the land is a thin strip along
-     * the bottom, and the 13° sun sits just below the middle, among the clouds.
-     */
     pitch: 0.36,
     pitchFromClimb: 0.6,
     /** Bank into turns: radians of roll per radian a second of turn, at most this. */
@@ -90,7 +58,6 @@ const GLIDE = {
     maxBank: 0.14,
 };
 
-/** After you let go, seconds before the glide takes back over, and seconds to ease into it. */
 const HANDOFF = { idle: 5, ease: 4 };
 
 type Pose = { position: THREE.Vector3; quaternion: THREE.Quaternion };
@@ -106,7 +73,6 @@ function createGlide() {
         SUN_HEADING + GLIDE.offset + GLIDE.weave.reduce((sum, w) => sum + w.amount * Math.sin(angle(time, w.period, w.phase)), 0);
     const turnRate = (time: number) =>
         GLIDE.weave.reduce((sum, w) => sum + ((w.amount * Math.PI * 2) / w.period) * Math.cos(angle(time, w.period, w.phase)), 0);
-    // Starting at the bottom of the swing.
     const { middle, swing, period } = GLIDE.altitude;
     const altitude = (time: number) => middle - swing * Math.cos(angle(time, period));
     const climb = (time: number) => ((swing * Math.PI * 2) / period) * Math.sin(angle(time, period));
@@ -116,7 +82,6 @@ function createGlide() {
         position.y = altitude(t);
         const pitch = GLIDE.pitch + GLIDE.pitchFromClimb * Math.atan(climb(t) / GLIDE.speed);
         const roll = THREE.MathUtils.clamp(-turnRate(t) * GLIDE.bank, -GLIDE.maxBank, GLIDE.maxBank);
-        // The camera looks down -z: turn it to face (cos h, 0, sin h).
         euler.set(pitch, Math.atan2(-Math.cos(h), -Math.sin(h)), roll);
         pose.position.copy(position);
         pose.quaternion.setFromEuler(euler);
@@ -138,9 +103,7 @@ function createGlide() {
 /* the sky and the land */
 
 const SKY = {
-    /** Overhead, linear: deep blue. */
     zenith: [0.06, 0.15, 0.4],
-    /** The sun's disc, as the cosine of its radius, and its glows: tight, broad, and a wash over half the sky. */
     disc: 0.99972,
     glows: [
         { power: 260, amount: 1.4 },
@@ -149,18 +112,11 @@ const SKY = {
     ],
 };
 
-/**
- * The land far below, kept quiet: it's there for scale and to catch the clouds'
- * shadows, not to be looked at. One dusky green, a broad soft drift towards olive
- * over kilometres (nothing small enough to shimmer at a grazing angle), and haze.
- * Albedos linear.
- */
 const LAND = {
     green: [0.05, 0.075, 0.03],
     olive: [0.085, 0.085, 0.04],
     /** Metres across the drift between the two. */
     scale: 2600,
-    /** How much of the sun a cloud's shadow takes. */
     shade: 0.7,
     /** The blue it takes from the sky, all it has in shadow. */
     skylight: [0.1, 0.13, 0.2],
@@ -168,19 +124,12 @@ const LAND = {
     haze: 1500,
 };
 
-/**
- * Above the horizon, haze (warm towards the sun) rising into a deep blue, with the
- * sun's disc and glows; the disc is far past 1, so the bloom finds it. Below it,
- * the land: where the view ray meets the ground, lit by the sun through the
- * clouds' soft shadows, fading into the same haze with distance.
- */
 function skyNode() {
     const dir = normalize(positionWorldDirection);
     const up = dir.y;
     const haze = hazeToward(dir);
     const sky = mix(haze, v3(SKY.zenith), pow(smoothstep(0.0, 1.0, up), 0.5));
 
-    // The land: where this ray meets the ground.
     const altitude = max(cameraPosition.y, 1);
     const far = altitude.div(max(up.negate(), 0.0005));
     const ground = cameraPosition.add(dir.mul(far)).toVar();
@@ -206,13 +155,10 @@ function skyNode() {
 
 /* post */
 
-/** Past white only: the sun, not the clouds, which top out at 1 and would bloom into a halo. */
 const BLOOM = { strength: 0.2, radius: 0.55, threshold: 1.05 };
 
 const SHAFTS = {
-    /** What counts as bright enough to throw a shaft: open sky round the sun, past any cloud. */
     threshold: 1.0,
-    /** How far round the sun, in screen heights, the light is gathered from. */
     reach: 0.75,
     strength: 0.6,
     samples: 48,
@@ -220,13 +166,10 @@ const SHAFTS = {
     colour: vec3(1, 0.85, 0.62),
 };
 
-/** A darkening at the corners, and a warm lift: golden hour, printed. */
 const GRADE = { vignette: 0.3, tint: vec3(1.03, 1.0, 0.95) };
 
-/** Where the sun is on screen, uv with y down, and how much it's in front of you. */
 const sunOnScreen = uniform(new THREE.Vector2(0.5, 0.5));
 const sunAhead = uniform(0);
-/** Width over height, so distances round the sun are round. */
 const aspect = uniform(1);
 const sunPoint = new THREE.Vector3();
 const forward = new THREE.Vector3();
@@ -238,12 +181,6 @@ function placeSun(camera: THREE.PerspectiveCamera): void {
     sunAhead.value = THREE.MathUtils.smoothstep(forward.dot(SUN_DIRECTION), 0.1, 0.5);
 }
 
-/**
- * Splats blend sRGB-encoded but land in the pass decoded to linear: encode back, no
- * tone mapping. Bloom; shafts, the bright pixels near the sun blurred along lines
- * out from it, so light streams from wherever the sky shows between clouds; and
- * the grade.
- */
 function initPost(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera): RenderPipeline {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping;
@@ -288,9 +225,6 @@ async function start() {
     camera.position.copy(glide.pose.position);
     camera.quaternion.copy(glide.pose.quaternion);
 
-    // The glide flies until you grab the view; then the controls have it, pivoting
-    // on a point ahead of where you were looking. Let go, and after a while the
-    // glide picks up where it paused and eases back in.
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.screenSpacePanning = true;
@@ -361,7 +295,6 @@ async function start() {
         // The WebGL2 backend sorts on the CPU and only when asked; everything moves.
         if (splats.sortMode === 'cpu') splats.requestSort();
         pipeline.render();
-        // A few frames in, past the first frame's shader compiles.
         if (++frames === 3) document.getElementById('loading')?.classList.add('hidden');
     });
 }

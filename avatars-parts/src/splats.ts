@@ -1,13 +1,3 @@
-/**
- * Hand-made splats on radix: a builder the shapes push splats into, and
- * dual-quaternion skinning over them (after Spark's SplatSkinning, same maths).
- *
- * Skinning is a generator: the stored splats, then each one moved by the blend of
- * its bones' transforms. Per splat, four bone indices and four weights are a bundle
- * next to the splats; the bones' transforms (relative to rest, as dual quaternions)
- * are a small table uploaded each frame. One program serves every skinned object.
- */
-
 import {
     type AnySplatObject,
     ArrayData,
@@ -30,10 +20,7 @@ const { If, dot, float, length, select, uint, vec3, vec4 } = TSL;
 
 /* colours */
 
-/**
- * Radix draws straight to the canvas with no output transform, so three's colours
- * are written as given: a display (sRGB) value, kept as it is rather than decoded.
- */
+/** Radix has no output transform: keep the sRGB value as given, don't decode it. */
 export const displayColor = (hex: number): THREE.Color =>
     new THREE.Color().setRGB(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255, THREE.LinearSRGBColorSpace);
 
@@ -41,7 +28,6 @@ export const displayColor = (hex: number): THREE.Color =>
 
 const FLOATS = 14;
 
-/** Splats one at a time, in Spark's pushSplat order, then a table of them. */
 export class SplatBuilder {
     private values = new Float32Array(4096 * FLOATS);
     count = 0;
@@ -105,9 +91,7 @@ export class SplatBuilder {
 
 /* skinning */
 
-/** Per splat: four bone indices (x, a byte each) and four weights (y, a byte each). */
 const SKIN = defineBundle({ skin: 'uint32x2' });
-/** Per bone: the transform from rest to now, as a dual quaternion. */
 const BONES = defineBundle({ real: 'float32x4', dual: 'float32x4' });
 
 const relQuat = new THREE.Quaternion();
@@ -141,7 +125,6 @@ export class Skinning {
         this.setBoneQuatPos(bone, quat, pos);
     }
 
-    /** The bone's transform now, in the space the rest pose was given in. */
     setBoneQuatPos(bone: number, quat: THREE.Quaternion, pos: THREE.Vector3): void {
         const rest = this.rest[bone];
         relQuat.copy(rest.quat).invert();
@@ -152,7 +135,6 @@ export class Skinning {
         this.dual.set([dual.x * 0.5, dual.y * 0.5, dual.z * 0.5, dual.w * 0.5], bone * 4);
     }
 
-    /** Up to four bones per splat; unused ones take weight 0. */
     setSplatBones(splat: number, indices: THREE.Vector4, weights: THREE.Vector4): void {
         const byte = (w: number) => Math.min(255, Math.max(0, Math.round(w * 255)));
         this.skin[splat * 2] = (indices.x | (indices.y << 8) | (indices.z << 16) | (indices.w << 24)) >>> 0;
@@ -160,12 +142,10 @@ export class Skinning {
             (byte(weights.x) | (byte(weights.y) << 8) | (byte(weights.z) << 16) | (byte(weights.w) << 24)) >>> 0;
     }
 
-    /** Adds the per-splat bones to the splats' table. Once, before uploading it. */
     addTo(data: SplatData): void {
         data.addBundle('skin', SKIN, { data: { skin: this.skin } });
     }
 
-    /** The bones as they are now, onto the GPU: every frame after moving them. */
     upload(renderer: WebGPURenderer): GpuArrays {
         if (this.bonesGpu) this.bonesGpu.upload(this.bones);
         else this.bonesGpu = GpuArrays.fromData(renderer, this.bones);
@@ -236,7 +216,6 @@ const skinned: SplatGenerator<SkinnedData> = {
 /** Past-opaque splats keep their hard edge rather than growing (the LoD reading of opacity > 1). */
 const PARAMS = { lodInflate: false };
 
-/** The builder's splats as one object, skinned when `skinning` is given, placed by `holder`. */
 export function splatObject(
     renderer: WebGPURenderer,
     data: SplatData,

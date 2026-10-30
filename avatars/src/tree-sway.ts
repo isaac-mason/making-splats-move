@@ -1,17 +1,7 @@
-/**
- * The trees swaying in the breeze: the wind example's technique (wind/src/wind.ts),
- * cut down to a list of spheres in scene.ts.
- *
- * The renderer's modifier, in world space: every splat drawn (the capture, the
- * leaves, the avatars) is tested against the trees' spheres, and anything inside
- * one sways. Uniforms only, so nothing recompiles: the spheres, the clock, the count.
- */
-
 import { type SplatModifier, TSL, type TslNode } from 'spark-radix';
 import * as THREE from 'three';
 import { TREES, type Tree } from './scene';
 
-/** Fixes the uniform array size in the shader. */
 const MAX_TREES = 8;
 
 /** Breeze, in metres and seconds. Gentle: a courtyard, not a storm. */
@@ -76,12 +66,7 @@ export function createTreeSway(trees: readonly Tree[] = TREES): TreeSway {
     const highlight = uniform(0);
     const wind = vec2(Math.cos(windAngle), Math.sin(windAngle));
 
-    /**
-     * The sway kernel, from wind/src/wind-sway.ts (a port of PlayCanvas's GsplatTrees):
-     * pinned at the base, freest at the crown, with a bend travelling up the trunk and
-     * a flutter on top. Strongest claim wins, never the sum: a splat in two trees
-     * mustn't move twice.
-     */
+    /** Kernel from wind/src/wind-sway.ts. Strongest claim wins, never the sum: a splat in two trees mustn't move twice. */
     const modifier: SplatModifier = (splat) => {
         const out = splat.toVar();
         const pos = splat.get('center').toVar();
@@ -122,7 +107,6 @@ export function createTreeSway(trees: readonly Tree[] = TREES): TreeSway {
                 .mul(STRENGTH * FLUTTER);
             const offset = vec3(wind.x.mul(mag).sub(wind.y.mul(flick)), 0, wind.y.mul(mag).add(wind.x.mul(flick)));
             out.get('center').assign(pos.add(offset));
-            // 'tint sway' in the debug panel: show what the wind claims, to check the spheres.
             If(highlight.greaterThan(0), () => {
                 const rgb = out.get('rgb');
                 rgb.assign(mix(rgb, vec3(1.0, 0.06, 0.04), highlight.mul(mix(0.55, 1.0, bestSway))));

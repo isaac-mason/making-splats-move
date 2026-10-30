@@ -1,8 +1,3 @@
-/**
- * The bones, drawn over the splats: a line from each joint to its tip, moved by the
- * same transforms the splats are. A way of seeing the skinning, not part of it.
- */
-
 import { type Mat4, vec3 } from 'math';
 import * as THREE from 'three';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';

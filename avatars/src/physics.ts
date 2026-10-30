@@ -1,12 +1,3 @@
-/**
- * A rigid-body double for an avatar, via crashcat: one capsule per bone.
- *
- * Walking, the bodies are KINEMATIC and follow the pose. Knocked over, the same
- * bodies go DYNAMIC and the pose flows the other way. That's cheap because a pose is
- * just a world transform per bone, and so is a rigid body: forward kinematics and
- * `readPuppet` write the same arrays, and `pushSkeleton` can't tell which did.
- */
-
 import {
     addBroadphaseLayer,
     addObjectLayer,
@@ -36,24 +27,17 @@ import * as THREE from 'three';
 import type { Avatar } from './avatar';
 import type { Skeleton } from './bones';
 
-/** Object layers, in the order `initPhysicsWorld` registers them (and asserts). */
 const LAYER_STATIC = 0;
 const LAYER_BODY = 1;
-/** Collides with nothing. The hand only ever acts through the grab constraint. */
 export const LAYER_HAND = 2;
 
 export type Puppet = {
     bodies: RigidBody[];
     joints: SwingTwistConstraint[];
-    /** Each body's rest transform, in the mesh's local space, where the bones live. */
     restPos: THREE.Vector3[];
     restQuat: THREE.Quaternion[];
     limp: boolean;
-    /**
-     * The mesh transform the bodies are read against: live while driven, frozen the
-     * moment they go limp. Not just world space: an avatar whose splats wander far
-     * from its own transform falls outside its bounds and gets frustum-culled.
-     */
+    /** Live while driven, frozen when limp. Not world space: splats far from their own transform get frustum-culled. */
     origin: THREE.Vector3;
     yaw: THREE.Quaternion;
     yawInv: THREE.Quaternion;
@@ -76,7 +60,6 @@ function expectLayer(got: number, want: number): void {
     if (got !== want) throw new Error(`physics: expected object layer ${want}, got ${got}`);
 }
 
-/** A big static slab for them to land on. */
 export function addGroundPlane(world: World, y: number): void {
     rigidBody.create(world, {
         shape: box.create({ halfExtents: vec3.fromValues(60, 0.5, 60), convexRadius: 0.05 }),
@@ -95,13 +78,7 @@ const alignQuat = new THREE.Quaternion();
 const worldQuat = new THREE.Quaternion();
 const worldPos = new THREE.Vector3();
 
-/**
- * Build the bodies for one avatar where it stands. `meshOrigin` is the mesh's
- * position, not the walker's ground point: they differ by the sole lift.
- *
- * `index` picks a collision group, so a puppet's own capsules (which overlap at every
- * joint) don't collide with each other. Groups wrap at 30.
- */
+/** `meshOrigin` is the mesh's position, not the ground point (they differ by the sole lift). `index` picks a collision group so a puppet's capsules don't hit each other; groups wrap at 30. */
 export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vector3, heading: number, index: number): Puppet {
     const bones = avatar.skeleton.bones;
     const bodies: RigidBody[] = [];
@@ -127,7 +104,6 @@ export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vecto
 
         bodies.push(
             rigidBody.create(world, {
-                // Capsules, not boxes: rounded ends stop neighbours catching corners.
                 shape: capsule.create({
                     halfHeightOfCylinder: Math.max(0.01, length * 0.5 - bone.radius),
                     radius: bone.radius,
@@ -153,7 +129,6 @@ export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vecto
         if (parent < 0) continue;
         const joint = bones[i].head.clone().applyQuaternion(yaw).add(origin);
         const twist = new THREE.Vector3().copy(bones[i].tail).sub(bones[i].head).normalize().applyQuaternion(yaw);
-        // Any direction perpendicular to the twist axis will do.
         const plane = new THREE.Vector3(twist.y, twist.z, twist.x).cross(twist).normalize();
         const pos = toVec3(vec3.create(), joint);
         const tw = toVec3(vec3.create(), twist);
@@ -185,7 +160,6 @@ export function initPuppet(world: World, avatar: Avatar, meshOrigin: THREE.Vecto
     return { bodies, joints, restPos, restQuat, limp: false, origin, yaw, yawInv: yaw.clone().invert() };
 }
 
-/** When an avatar is rebuilt and the old capsules no longer fit. */
 export function disposePuppet(world: World, puppet: Puppet): void {
     for (const joint of puppet.joints) swingTwistConstraint.remove(world, joint);
     for (const body of puppet.bodies) rigidBody.remove(world, body);
@@ -193,7 +167,6 @@ export function disposePuppet(world: World, puppet: Puppet): void {
     puppet.bodies.length = 0;
 }
 
-/** Where the mesh is, so the bodies and the bones agree on a space. */
 export function setPuppetFrame(puppet: Puppet, origin: THREE.Vector3, heading: number): void {
     puppet.origin.copy(origin);
     puppet.yaw.setFromAxisAngle(up, heading);
@@ -204,14 +177,10 @@ const boneQuat = new THREE.Quaternion();
 const bonePos = new THREE.Vector3();
 const offset = new THREE.Vector3();
 
-/**
- * Drive the kinematic bodies to the current pose. `moveKinematic` gets there by
- * velocity rather than teleporting, which is what lets a walker kick someone.
- */
+/** `moveKinematic` gets there by velocity, which is what lets a walker kick someone. */
 export function drivePuppet(puppet: Puppet, skeleton: Skeleton, dt: number): void {
     const { bodies, restPos, restQuat, origin, yaw } = puppet;
     for (let i = 0; i < bodies.length; i++) {
-        // A bone maps rest point p to q(p - head) + pos; then the mesh transform.
         boneQuat.copy(skeleton.worldQuat[i]);
         offset.copy(restPos[i]).sub(skeleton.bones[i].head).applyQuaternion(boneQuat);
         bonePos.copy(skeleton.worldPos[i]).add(offset);
@@ -222,7 +191,6 @@ export function drivePuppet(puppet: Puppet, skeleton: Skeleton, dt: number): voi
     }
 }
 
-/** Hand the pose to physics. Bodies keep their velocity, so a stride carries into the fall. */
 export function goLimp(world: World, puppet: Puppet): void {
     if (puppet.limp) return;
     puppet.limp = true;
@@ -238,10 +206,6 @@ export function goDriven(world: World, puppet: Puppet): void {
 const bodyQuat = new THREE.Quaternion();
 const bodyPos = new THREE.Vector3();
 
-/**
- * Read the bodies back into the pose arrays, in the mesh's local space — forward
- * kinematics run backwards. Each bone's rotation is its body's, less the body's rest.
- */
 export function readPuppet(puppet: Puppet, skeleton: Skeleton): void {
     const { bodies, restPos, restQuat, origin, yawInv } = puppet;
     for (let i = 0; i < bodies.length; i++) {
@@ -280,7 +244,6 @@ function filterFor(world: World): ReturnType<typeof layerFilter.forWorld> {
     return filter;
 }
 
-/** Ray against the puppets — see interaction.ts for why not against the splats. */
 export function pickBody(
     world: World,
     origin: THREE.Vector3,
@@ -303,7 +266,6 @@ export function puppetOwns(puppet: Puppet, body: RigidBody): boolean {
     return puppet.bodies.includes(body);
 }
 
-/** Have they stopped tumbling? */
 export function bodySpeed(body: RigidBody): number {
     const v = body.motionProperties.linearVelocity;
     return Math.hypot(v[0], v[1], v[2]);

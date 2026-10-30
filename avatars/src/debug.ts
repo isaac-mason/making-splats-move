@@ -1,24 +1,15 @@
-/**
- * The debug panel the other examples have: backtick to toggle, click a readout to
- * copy it. Tools for authoring the scene, not features of it.
- */
-
 import type * as THREE from 'three';
 import type { Crowd } from './crowd';
 
 export type DebugOverlay = {
     element: HTMLDivElement;
     enabled: boolean;
-    /** Freeze the crowd, to study a frame. */
     frozen: boolean;
     showBounds: boolean;
-    /** Off shows the raw splats in their rest pose. */
     skinning: boolean;
-    /** Off, they walk on the spot. */
     movement: boolean;
     leaves: boolean;
     sway: boolean;
-    /** Tint what the trees' wind claims, to check the spheres against the trees. */
     swayTint: boolean;
     fields: {
         cam: HTMLSpanElement;
@@ -26,7 +17,6 @@ export type DebugOverlay = {
         splats: HTMLSpanElement;
         picked: HTMLSpanElement;
     };
-    /** Index of the selected walker, or -1. */
     selected: number;
 };
 
@@ -51,7 +41,6 @@ function createReadoutRow(label: string): { row: HTMLDivElement; value: HTMLSpan
     return { row, value };
 }
 
-/** Copy a readout to the clipboard on click, and flash to confirm. */
 function makeCopyable(value: HTMLSpanElement): void {
     value.style.cursor = 'pointer';
     value.title = 'click to copy';

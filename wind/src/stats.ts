@@ -1,9 +1,4 @@
-// A rolling frame-time average, exposed on window.__windStats so you can compare
-// the two wind paths from the console (or from an automated run) without a
-// profiler. Cheap enough to leave on.
-//
-// Read it with a still camera on each path — the modifier path's sort readback
-// shows up as a much larger, and much spikier, number.
+// Rolling frame time on window.__windStats, to compare the two wind paths from the console.
 export type Stats = { frameMs: number; frames: number };
 
 export function initStats(): Stats {
@@ -20,8 +15,6 @@ export function initStats(): Stats {
             accum += now - last;
             last = now;
             n++;
-            // Report a rolling average over ~half a second, so a single hitch
-            // doesn't dominate the reading.
             if (accum >= 500) {
                 stats.frameMs = accum / n;
                 stats.frames = n;

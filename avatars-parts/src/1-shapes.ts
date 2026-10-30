@@ -10,27 +10,20 @@ const X: Vec3 = [1, 0, 0];
 const Y: Vec3 = [0, 1, 0];
 const Z: Vec3 = [0, 0, 1];
 const FACING = Z;
-/** A splat's thickness, as a fraction of its width: flat, like a disc. */
 const FLATNESS = 0.15;
 /** Past fully opaque: harder-edged discs, so seams and silhouettes stay crisp. */
 const HARDNESS = 2;
 /** Splats smaller than this stay soft: hard ones that small go blobby. */
 const SOFT_BELOW = SPACING / 2;
 
-/** A colour as Spark wants it: sRGB, 0..1. */
 export const rgb = (hex: number): RGB => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 
-// The builder takes three.js types: each splat passes through these on its way in.
 const _center = new THREE.Vector3();
 const _scales = new THREE.Vector3();
 const _rotation = new THREE.Quaternion();
 const _tint = new THREE.Color();
 const _facing = quat.create();
 
-/**
- * One splat: a small flat Gaussian disc, lying across `normal`. `hardness` over 1 is
- * past fully opaque, for a crisper edge; tiny splats default to soft.
- */
 export function splat(
     mesh: SplatBuilder,
     at: Vec3,
@@ -49,14 +42,12 @@ export function splat(
     );
 }
 
-/** The `i`th of `count` directions spread evenly round a sphere, on a Fibonacci spiral. */
 function spiral(out: Vec3, i: number, count: number): Vec3 {
     const y = 1 - (2 * i) / (count - 1);
     const ring = Math.sqrt(1 - y * y);
     return vec3.set(out, Math.cos(i * GOLDEN_ANGLE) * ring, y, Math.sin(i * GOLDEN_ANGLE) * ring);
 }
 
-/** Where `unit` meets the surface |x/a|ⁿ + |y/b|ⁿ + |z/c|ⁿ = 1, into `point`, and the normal there. */
 function superellipsoid(point: Vec3, normal: Vec3, unit: Vec3, radii: Vec3, n: number) {
     const scale = (Math.abs(unit[0]) ** n + Math.abs(unit[1]) ** n + Math.abs(unit[2]) ** n) ** (-1 / n);
     vec3.scale(point, vec3.multiply(point, unit, radii), scale);
@@ -65,9 +56,7 @@ function superellipsoid(point: Vec3, normal: Vec3, unit: Vec3, radii: Vec3, n: n
 }
 
 type SphereOptions = {
-    /** Which directions from the centre to cover, for cut shapes like hair. */
     keep?: (unit: Vec3) => boolean;
-    /** 2 is an ellipsoid; higher squares it off towards a box. */
     roundness?: number;
 };
 
@@ -85,7 +74,6 @@ const _nearby = vec3.create();
 const _point = vec3.create();
 const _normal = vec3.create();
 
-/** A shell of splats over an ellipsoid. */
 export function sphere(
     mesh: SplatBuilder,
     middle: Vec3,
@@ -114,7 +102,6 @@ const _around = vec3.create();
 const _onTube = vec3.create();
 const _capRadii = vec3.create();
 
-/** A tube from `a` to `b`, closed with half-spheres: arms and legs. */
 export function capsule(mesh: SplatBuilder, a: Vec3, b: Vec3, radius: number, color: RGB) {
     const length = vec3.length(vec3.sub(_axis, b, a));
     vec3.normalize(_axis, _axis);
@@ -138,7 +125,6 @@ const _right = vec3.create();
 const _up = vec3.create();
 const _onDisc = vec3.create();
 
-/** A flat, filled ellipse facing `normal`, spread as a sunflower so it has no rows. */
 export function disc(mesh: SplatBuilder, middle: Vec3, normal: Vec3, size: Vec2, color: RGB, spacing = SPACING) {
     vec3.normalize(_right, vec3.cross(_right, Y, normal));
     vec3.cross(_up, normal, _right);

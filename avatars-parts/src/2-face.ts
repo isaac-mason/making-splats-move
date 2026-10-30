@@ -13,9 +13,7 @@ const _normal = vec3.create();
 const _at = vec3.create();
 const _size: Vec2 = [0, 0];
 
-/** A face on the head at `head`: flat discs, each stacked a little further out than the last. */
 export function face(mesh: SplatBuilder, head: Vec3, r: number) {
-    // A spot on the face, `x` across and `y` up, floated `layer` steps off the skin.
     const on = (x: number, y: number, layer: number) => {
         vec3.normalize(_normal, vec3.set(_normal, x, y, 1));
         vec3.scaleAndAdd(_at, head, _normal, r * (1.04 + layer * 0.02));
@@ -37,7 +35,6 @@ export function face(mesh: SplatBuilder, head: Vec3, r: number) {
     }
     feature(0, -0.2, 0, 0.035, 0.035, NOSE);
 
-    // The smile: a row of small splats along a curve.
     for (let t = -1; t <= 1; t += 0.05) {
         on(t * 0.1, -0.4 + 0.04 * t * t, 0);
         splat(mesh, _at, _normal, INK, FINE * 1.2);

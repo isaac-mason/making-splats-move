@@ -1,39 +1,3 @@
-/**
- * The flock: eight thousand starlings wheeling overhead at dusk, each one
- * simulated on the GPU and drawn as a little bird of seven splats.
- *
- * Starlings don't hold a shape: the flock is stretched, folded and turned
- * inside out from moment to moment, and its shape is whatever that leaves.
- * So each bird steers towards where the flock is carrying it:
- * - round the roost, wheeling, on an axis that slowly leans, at a rate that
- *   slows, stops and reverses, so the whole mass swings back over itself;
- * - plus a swirl, curl noise drifting through the flock's frame. A curl has no
- *   divergence, so it stretches the flock into sheets and folds them over one
- *   another without bunching it anywhere: the darkness is all in the folds,
- *   where you see a sheet edge-on or two through each other.
- * And each one flies with its neighbours: it turns towards their mean velocity,
- * and edges out of anywhere packed past twice the usual. Neighbours are a grid
- * round the roost that every bird adds its velocity into (cloud-in-cell,
- * atomic, fixed point), then reads back from (trilinear), so no bird looks at
- * another one by one. It holds a speed, stays within a soft envelope round the
- * roost, and scatters from the falcon, which makes a pass through the flock now
- * and then; the birds it scatters bank away, and their neighbours turn with them.
- *
- * A bird is built like the meadow's butterflies: a body, a head and a fanned
- * tail, and on each side an inner wing hinged at the shoulder and a pointed
- * hand hinged at its tip, swept back. They beat a few times a second (slow
- * enough not to alias into a shimmer), the hand lagging the arm so the stroke
- * whips, in bursts between glides with the wings held out. Banked into their
- * turns, so a turning flock flashes as its birds go edge-on together. Dark
- * against the dusk, the wings lit amber where the glow is behind them.
- *
- * Without compute (the WebGL2 backend) there is no simulation: the flock is
- * stateless, each bird a point in a ball that wheels and swirls round the
- * roost, so it churns rather than flies.
- *
- * Sections: settings · the roost and the falcon · the grid · kernels · splats.
- */
-
 import {
     GpuSplatMath,
     GpuSplats,
@@ -100,60 +64,22 @@ const FLOCK = {
 /** Wheeling round the roost: radians a second at most, seconds round the reversal, and how far the axis leans. */
 const WHEEL = { rate: 0.25, period: 40, lean: 0.35 };
 
-/**
- * The swirl that stretches and folds the flock: metres a second, the size of its
- * eddies, how fast they drift through the flock (noise units a second), and how
- * much less it moves birds up and down than across, so the flock stays wider
- * than it is tall.
- */
+/** Metres a second, eddy size, drift (noise units a second), and the vertical share, so the flock stays wider than tall. */
 const SWIRL = { speed: 9, scale: 40, drift: 0.035, flat: 0.45 };
 
-/**
- * The flock's envelope round the roost, metres: free inside `free` of it, pulled
- * back past, this hard. Small enough that, 100 m off, the flock fits the view
- * with sky round it.
- */
+/** Metres: free inside `free` of the roost, pulled back past it this hard. */
 const ENVELOPE = { radii: [42, 17, 42], free: 0.55, pull: 28 };
 
-/**
- * The falcon: a pass every `every` seconds, at `speed`, diving through the roost
- * `lead` seconds into it. Birds within `reach` metres flee, `flee` m/s² at its
- * beak. It's seen only during the pass.
- */
+/** A pass every `every` s at `speed`, diving through the roost `lead` s in; birds within `reach` m flee at `flee` m/s². */
 const FALCON = { every: 13, speed: 30, lead: 6.5, dive: 0.3, reach: 18, flee: 110 };
 
-/**
- * Fright, and how it spreads: the agitation waves of a real murmuration. A
- * startled bird's alarm rises over a fifth of a second, and while it rises
- * it's catching: a bird whose neighbours' alarm averages past `hear` is
- * startled too. Then it falls, and for `refract` seconds the bird can't be
- * startled again, so a fright runs out through the flock as a band, ~45 m/s,
- * and doesn't come back round. Alarmed birds dodge away from where the alarm
- * came from (and bank, and flap), so the band shows. The falcon startles birds
- * this near its beak (of its reach, 0..1), and a fast cursor does too.
- */
+/** Alarm spreads to neighbours past `hear`, then the bird is immune for `refract` s, so a fright crosses the flock as a ~45 m/s band and doesn't echo. */
 const FRIGHT = { hear: 0.06, rise: 5, fall: 2, refract: 4, dodge: 25, falcon: 0.25, cursor: 0.2 };
 
-/**
- * Your cursor. Moving, it's a hawk: birds near the line from your eye through it
- * flee out from it, a slow drift nudging them aside and a fast swipe (towards
- * `swipe` radians a second) reaching wider, pushing harder and setting off a
- * fright that crosses the flock. Its reach is an angle, so it's the same on
- * screen however far off the birds are, but never under `least` metres. It
- * comes and goes over `fade` seconds as it enters and leaves the sky, and a
- * swipe's scare dies away over `calm`.
- */
+/** Reach is an angle (same on screen at any distance) but never under `least` m; `swipe` is rad/s; `fade` and `calm` are seconds. */
 const CURSOR = { reach: [0.16, 0.34], least: 10, flee: [35, 120], swipe: 1.2, fade: 0.25, calm: 0.3 };
 
-/**
- * A bird, in its own frame (x out along the right wing, y its back, z ahead),
- * metres. A starling is 40 cm across; these are a touch bigger, so they read
- * from the ground. Every part is placed the same way: a point on the body, then
- * out along the arm (the inner wing, which swings at the shoulder), then out
- * along the hand (which swings at the arm's tip, and is swept back). The body,
- * head and tail go nowhere along either; the wings start at the shoulder. Each
- * part turns with the body, the arm or the hand, and has its own sigmas.
- */
+/** Bird frame in metres: x out the right wing, y up its back, z ahead; a touch bigger than a real starling. Wings hang off the shoulder via the arm, then the hand. */
 const BIRD = {
     size: 1.3,
     shoulder: [0.022, 0.01, 0.015],
@@ -168,15 +94,10 @@ const BIRD = {
         arm: { at: 'shoulder', arm: 0.065, hand: 0, turn: 'arm', sigma: [0.05, 0.003, 0.036] },
         hand: { at: 'shoulder', arm: 0.12, hand: 0.075, turn: 'hand', sigma: [0.066, 0.002, 0.022] },
     },
-    /** A falcon is this much bigger. */
     falcon: 2.2,
 } as const;
 
-/**
- * Flapping: beats a second, give or take 15%; how far the arm swings and the
- * hand folds against it (radians), and how far the hand lags; the dihedral the
- * wings are held at between strokes; and the share of the time spent gliding.
- */
+/** Beats a second (±15%); swing, fold, lag and dihedral in radians; `glide` is the share of time spent gliding. */
 const WINGS = { beat: 5.2, swing: 0.75, fold: 0.35, lag: 0.9, dihedral: 0.1, glide: 0.35 };
 
 /** sRGB. Near-black; the amber the wings take on with the glow behind them. */
@@ -191,10 +112,7 @@ const STEP = 1 / 30;
 
 /* the roost and the falcon */
 
-/**
- * Where the flock is centred: high overhead, 85 m up and 40–65 m out, roaming
- * round you, mostly on the side of the glow. You're at the origin.
- */
+/** You're at the origin: 85 m up and 40–65 m out, mostly on the glow side. */
 export function roostAt(t: number, out: THREE.Vector3): THREE.Vector3 {
     const azimuth = 0.6 * Math.sin(t / 71) + 0.25 * Math.sin(t / 47 + 1);
     const distance = 52 + 13 * Math.sin(t / 41);
@@ -204,7 +122,6 @@ export function roostAt(t: number, out: THREE.Vector3): THREE.Vector3 {
 
 const scratch = new THREE.Vector3();
 
-/** The falcon on its pass at `t`: where, its velocity, and how much it's seen. */
 function falconAt(t: number, position: THREE.Vector3, velocity: THREE.Vector3): number {
     const pass = Math.floor(t / FALCON.every);
     const into = t - pass * FALCON.every;
@@ -220,18 +137,13 @@ function falconAt(t: number, position: THREE.Vector3, velocity: THREE.Vector3): 
 const sim = {
     dt: uniform(0),
     roost: uniform(new THREE.Vector3()),
-    /** The grid's corner. */
     origin: uniform(new THREE.Vector3()),
-    /** The wheel: its axis times its rate. */
     spin: uniform(new THREE.Vector3()),
-    /** How far the swirl has drifted, noise units. */
     drift: uniform(new THREE.Vector3()),
     falcon: uniform(new THREE.Vector3()),
-    /** The line through your cursor, and how much it's there. */
     cursorFrom: uniform(new THREE.Vector3()),
     cursorAlong: uniform(new THREE.Vector3(0, 0, -1)),
     cursorOn: uniform(0),
-    /** How hard it's swiping, 0..1. */
     cursorScare: uniform(0),
 };
 
@@ -246,13 +158,7 @@ const look = {
 
 /* the grid */
 
-/**
- * Where the neighbours are, round the roost: per cell the velocities and the
- * number of birds near it, added in by each bird to its eight nearest cells,
- * fixed point so they can be added atomically. Just bigger than the envelope:
- * the few birds that stray outside it fly on without neighbours until it pulls
- * them back, and it's cleared every frame, so empty sky in it costs.
- */
+/** Per-cell velocities and bird counts, added atomically (fixed point) by each bird to its eight nearest cells; cleared every frame. */
 const GRID = { cell: 4, dims: [26, 12, 26], velocity: 256, count: 1024 };
 /** Per cell: velocity xyz, how many birds, and how much catching alarm. */
 const CHANNELS = 5;
@@ -265,7 +171,6 @@ function gridPlace(p: TslNode) {
     return { base, f: g.sub(base).toVar() };
 }
 
-/** The eight corners round a place: each one's weight, its slot (or none outside the grid), and its signs. */
 function corners(
     base: TslNode,
     f: TslNode,
@@ -296,7 +201,6 @@ const fixed = (x: TslNode): TslNode => int(floor(x.add(0.5)));
 
 /* kernels */
 
-/** The swirl's velocity at a point in the roost's frame: the curl of a vector noise. */
 function swirlAt(offset: TslNode): TslNode {
     const q = offset.div(SWIRL.scale).add(sim.drift).toVar();
     const e = 0.05;
@@ -342,7 +246,6 @@ function makeFlock(renderer: WebGPURenderer): Flock {
     const up = new WgpuBuffer({ renderer, format: 'float32x4', count: birds });
     const grid = new WgpuBuffer({ renderer, format: 'sint32', count: CELLS * CHANNELS, atomic: true });
 
-    // Anywhere in a squat ball round the roost, already wheeling.
     const init = perBird('birdsInit', (index) => {
         const h = (k: number) => hash(index.mul(uint(7)).add(uint(k)));
         const z = h(1).mul(2).sub(1);
@@ -393,7 +296,6 @@ function makeFlock(renderer: WebGPURenderer): Flock {
         const rest = up.element(index).w.toVar();
         const dt = sim.dt;
 
-        // The neighbours: how many, their summed velocity, and which way they thicken; their alarm, and which way it grows.
         const n = float(0).toVar();
         const sum = vec3(0).toVar();
         const thicker = vec3(0).toVar();
@@ -416,7 +318,6 @@ function makeFlock(renderer: WebGPURenderer): Flock {
                 n.addAssign(weight.mul(count));
                 sum.addAssign(weight.mul(velocity));
                 heardSum.addAssign(weight.mul(catching));
-                // The trilinear weight's derivative along each axis, for the gradients.
                 const wx = sx > 0 ? f.x : f.x.oneMinus();
                 const wy = sy > 0 ? f.y : f.y.oneMinus();
                 const wz = sz > 0 ? f.z : f.z.oneMinus();
@@ -426,12 +327,10 @@ function makeFlock(renderer: WebGPURenderer): Flock {
             });
         });
 
-        // Where the flock is carrying it: the wheel round the roost, and the swirl.
         const offset = p.sub(sim.roost).toVar();
         const want = cross(sim.spin, offset).add(swirlAt(offset));
         const a = want.sub(v).mul(FLOCK.steer).toVar();
 
-        // With the neighbours: towards their mean velocity, out of the crowd.
         If(n.greaterThan(0.001), () => {
             a.addAssign(
                 sum
@@ -444,23 +343,19 @@ function makeFlock(renderer: WebGPURenderer): Flock {
         const crowd = clamp(n.div(FLOCK.usual).sub(2), 0, 2);
         a.subAssign(thicker.div(FLOCK.usual).mul(FLOCK.crowd).mul(crowd));
 
-        // Back into the envelope, and never too low.
         const [rx, ry, rz] = ENVELOPE.radii;
         const out = length(offset.div(vec3(rx, ry, rz)));
         const beyond = max(out.sub(ENVELOPE.free), 0);
         a.subAssign(normalize(offset.add(vec3(0, 1e-4, 0))).mul(beyond.mul(beyond).mul(ENVELOPE.pull)));
         a.y.addAssign(max(float(FLOCK.floor).sub(p.y), 0).mul(0.8));
 
-        // Its speed.
         const speed = max(length(v), 0.001);
         a.addAssign(v.div(speed).mul(float(FLOCK.speed).sub(speed).mul(FLOCK.hold)));
 
-        // The falcon.
         const fromFalcon = p.sub(sim.falcon).toVar();
         const near = smoothstep(FALCON.reach, 0, length(fromFalcon));
         a.addAssign(normalize(fromFalcon.add(vec3(0, 1e-4, 0))).mul(near.mul(near).mul(FALCON.flee)));
 
-        // Your cursor: out from the nearest point on its line.
         const toBird = p.sub(sim.cursorFrom).toVar();
         const depth = max(dot(toBird, sim.cursorAlong), 0);
         const fromLine = toBird.sub(sim.cursorAlong.mul(depth)).toVar();
@@ -492,13 +387,11 @@ function makeFlock(renderer: WebGPURenderer): Flock {
         });
         a.subAssign(normalize(louder.add(vec3(0, 1e-4, 0))).mul(alarm.mul(FRIGHT.dodge)));
 
-        // Fly.
         const next = v.add(a.mul(dt)).toVar();
         const s = length(next);
         next.mulAssign(clamp(s, FLOCK.speedRange[0], FLOCK.speedRange[1]).div(max(s, 0.001)));
         const forward = next.div(length(next));
 
-        // Bank into the turn: its back towards the sum of gravity's pull and the sideways one.
         const sideways = a.sub(forward.mul(dot(a, forward)));
         const banked = normalize(vec3(0, 9.8, 0).add(sideways));
         const back = normalize(mix(banked, up.element(index).xyz, exp(dt.mul(-8))));
@@ -535,14 +428,11 @@ function quatFromBasis(x: TslNode, y: TslNode, z: TslNode): TslNode {
     return normalize(vec4(qx, qy, qz, w));
 }
 
-/** Turns about the bird's own z (a wing's flap) and y (the hand's sweep). */
 const roll = (a: TslNode): TslNode => vec4(0, 0, sin(a.mul(0.5)), cos(a.mul(0.5)));
 const yaw = (a: TslNode): TslNode => vec4(0, sin(a.mul(0.5)), 0, cos(a.mul(0.5)));
 
-/** A bird's state where the splats read it: from the simulation, or worked out on the spot without one. */
 type Bird = { p: TslNode; v: TslNode; up: TslNode; phase: TslNode; alarm: TslNode };
 
-/** The stateless flock, for no compute: a ball round the roost, wheeling, its points swirled about. */
 function statelessBird(bird: TslNode): Bird {
     const h = (k: number) => hash(bird.mul(uint(7)).add(uint(k)));
     const z = h(1).mul(2).sub(1);
@@ -571,10 +461,7 @@ function statelessBird(bird: TslNode): Bird {
     };
 }
 
-/**
- * The splats of a bird, in order: the body, head and tail, then the left arm
- * and hand, then the right. Seven to a bird; the last bird is the falcon.
- */
+/** Seven splats a bird: body, head, tail, left arm and hand, right arm and hand. The last bird is the falcon. */
 const PARTS = [
     { ...BIRD.parts.body, flank: 1 },
     { ...BIRD.parts.head, flank: 1 },
@@ -595,7 +482,6 @@ function flockSplats(flock: Flock | null): SplatObject {
         const isFalcon = which.greaterThanEqual(uint(birds));
         const bird = min(which, uint(birds - 1));
         const part = index.mod(uint(PARTS.length));
-        /** This splat's part's value of something, from the table: selects of constants. */
         const pick = (value: (p: (typeof PARTS)[number]) => TslNode): TslNode =>
             PARTS.reduce<TslNode>(
                 (picked, p, k) => (k === 0 ? value(p) : part.equal(uint(k)).select(value(p), picked)),
@@ -615,7 +501,6 @@ function flockSplats(flock: Flock | null): SplatObject {
         const back = isFalcon.select(vec3(0, 1, 0), state.up);
         const phase = isFalcon.select(look.time.mul(4 * Math.PI), state.phase).toVar();
 
-        // Its frame, banked as the simulation left it.
         const ahead = normalize(v.add(vec3(1e-4, 0, 0))).toVar();
         const right = normalize(cross(back, ahead).add(vec3(0, 1e-4, 0))).toVar();
         const frame = quatFromBasis(right, cross(ahead, right), ahead).toVar();
@@ -627,14 +512,12 @@ function flockSplats(flock: Flock | null): SplatObject {
         const gliding = smoothstep(-0.2, 0.2, sin(look.time.mul(0.9).add(h.mul(40))).sub(1 - 2 * WINGS.glide));
         const flapping = isFalcon.select(float(0.15), max(gliding.oneMinus(), state.alarm));
 
-        // The arm swings at the shoulder; the hand at the arm's tip, folding against it, lagging.
         const flank = pick((q) => float(q.flank)).toVar();
         const armAngle = flank.mul(sin(phase).mul(flapping).mul(WINGS.swing).add(WINGS.dihedral));
         const handAngle = armAngle.add(flank.mul(sin(phase.sub(WINGS.lag)).mul(flapping).mul(WINGS.fold)));
         const arm = GpuSplatMath.quatMul(frame, roll(armAngle)).toVar();
         const hand = GpuSplatMath.quatMul(GpuSplatMath.quatMul(frame, roll(handAngle)), yaw(flank.mul(BIRD.sweep))).toVar();
 
-        // A point on the body, out along the arm, out along the hand.
         const at = pick((q) => v3(q.at === 'shoulder' ? BIRD.shoulder : q.at)).mul(vec3(flank, 1, 1));
         const along = (q: TslNode, d: TslNode): TslNode => GpuSplatMath.quatRotate(q, vec3(flank.mul(d), 0, 0));
         const offset = GpuSplatMath.quatRotate(frame, at)
@@ -657,7 +540,6 @@ function flockSplats(flock: Flock | null): SplatObject {
             .select(hand, pick(turn('arm')).greaterThan(0.5).select(arm, frame));
         const sigma = pick((q) => v3(q.sigma));
 
-        // Dark; the wings go amber where the glow is behind them.
         const isWing = part.greaterThanEqual(uint(3));
         const view = normalize(center.sub(look.eye));
         const through = pow(max(dot(view, glowward), 0), 5)
@@ -680,9 +562,7 @@ function flockSplats(flock: Flock | null): SplatObject {
 
 export type Birds = {
     object: SplatObject;
-    /** Where the flock is centred, now. */
     roost: THREE.Vector3;
-    /** `cursor` is the ray from your eye through it, or null when it's not over the sky. */
     update: (elapsed: number, dt: number, eye: THREE.Vector3, cursor: THREE.Ray | null) => void;
 };
 
@@ -690,7 +570,6 @@ const falconPosition = new THREE.Vector3();
 const falconVelocity = new THREE.Vector3();
 const axis = new THREE.Vector3();
 
-/** The wheel's axis and rate, the swirl's drift, the roost and the falcon at `t`, for the kernels. */
 function setSim(t: number, dt: number): void {
     sim.dt.value = dt;
     roostAt(t, sim.roost.value as THREE.Vector3);
@@ -712,7 +591,6 @@ export function initBirds(renderer: WebGPURenderer, compute: boolean): Birds {
     if (flock) {
         setSim(0, STEP);
         flock.batch.add(flock.init, FLOCK.birds).submit();
-        // Fly a while first, so the first frame already has a flock in it, not a ball.
         for (; t < WARMUP; t += STEP) step(flock, t, STEP);
     }
 

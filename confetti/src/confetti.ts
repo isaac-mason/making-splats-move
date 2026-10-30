@@ -1,23 +1,3 @@
-/**
- * Confetti: you hold the gun. Each click fires a burst of paper from it, out
- * along where you clicked; it flies away from you, is braked hard by the air,
- * flutters down tumbling and settles on the floor, piling up.
- *
- * Nothing is simulated: every piece is worked out from its index and the time
- * since its burst was fired, in closed form, like the fireworks' stars. Paper
- * has a lot of drag for its weight, so its velocity eases fast (exponentially)
- * from the shot to a slow terminal fall, and while it falls it sways from side
- * to side and tumbles over and over, flashing light and dark as it turns; foil
- * pieces glint. Where it reaches the floor is worked out from the same formula,
- * so it stops dead there and lies flat, rather than sliding about.
- *
- * Bursts are a ring of slots, each a pair of uniforms the CPU sets when you
- * click: where it was fired from and when, and which way. The
- * oldest burst is reused for the next, its pieces fading off the floor first.
- *
- * Sections: settings · the bursts · splats.
- */
-
 import { GpuSplatMath, GpuSplats, SplatCollection, type SplatObject, TSL, type TslNode } from 'spark-radix';
 import * as THREE from 'three';
 
@@ -51,26 +31,13 @@ const {
 /** How many bursts are kept, and how many pieces each fires. */
 const BURSTS = { slots: 16, pieces: 1600 };
 
-/**
- * A shot from the confetti gun in your hand: a cone this wide (radians) out
- * along where you clicked, pieces leaving this fast (m/s), give or take.
- */
+/** A cone this wide (radians) along where you clicked, pieces leaving at this speed (m/s) give or take. */
 const SHOT = { cone: 0.2, speed: [9, 22] };
 
-/**
- * Paper in the air: how hard the air brakes it (per second, give or take), the
- * pull of its weight (less than a stone's: what's left after the air's lift on
- * a flat sheet, so it falls about a metre a second), how far it sways from side
- * to side as it falls and how often, and how fast it tumbles (radians a second).
- */
+/** Air brake (per second), weight (what's left after the air's lift on a flat sheet: about 1 m/s fall), sway, and tumble (radians a second). */
 const PAPER = { drag: [2.6, 4], weight: 3.4, sway: [0.12, 0.35], swayRate: [0.7, 1.5], tumble: [5, 14] };
 
-/**
- * A piece: half its length and width, metres; how many are dots rather than
- * strips; drawn crisp (opacity past 1 with lodInflate off is a hard edge about
- * `edge` standard deviations out, so its standard deviations are its size over
- * that).
- */
+/** Half-sizes in metres; share of dots; opacity past 1 with lodInflate off is a hard edge `edge` standard deviations out. */
 const PIECE = { length: 0.016, width: 0.009, dots: 0.25, opacity: 2, edge: 4.3 };
 
 /** How long a burst's pieces lie on the floor before fading, and how long they take to fade, seconds. */
@@ -83,7 +50,6 @@ const FOIL = { share: 0.14, colours: ['#e2b84a', '#d9dde3'] };
 /** The light: where it comes from, how much it lights a sheet facing it, and the soft fill on the rest. */
 export const LIGHT = { direction: new THREE.Vector3(-0.4, 1, 0.55).normalize(), key: 0.6, fill: 0.5, glint: 2.2 };
 
-/** The floor's height. */
 export const FLOOR = 0;
 
 /* the bursts */
@@ -95,7 +61,6 @@ const aimed = Array.from({ length: BURSTS.slots }, () => uniform(new THREE.Vecto
 const time = uniform(0);
 const eye = uniform(new THREE.Vector3());
 
-/** Slot `slot`'s value of one of the uniforms: a select per slot. */
 const ofSlot = (list: TslNode[], slot: TslNode): TslNode =>
     list.reduce<TslNode>((picked, u, i) => (i === 0 ? u : slot.equal(uint(i)).select(u, picked)), list[0]);
 
@@ -110,7 +75,6 @@ const pickColour = (list: string[], at: TslNode): TslNode => {
     return list.reduce<TslNode>((picked, c, k) => (k === 0 ? v3(c) : i.equal(float(k)).select(v3(c), picked)), v3(list[0]));
 };
 
-/** A direction from two numbers in 0..1, evenly over the sphere. */
 const sphereDir = (u: TslNode, v: TslNode): TslNode => {
     const z = u.mul(2).sub(1);
     const ring = sqrt(max(z.mul(z).oneMinus(), 0));
@@ -118,10 +82,8 @@ const sphereDir = (u: TslNode, v: TslNode): TslNode => {
     return vec3(cos(a).mul(ring), z, sin(a).mul(ring));
 };
 
-/** A rotation of `angle` about unit `axis`. */
 const turnAbout = (axis: TslNode, angle: TslNode): TslNode => vec4(axis.mul(sin(angle.mul(0.5))), cos(angle.mul(0.5)));
 
-/** A rotation taking x, y, z to the given orthonormal axes. */
 function quatFromBasis(x: TslNode, y: TslNode, z: TslNode): TslNode {
     const w = sqrt(max(x.x.add(y.y).add(z.z).add(1), 0)).mul(0.5);
     const qx = sqrt(max(x.x.sub(y.y).sub(z.z).add(1), 0))
@@ -143,7 +105,6 @@ function generateSplat(index: TslNode) {
     const aim = ofSlot(aimed, slot).toVar();
     const t = time.sub(from.w).toVar();
 
-    // Its shot: out of the gun in a cone along where you aimed.
     const coneSide = normalize(
         cross(
             aim.xyz,
@@ -182,7 +143,6 @@ function generateSplat(index: TslNode) {
     const down = t.greaterThanEqual(landed);
     const lying = vec3(at.x, float(FLOOR + 0.002).add(h(8).mul(0.004)), at.z);
 
-    // Tumbling over and over about its own axis as it flies; lying flat, turned its own way, once down.
     const start = vec4(sphereDir(h(9), h(10)).mul(sin(h(11).mul(Math.PI))), cos(h(11).mul(Math.PI))).toVar();
     const tumbleAxis = sphereDir(h(12), h(13));
     const tumble = GpuSplatMath.quatMul(turnAbout(tumbleAxis, flying.mul(mix(PAPER.tumble[0], PAPER.tumble[1], h(14)))), start);
@@ -203,14 +163,12 @@ function generateSplat(index: TslNode) {
     const shade = facing.mul(LIGHT.key).add(LIGHT.fill);
     const rgb = paint.mul(isFoil.select(shade.mul(0.7).add(glint), shade));
 
-    // A strip or a dot.
     const isDot = h(18).lessThan(PIECE.dots);
     const size = h(19).mul(0.5).add(0.75);
     const scales = vec3(isDot.select(float(PIECE.width * 1.15), float(PIECE.length)), PIECE.width, 0.0005)
         .mul(size)
         .div(PIECE.edge);
 
-    // There once fired; fading off the floor once it's lain long enough.
     const left = smoothstep(LINGER.stay + LINGER.fade, LINGER.stay, t);
     const opacity = t.greaterThan(0).select(left.mul(PIECE.opacity), float(0));
     return GpuSplats.Splat(down.select(lying, at), scales, quaternion, rgb, opacity, uint(index));
@@ -220,7 +178,6 @@ function generateSplat(index: TslNode) {
 
 export type Confetti = {
     object: SplatObject;
-    /** Fire a burst from the gun at `at`, along `towards`. */
     fire: (at: THREE.Vector3, towards: THREE.Vector3) => void;
     update: (elapsed: number, from: THREE.Vector3) => void;
 };

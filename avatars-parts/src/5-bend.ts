@@ -13,7 +13,6 @@ const LINK = 0.22;
 const BASE = 0.1;
 const TOP = BASE + LINK * LINKS;
 
-/** A chain of bones up the stem, each turning a little after the one below. */
 const BONES: Bone[] = Array.from({ length: LINKS }, (_, k) => ({
     joint: [0, BASE + k * LINK, 0],
     tip: [0, BASE + (k + 1) * LINK, 0],

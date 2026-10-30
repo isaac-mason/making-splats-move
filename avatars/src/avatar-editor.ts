@@ -1,12 +1,3 @@
-/**
- * The character editor, in the spirit of a Mii maker: you pick styles from little
- * pictures and colours from swatches, and the only sliders are "how much" ones. The
- * raw parameters, and JSON to paste back into source, are behind the cog.
- *
- * Each tile's picture is drawn from its style's own numbers, so it can't promise
- * something the style doesn't do.
- */
-
 import {
     AVATAR_GROUPS,
     AVATAR_RANGES,
@@ -21,7 +12,6 @@ import {
 
 export type AvatarEditor = {
     params: AvatarParams;
-    /** Internals the free functions below drive; not meant for callers. */
     controls: Control[];
     panel: HTMLDivElement;
     /** What Reset goes back to: whoever was loaded in (see syncAvatarEditor), not the default. */
@@ -31,7 +21,6 @@ export type AvatarEditor = {
     refreshJson(): void;
 };
 
-/** Anything that shows part of `params` and has to follow it when it changes. */
 type Control = { sync(): void };
 
 type Numeric = Record<string, number>;
@@ -213,7 +202,6 @@ function headPicture(s: Bundle): string {
     const rx = 15 * ((s.headWidth ?? 1) / 1.03);
     const ry = 15 * ((s.headHeight ?? 1) / 0.98);
     const chin = s.chinTaper ?? 0.2;
-    // The lower half narrows with the chin taper, like the real head does.
     const lower = rx * (1 - chin * 0.55);
     return `<svg viewBox="0 0 48 48">
         <path d="M${24 - rx} 24 A${rx} ${ry} 0 0 1 ${24 + rx} 24 C${24 + rx} ${24 + ry * 0.6} ${24 + lower} ${24 + ry} 24 ${24 + ry} C${24 - lower} ${24 + ry} ${24 - rx} ${24 + ry * 0.6} ${24 - rx} 24 Z"
@@ -227,7 +215,6 @@ function hairPicture(s: Bundle): string {
     const id = `av-clip-${clipCount++}`;
     const cy = 26;
     const r = 12;
-    // The fringe line and its teeth, across the forehead.
     const line = cy - r * ((s.fringeY ?? 0.58) - 0.15) * 1.1;
     const points = Math.max(1, Math.round(s.fringePoints ?? 4));
     const depth = r * (s.fringeDepth ?? 0.15) * 1.4;
@@ -260,7 +247,6 @@ function eyePicture(s: Bundle): string {
     const pupil = Math.min(rx, ry) * (s.pupilSize ?? 0.66);
     const shine = pupil * (s.eyeShine ?? 0.3) * 0.9;
     const outline = (s.eyeOutline ?? 0.08) > 0 ? 2 : 0;
-    // A flatter top lid shows as the top of the eye cut flat.
     const flat = (s.eyeTopFlat ?? 2.2) > 2.6 ? 24 - ry * (1 - ((s.eyeTopFlat ?? 2.2) - 2.6) * 0.12) : 0;
     const id = `av-clip-${clipCount++}`;
     return `<svg viewBox="0 0 48 48">
@@ -367,7 +353,6 @@ function swatches(
     return row;
 }
 
-/** A "how much" slider: words at the ends, no numbers. */
 function slider(
     ctx: Context,
     opts: {
@@ -410,7 +395,6 @@ function slider(
     return wrap;
 }
 
-/** Slider over one parameter. */
 const param = (key: keyof AvatarParams) => ({
     get: (p: AvatarParams) => (p as unknown as Numeric)[key],
     set: (p: AvatarParams, value: number) => {
@@ -432,7 +416,6 @@ function page(title: string, ...children: HTMLElement[]): HTMLDivElement {
     return node;
 }
 
-/** Every raw parameter, with its number, plus the JSON to paste back into source. */
 function finePage(ctx: Context, json: HTMLTextAreaElement, copy: HTMLButtonElement): HTMLDivElement {
     const node = page('Fine-tune');
     node.classList.add('av-fine');
@@ -486,7 +469,6 @@ function finePage(ctx: Context, json: HTMLTextAreaElement, copy: HTMLButtonEleme
     return node;
 }
 
-/** Shirt colour as the panel's accent — unless it's too pale or dark to read. */
 function accentFor(hex: string): { accent: string; on: string } {
     const n = Number.parseInt(hex.slice(1), 16);
     const r = ((n >> 16) & 255) / 255;
@@ -499,11 +481,7 @@ function accentFor(hex: string): { accent: string; on: string } {
 
 /* the editor */
 
-export function createAvatarEditor(
-    onChange: (params: AvatarParams) => void,
-    /** Called when the panel is dismissed — by Done, by the ×, or by Escape. */
-    onClose?: () => void,
-): AvatarEditor {
+export function createAvatarEditor(onChange: (params: AvatarParams) => void, onClose?: () => void): AvatarEditor {
     installStyle();
     const params: AvatarParams = { ...DEFAULT_AVATAR };
     const controls: Control[] = [];
@@ -548,7 +526,6 @@ export function createAvatarEditor(
         },
     });
 
-    // JSON, for pasting dialled-in numbers back into source.
     const json = element('textarea', 'av-json');
     json.readOnly = true;
     const copy = button('av-btn', 'Copy JSON');
@@ -729,10 +706,7 @@ export function createAvatarEditor(
     return editor;
 }
 
-/**
- * Call each frame. A rebuild regenerates every splat, far too slow for every `input`
- * event of a slider drag, so edits only mark it dirty and it rebuilds here, once.
- */
+/** Call each frame: slider drags only mark the avatar dirty, and the (slow) rebuild happens here, once. */
 export function updateAvatarEditor(editor: AvatarEditor): void {
     if (!editor.dirty) return;
     editor.dirty = false;
@@ -740,7 +714,6 @@ export function updateAvatarEditor(editor: AvatarEditor): void {
     editor.refreshJson();
 }
 
-/** Pull the controls back in line after something else has written `params`. */
 export function syncAvatarEditor(editor: AvatarEditor): void {
     editor.baseline = { ...editor.params };
     for (const c of editor.controls) c.sync();

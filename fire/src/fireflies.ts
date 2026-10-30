@@ -1,12 +1,3 @@
-/**
- * Fireflies: green glints drifting in the dark past the fire. Each is a bright core
- * and a wide faint halo; without the halo they read as pixels at this distance.
- *
- * Nothing is simulated: each hovers about a home in a wedge that widens towards the
- * back, so perspective doesn't squeeze it into a strip. They're dark most of the time
- * and flash on their own slow periods; steadily lit ones would read as fairy lights.
- */
-
 import { type SplatObject, TSL } from 'spark-radix';
 import { FIREFLY_BACK_WIDTH, FIREFLY_EXTENT, FIREFLY_NEAR } from './scene';
 import { flameHash, particles, seed, time, v3 } from './tsl';
@@ -32,7 +23,6 @@ export function initFireflies(): { object: SplatObject } {
     const near = v3(FIREFLY_NEAR);
     const [extentX, extentY, extentZ] = FIREFLY_EXTENT;
 
-    // Even splats are cores, odd ones their halos.
     const object = particles(COUNT * 2, (index) => {
         const fly = index.div(uint(2));
         const isHalo = index.mod(uint(2)).equal(uint(1));

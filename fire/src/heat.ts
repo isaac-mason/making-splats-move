@@ -1,12 +1,3 @@
-/**
- * Heat shimmer: wobbles the captured scene's splats in a column of hot air over the
- * fire, hardest just above the coals.
- *
- * A modifier on the scene's generator, not the renderer, so the flame's own splats
- * aren't shaken twice. The scene object sits at the origin, so its object space is
- * world space.
- */
-
 import { type SplatModifier, TSL, type TslNode } from 'spark-radix';
 import { type Fire, fireHeat } from './fire';
 import { FIRE_ORIGIN } from './scene';
@@ -19,7 +10,6 @@ const H = {
     plumeHeight: 1.9,
     maxOffset: 0.009,
     rippleFrequency: 5.5,
-    // Whole: the noise tiles at this period, which is what lets the scroll loop seamlessly.
     noisePeriod: 8,
     loopSeconds: 6,
 };

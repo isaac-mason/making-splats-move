@@ -1,32 +1,3 @@
-/**
- * The tree: grown on the CPU from a seed, drawn as splats.
- *
- * The canopy comes first. A Ghibli tree is a few big masses, each made of rounder
- * clumps, so the masses are set round a dome (one crowning it, the rest in a ring
- * at alternating heights) and each gets clumps over its top and outer side. Then
- * the wood grows up into them: a trunk forks three ways, each fork reaches
- * towards its share of the masses, a limb wanders into each mass, and a twig into
- * each clump. Every mass and clump is a sphere, a "puff".
- *
- * Leaves grow in sprays: a twig poking out through a clump's skin wherever it
- * isn't buried in another clump, nine leaves alternating along it in a plane
- * facing out and up, smaller towards its tip. Each leaf is a teardrop of two
- * splats with a solid middle and a feathered edge, cartoon-big so it reads as a
- * leaf from where you stand. Its light is its spray's (how the clump, its mass
- * and the whole canopy face the sun, and the other clumps between it and the
- * sun), a little more where the leaf itself faces the sun, stepped through a
- * palette from the deep shade inside to the sunniest tops. So the clumps read
- * as shapes. Neighbouring leaves stay close in colour: leaves overlap, and
- * as the wind moves them the sort swaps which is in front.
- *
- * Where everything sits and its light is worked out once, in a compute kernel
- * (without compute, on the WebGL2 backend, every frame from the same code);
- * each frame only adds the wind: gusts rolling through bend the tree and churn
- * its canopy.
- *
- * Sections: settings · growing it · the shapes on the GPU · light · splats · wind.
- */
-
 import {
     GpuSplats,
     SplatCollection,
@@ -68,41 +39,20 @@ const {
 
 /* settings */
 
-/**
- * The shape, in metres: about the capture's trees, nine metres tall. The canopy
- * is a dome of masses; the trunk forks into a few big limbs, which share the
- * masses out between them.
- */
 const SHAPE = {
     dome: { centre: [0, 5.25, 0], radii: [5, 2.75, 5] },
     masses: 8,
     mass: { radius: [1.8, 2.3], clumps: [7, 10], clump: [0.38, 0.52] },
     trunk: { length: 1.9, radius: 0.42, lean: 0.12, flare: 1.3 },
     forks: 3,
-    /** Every branch is this many pieces, each turned off the last by up to this. */
     pieces: 4,
     gnarl: 0.16,
-    /** Da Vinci's rule: a branch's cross-section is shared out between its children, to this power. */
     pipe: 2.4,
 };
 
-/** How many leaf sprays (each `LEAF.perSpray` leaves) and bark splats, for a tree of size 1: more or fewer by its area. */
 const SPLATS = { sprays: 6000, bark: 9000 };
-/** How much bark a branch inside a clump gets, for its size: next to none, as it hardly shows. */
 const HIDDEN_BARK = 0.15;
 
-/**
- * A leaf, cartoon-big so it reads as a leaf from where you stand: half its
- * length and width in metres, give or take, and its thickness for its width;
- * how many to a spray and how long a spray's twig is.
- *
- * A leaf is a teardrop of two splats, a broad one at its base and a narrow one
- * at its tip: each `part` is where along the leaf it sits and its half-length
- * and half-width, for the leaf's. Drawn with opacity a little past 1 (`opacity`),
- * which radix gives a solid middle and a feathered edge about `edge` standard
- * deviations out, so overlapping leaves blend rather than cut: crisp ones popped
- * as the sort swapped them, soft ones melted into fronds.
- */
 const LEAF = {
     length: 0.14,
     width: 0.08,
@@ -118,40 +68,25 @@ const LEAF = {
     edge: 1.9,
 };
 
-/** A bark splat's half-sizes: long along its branch, flat against it. */
 const BARK = [0.07, 0.03, 0.012];
 
-/** The sun: low enough, about 30° up, and from the side, so one side of the tree is sunlit and the other in shade. */
 export const SUN_DIRECTION = new THREE.Vector3(0.85, 0.5, 0.15).normalize();
 
-/**
- * The wind: which way; the gusts rolling through (how big, how fast they
- * travel); how far the tree leans in a gust and sways on its own slow rhythm at
- * its top (metres, and sways a second); and how the canopy churns.
- */
 const WIND = {
     direction: new THREE.Vector3(1, 0, 0.35).normalize(),
     gust: { size: 14, speed: 4 },
     lean: 0.6,
     sway: { size: 0.25, rate: 0.3 },
-    /** The canopy's churn: a broad layer and a fine one, each (metres across, how fast it drifts, metres it moves). */
     churn: { broad: [4, 0.18, 0.17], fine: [1.5, 0.35, 0.06] },
 };
 
-/** How thick the clumps are to sunlight, per metre. */
 const THICKNESS = 0.55;
 
-/**
- * In sRGB: the leaves from the deep shade inside the canopy to the sunniest
- * tops, each step taking over at a level of light; and the bark.
- */
 const PALETTE = {
     leaves: ['#2b5244', '#3a6d4a', '#4a8638', '#86b443', '#c8da6c'],
     steps: [0.04, 0.18, 0.36, 0.62, 0.95],
     bark: '#5a4a3c',
 };
-
-/* growing it, on the CPU */
 
 type V3 = [number, number, number];
 type Segment = { a: V3; b: V3; ra: number; rb: number };
@@ -174,7 +109,6 @@ function grow(seed: number) {
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
     const range = ([a, b]: readonly number[]) => a + (b - a) * random();
-    /** `d` turned by `angle`, towards a side picked by `spin`. */
     const turn = (d: V3, angle: number, spin: number): V3 => {
         const side = unit(Math.abs(d[1]) < 0.9 ? crossV(d, [0, 1, 0]) : crossV(d, [1, 0, 0]));
         const other = crossV(d, side);
@@ -184,14 +118,12 @@ function grow(seed: number) {
 
     const segments: Segment[] = [];
     const puffs: Puff[] = [];
-    /** A branch from `start` that wanders towards `target`, tapering from r0 to r1. */
     const branch = (start: V3, dir: V3, target: V3, r0: number, r1: number) => {
         let p = start;
         let d = dir;
         const n = SHAPE.pieces;
         const total = len(sub(target, start));
         for (let i = 0; i < n; i++) {
-            // Turning further towards its target as it goes, and gnarled.
             d = unit(add(scale(d, 1 - (i + 1) / n), scale(unit(sub(target, p)), (i + 1) / n)));
             d = turn(d, SHAPE.gnarl * random(), random() * Math.PI * 2);
             const q = i === n - 1 ? target : add(p, scale(d, total / n));
@@ -201,7 +133,6 @@ function grow(seed: number) {
         return { end: p, dir: d };
     };
 
-    // The masses round the dome: one crowning it, the rest in a ring, a tier higher or lower in turn.
     const centre = SHAPE.dome.centre as V3;
     const [rx, ry, rz] = SHAPE.dome.radii;
     const masses: Mass[] = [{ c: add(centre, [random() - 0.5, ry * 0.55, random() - 0.5]), r: SHAPE.mass.radius[1] }];
@@ -217,7 +148,6 @@ function grow(seed: number) {
         });
     }
 
-    // The trunk, flared at its foot.
     const lean = turn([0, 1, 0], SHAPE.trunk.lean, random() * Math.PI * 2);
     const trunk = branch(
         [0, 0, 0],
@@ -227,7 +157,6 @@ function grow(seed: number) {
         SHAPE.trunk.radius * 0.8,
     );
 
-    // It forks a few ways, each fork taking the masses nearest its way.
     const forkRadius = SHAPE.trunk.radius * 0.8 * (1 / SHAPE.forks) ** (1 / SHAPE.pipe);
     const fork0 = random() * Math.PI * 2;
     const ways = Array.from({ length: SHAPE.forks }, (_, k) => fork0 + (k / SHAPE.forks) * Math.PI * 2 + (random() - 0.5) * 0.6);
@@ -254,7 +183,6 @@ function grow(seed: number) {
             puffs.push({ c: m.c, r: m.r * 0.8, mass: i, core: true });
             const clumps = Math.round(range(SHAPE.mass.clumps));
             for (let j = 0; j < clumps; j++) {
-                // Over the top and outer side of the mass, not under it.
                 const outward = unit(add(sub(m.c, centre), [0, 2, 0]));
                 const dir = turn(outward, Math.acos(1 - random() * 1.4), random() * Math.PI * 2);
                 const r = m.r * range(SHAPE.mass.clump);
@@ -266,10 +194,8 @@ function grow(seed: number) {
     return { segments, puffs, masses };
 }
 
-/** Where a tree stands, at its foot; the seed it grows from; and its size, 1 for the shape above. */
 export type Placement = { seed: number; at: THREE.Vector3; size: number };
 
-/** A tree grown from its seed, then moved to where it stands and sized. */
 function growAt({ seed, at, size }: Placement) {
     const { segments, puffs, masses } = grow(seed);
     const place = (p: V3): V3 => add([at.x, at.y, at.z], scale(p, size));
@@ -277,7 +203,6 @@ function growAt({ seed, at, size }: Placement) {
         segments: segments.map((g) => ({ a: place(g.a), b: place(g.b), ra: g.ra * size, rb: g.rb * size })),
         puffs: puffs.map((p) => ({ ...p, c: place(p.c), r: p.r * size })),
         masses: masses.map((m) => ({ c: place(m.c), r: m.r * size })),
-        /** The canopy's dome, and where the tree's foot is and how tall it is, for the light and the wind. */
         dome: { centre: place(SHAPE.dome.centre as V3), radii: scale(SHAPE.dome.radii as V3, size) },
         foot: at.y,
         height: (SHAPE.dome.centre[1] + SHAPE.dome.radii[1]) * size,
@@ -287,12 +212,6 @@ type Grown = ReturnType<typeof growAt>;
 
 /* the shapes on the GPU */
 
-/**
- * The tree's segments, puffs and masses as uniform arrays, with the first splat
- * of each segment and puff: bark shared out by a branch's side (next to none
- * for branches hidden inside the clumps), leaf sprays
- * by a clump's skin (less for a mass's core, mostly inside its clumps).
- */
 function shapes(grown: Grown, counts: { sprays: number; bark: number }) {
     const { segments, puffs, masses, dome, foot, height } = grown;
     const v4 = (x: number, y: number, z: number, w: number) => new THREE.Vector4(x, y, z, w);
@@ -323,7 +242,6 @@ function shapes(grown: Grown, counts: { sprays: number; bark: number }) {
         height,
         segmentCount: segments.length,
         puffCount: puffs.length,
-        /** (a, radius at a), (b, radius at b), (first splat, 0, 0, 0). */
         segA: uniformArray(
             segments.map((g) => v4(...g.a, g.ra)),
             'vec4',
@@ -336,7 +254,6 @@ function shapes(grown: Grown, counts: { sprays: number; bark: number }) {
             barkFirst.map((first) => v4(first, 0, 0, 0)),
             'vec4',
         ),
-        /** (centre, radius), (first spray, mass, 0, 0). */
         puffA: uniformArray(
             puffs.map((p) => v4(...p.c, p.r)),
             'vec4',
@@ -353,7 +270,6 @@ function shapes(grown: Grown, counts: { sprays: number; bark: number }) {
 }
 type Shapes = ReturnType<typeof shapes>;
 
-/** Which of `count` ranges, each starting at `first(i)`, holds `index`: a binary search. */
 function whichRange(index: TslNode, count: number, first: (i: TslNode) => TslNode): TslNode {
     const lo = int(0).toVar();
     const hi = int(count).toVar();
@@ -371,13 +287,11 @@ function whichRange(index: TslNode, count: number, first: (i: TslNode) => TslNod
 /* light */
 
 const sun = vec3(SUN_DIRECTION.x, SUN_DIRECTION.y, SUN_DIRECTION.z);
-/** A palette colour, linear. */
 const colour = (hex: string): TslNode => {
     const c = new THREE.Color(hex);
     return vec3(c.r, c.g, c.b);
 };
 
-/** How much sunlight reaches `p` through the clumps (all but clump `skip`): Beer–Lambert along each chord. */
 function sunThrough(s: Shapes, p: TslNode, skip: TslNode): TslNode {
     const depth = float(0).toVar();
     Loop(s.puffCount, ({ i }: { i: TslNode }) => {
@@ -394,7 +308,6 @@ function sunThrough(s: Shapes, p: TslNode, skip: TslNode): TslNode {
     return exp(depth.mul(-THICKNESS));
 }
 
-/** Which way the canopy as a whole faces at `p`: its dome's normal. */
 function canopyNormal(s: Shapes, p: TslNode): TslNode {
     const [x, y, z] = s.dome.radii;
     return normalize(p.sub(vec3(...s.dome.centre)).div(vec3(x * x, y * y, z * z)));
@@ -402,16 +315,10 @@ function canopyNormal(s: Shapes, p: TslNode): TslNode {
 
 /* splats */
 
-/** Fields of a splat worked out once (or every frame without compute); see `instances`. */
 type Layout = Record<string, 1 | 2 | 3 | 4>;
 type Fields<L extends Layout> = { [K in keyof L]: TslNode };
 type Instances<L extends Layout> = { read: (i: TslNode) => Fields<L>; kernel: WgpuCompute | null };
 
-/**
- * Things worked out once and read every frame, as in the meadow (grass/): the
- * fields are packed into vec4 buffers and `kernel` fills them; without compute
- * there are no buffers, and `read` works them out where it's asked.
- */
 function instances<L extends Layout>(
     renderer: WebGPURenderer | null,
     label: string,
@@ -457,7 +364,6 @@ function instances<L extends Layout>(
     return { read, kernel };
 }
 
-/** A rotation taking x, y, z to the given orthonormal axes. */
 function quatFromBasis(x: TslNode, y: TslNode, z: TslNode): TslNode {
     const w = sqrt(max(x.x.add(y.y).add(z.z).add(1), 0)).mul(0.5);
     const qx = sqrt(max(x.x.sub(y.y).sub(z.z).add(1), 0))
@@ -472,7 +378,6 @@ function quatFromBasis(x: TslNode, y: TslNode, z: TslNode): TslNode {
     return normalize(vec4(qx, qy, qz, w));
 }
 
-/** A random direction from two hashes. */
 const sphereDir = (u: TslNode, v: TslNode): TslNode => {
     const z = u.mul(2).sub(1);
     const ring = sqrt(max(z.mul(z).oneMinus(), 0));
@@ -480,7 +385,6 @@ const sphereDir = (u: TslNode, v: TslNode): TslNode => {
     return vec3(cos(a).mul(ring), z, sin(a).mul(ring));
 };
 
-/** Some axis at right angles to `n`. */
 const across = (n: TslNode): TslNode =>
     normalize(
         cross(
@@ -492,7 +396,6 @@ const across = (n: TslNode): TslNode =>
         ),
     );
 
-/** A splat, as worked out once. */
 const SPLAT_STATE = { at: 3, opacity: 1, quaternion: 4, scales: 3, rgb: 3 } as const;
 
 function leafState(s: Shapes, index: TslNode) {
@@ -505,7 +408,6 @@ function leafState(s: Shapes, index: TslNode) {
     const p = s.puffA.element(puff).toVar();
     const mass = s.massA.element(int(s.puffB.element(puff).y)).toVar();
 
-    // Its spray grows out of its clump somewhere not buried in another clump (a few tries).
     const dir = vec3(0, 1, 0).toVar();
     const buried = float(1).toVar();
     Loop(6, ({ i }: { i: TslNode }) => {
@@ -526,16 +428,12 @@ function leafState(s: Shapes, index: TslNode) {
         });
     });
 
-    // A twig out through the clump's skin, its leaves alternating along it in a plane facing out and up.
     const twigLength = mix(LEAF.twig[0], LEAF.twig[1], sh(2));
     const base = p.xyz.add(dir.mul(p.w.sub(twigLength.mul(0.55)))).toVar();
     const twig = normalize(dir.add(sphereDir(sh(3), sh(4)).mul(0.8))).toVar();
     const side = normalize(cross(twig, dir.add(vec3(0, 0.6, 0)))).toVar();
     const face = cross(side, twig);
 
-    // How much sun its spray gets: how its clump, its mass and the canopy face the sun, and the
-    // other clumps between it and the sun.
-    // The whole canopy's roundness counts as much as the clump's, so a side of the tree is sunlit.
     const shapeNormal = normalize(
         dir
             .mul(0.35)
@@ -544,7 +442,6 @@ function leafState(s: Shapes, index: TslNode) {
     );
     const clumpLight = max(dot(shapeNormal, sun).mul(0.65).add(0.45), 0).mul(sunThrough(s, base, puff));
 
-    // This leaf: along the twig, to one side then the other, smaller towards the tip, tilted its own way.
     const j = float(leaf.mod(uint(LEAF.perSpray)));
     const t = j.add(0.5).div(LEAF.perSpray);
     const flank = j.mod(2).mul(2).sub(1);
@@ -564,10 +461,6 @@ function leafState(s: Shapes, index: TslNode) {
     const along = pick((q) => q.at).add(0.9);
     const at = base.add(twig.mul(t.mul(twigLength))).add(lengthwise.mul(size.mul(along).mul(LEAF.length)));
 
-    // Sun on its spray, a little more where the leaf itself faces it, a little skylight on leaves
-    // facing up, and some fill. Then the palette, step by step. Mostly the spray's light, not the
-    // leaf's own: crisp leaves overlap, and as the wind moves them the sort keeps swapping which is
-    // in front, so neighbours must be near enough the same colour that a swap doesn't show.
     const light = clumpLight
         .mul(dot(facing, sun).abs().mul(0.2).add(0.7))
         .mul(t.mul(0.15).add(0.85))
@@ -578,7 +471,6 @@ function leafState(s: Shapes, index: TslNode) {
 
     return {
         at,
-        // A solid middle and a feathered edge. A spray with nowhere to grow isn't drawn.
         opacity: buried.greaterThan(0.5).select(float(0), float(LEAF.opacity)),
         quaternion: quatFromBasis(lengthwise, cross(facing, lengthwise), facing),
         scales: vec3(
@@ -596,7 +488,6 @@ function barkState(s: Shapes, index: TslNode) {
     const a = s.segA.element(segment).toVar();
     const b = s.segB.element(segment).toVar();
 
-    // Anywhere on the branch's side, lying along it, flat against it.
     const along = normalize(b.xyz.sub(a.xyz)).toVar();
     const side = across(along).toVar();
     const angle = h(0).mul(Math.PI * 2);
@@ -624,25 +515,15 @@ function barkState(s: Shapes, index: TslNode) {
 
 /* wind */
 
-/** Seconds since the start: the splats' own uniform. */
 const time = uniform(0);
 const windward = vec3(WIND.direction.x, 0, WIND.direction.z);
 
-/** How hard it's gusting at `p`, 0..1: patches of stronger wind rolling through downwind. */
 function gustAt(p: TslNode): TslNode {
     const travelled = p.xz.sub(windward.xz.mul(time.mul(WIND.gust.speed)));
     const n = mx_noise_float(vec3(travelled.div(WIND.gust.size), time.mul(0.05)));
     return smoothstep(-0.35, 0.45, n);
 }
 
-/**
- * How far the wind moves a point `p` of the tree, gusting `gust`: the tree leans
- * downwind and sways, more towards its top (a cantilever's bend), and the canopy
- * churns. The churn is a smooth field over space, a broad layer the size of a
- * mass and a finer one the size of a clump, not each clump swinging on its own:
- * clumps swung apart slid through each other, and where a sunlit one passed
- * through a shaded one the leaves kept swapping which was in front.
- */
 function windAt(s: Shapes, p: TslNode, gust: TslNode): TslNode {
     const up = p.y.sub(s.foot).div(s.height).clamp(0, 1.2);
     const bend = up.mul(up);
@@ -667,7 +548,6 @@ function splats(s: Shapes, state: Instances<typeof SPLAT_STATE>, count: number, 
     const generateSplat = (index: TslNode) => {
         const splat = state.read(index);
         const center = splat.at.add(windAt(s, splat.at, gustAt(splat.at)));
-        // Leaves keep their size (lodInflate off): opacity past 1 is a firmer edge, not a bigger splat.
         return GpuSplats.Splat(center, splat.scales, splat.quaternion, splat.rgb, splat.opacity, uint(index));
     };
     return SplatCollection.object({ count, generator: { generateSplat }, ...(leaves ? { params: { lodInflate: false } } : {}) });
@@ -677,7 +557,6 @@ function splats(s: Shapes, state: Instances<typeof SPLAT_STATE>, count: number, 
 
 export type Tree = {
     objects: SplatObject[];
-    /** Where to look: the middle of its canopy. */
     centre: THREE.Vector3;
     /** How far its canopy spreads, metres. */
     spread: number;
@@ -703,7 +582,6 @@ export function initTree(renderer: WebGPURenderer, compute: boolean, placement: 
     };
 }
 
-/** Seconds since the start, for the wind in every tree. */
 export function updateTrees(elapsed: number): void {
     time.value = elapsed;
 }

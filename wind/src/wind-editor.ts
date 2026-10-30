@@ -4,31 +4,12 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
 import { MAX_SPHERES, type Wind, type WindParams, type WindSphere } from './wind';
 
-/**
- * Authoring UI for the wind volumes, modelled on the edit mode in PlayCanvas's
- * `GsplatTrees` (playcanvas/engine#9022).
- *
- * Placing wind spheres by editing a literal in source and reloading is miserable:
- * you can't see what a sphere caught, and a tree is only "right" when the leaves
- * move and the trunk doesn't. So edit mode makes both halves visible at once:
- *
- *   - Every splat the wind claims is tinted, brightening toward the canopy, so
- *     "which leaves does this actually move" is something you look at rather
- *     than guess. This is the half that makes placement tractable.
- *   - A wireframe marks each volume, and the selected one gets a gizmo: drag to
- *     move it, switch to scale to change its radius. The splat tint updates as
- *     you drag, because the spheres are uniforms rather than baked constants.
- *   - The JSON box round-trips the whole list, and emits exactly the shape of
- *     src/wind.json, so a session's work is copied straight over that file (or
- *     pasted back in) as one blob, with no translation step to get wrong.
- */
-
-const HIGHLIGHT_STRENGTH = 0.85; // tint applied to included splats in edit mode
+const HIGHLIGHT_STRENGTH = 0.85;
 const SPHERE_COLOR = 0x33ddff;
 const SELECTED_COLOR = 0xffdd33;
 const NEW_SPHERE_RADIUS = 4;
-const MIN_RADIUS = 0.25; // a volume smaller than this is a pixel, not a tree
-const NEW_SPHERE_DISTANCE = 18; // how far in front of the camera a new sphere lands
+const MIN_RADIUS = 0.25;
+const NEW_SPHERE_DISTANCE = 18;
 
 type Deps = {
     wind: Wind;
@@ -36,47 +17,26 @@ type Deps = {
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
     domElement: HTMLElement;
-    /**
-     * Whether free-look is currently allowed (the debug panel's `orbit camera`).
-     *
-     * The editor borrows `controls.enabled` — a gizmo drag and an orbit drag are
-     * the same gesture, so whoever grabs the pointer first gets it — and it has to
-     * hand it back to the right state afterwards. Forcing it to `true` would
-     * silently override the toggle and leave the camera orbiting with the box
-     * unticked.
-     */
     orbitEnabled: () => boolean;
 };
 
 export type WindEditor = {
-    /** Whether edit mode is on (splat tint + wireframes + gizmo). */
     enabled: boolean;
-    /** Show/hide the whole editor. */
     setEnabled(enabled: boolean): void;
-    /** Tint the splats the wind moves while editing. Off to preview the sway params as-is. */
     highlight: boolean;
     setHighlight(highlight: boolean): void;
 };
 
 export function createWindEditor({ wind, scene, camera, controls, domElement, orbitEnabled }: Deps): WindEditor {
-    // --- Volume outlines ---------------------------------------------------
-    // Three orthogonal rings, not a wireframe sphere. A wireframe sphere is a few
-    // hundred segments of chicken wire across the very splats you're trying to
-    // judge; three great circles read as the same volume and leave it visible.
     const group = new THREE.Group();
     group.visible = false;
     scene.add(group);
 
-    // Picking is done against an invisible solid sphere rather than the rings:
-    // clicking a line means fiddling with Raycaster's line threshold, while a mesh
-    // just works. `visible: false` on the material stops it drawing but still
-    // raycasts, since Mesh.raycast never consults it.
+    // Picked by an invisible sphere: material.visible = false still raycasts.
     const pickGeometry = new THREE.SphereGeometry(1, 16, 12);
     const pickMaterial = new THREE.MeshBasicMaterial({ visible: false });
 
     const ringGeometry = createRingsGeometry(64);
-    // transparent + depthTest off + high renderOrder → drawn in the post-opaque
-    // pass, on top of the alpha-blended splats regardless of scene depth.
     const baseMaterial = new THREE.LineBasicMaterial({
         color: SPHERE_COLOR,
         transparent: true,
@@ -95,13 +55,11 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
     let selected = -1;
 
     function rebuildWireframes(): void {
-        // Reuse meshes where we can; only add/remove to match the sphere count.
         while (group.children.length > wind.spheres.length) {
             group.remove(group.children[group.children.length - 1]);
         }
         while (group.children.length < wind.spheres.length) {
-            // The rings ride along as a child of the picker, so one position/scale
-            // drives both and they can never drift apart.
+            // Rings are the picker's child, so they can't drift apart.
             const picker = new THREE.Mesh(pickGeometry, pickMaterial);
             const rings = new THREE.LineSegments(ringGeometry, baseMaterial);
             rings.renderOrder = 999;
@@ -116,10 +74,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
         });
     }
 
-    // --- Gizmo -------------------------------------------------------------
-    // The gizmo drives a proxy object rather than a wireframe directly, so the
-    // sphere list stays the single source of truth: proxy → list → uniforms →
-    // wireframes, one direction only.
     const proxy = new THREE.Object3D();
     scene.add(proxy);
 
@@ -130,16 +84,12 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
     gizmoHelper.visible = false;
     scene.add(gizmoHelper);
 
-    // An orbit drag and a gizmo drag are the same gesture; hand the pointer to
-    // whichever one grabbed it first.
     gizmo.addEventListener('dragging-changed', (event) => {
         controls.enabled = !event.value && orbitEnabled();
     });
 
-    // TransformControls derives each frame's transform from the scale it captured
-    // when the drag began. Writing proxy.scale back mid-drag therefore makes the
-    // handle fight itself and collapse the volume, so during a drag we only ever
-    // READ the proxy — the proxy is resynced once, on release.
+    // TransformControls works from the scale captured at drag start: writing proxy.scale
+    // mid-drag collapses the volume, so only read it during a drag and resync on release.
     let dragScale = 1;
     let dragRadius = 1;
 
@@ -159,9 +109,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
 
         sphere.center = [proxy.position.x, proxy.position.y, proxy.position.z];
 
-        // A wind volume is a sphere, so scaling is uniform however it was dragged:
-        // take whichever axis the gizmo actually moved (the ratio furthest from 1)
-        // and apply it to the radius.
         const ratios = [proxy.scale.x, proxy.scale.y, proxy.scale.z].map((v) => v / dragScale);
         const ratio = ratios.reduce((best, r) => (Math.abs(r - 1) > Math.abs(best - 1) ? r : best), 1);
         sphere.radius = Math.max(MIN_RADIUS, dragRadius * ratio);
@@ -182,7 +129,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
         gizmoHelper.visible = editor.enabled;
     }
 
-    // --- Panel -------------------------------------------------------------
     const panel = document.createElement('div');
     panel.style.cssText = [
         'position:fixed',
@@ -213,7 +159,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
         'click a volume to select · g/r translate/scale · volumes sharing a tree id sway as one · tinted splats are the ones the wind moves';
     panel.appendChild(hint);
 
-    // Sphere list
     const list = document.createElement('div');
     list.style.cssText = 'display:flex;flex-direction:column;gap:2px';
     panel.appendChild(list);
@@ -249,8 +194,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
             remove.style.cssText = 'font:inherit;cursor:pointer;border:0;background:#411;color:#fbb;padding:2px 6px';
             remove.addEventListener('click', () => {
                 wind.spheres.splice(index, 1);
-                // Keep the selection pointing at something sensible: the same slot
-                // if one shifted up into it, otherwise nothing.
                 if (selected === index) selected = -1;
                 else if (selected > index) selected -= 1;
                 commit();
@@ -261,10 +204,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
         });
     }
 
-    // Radius of the selected volume, as a number you can type. The scale gizmo
-    // works too, but three's uniform-scale handle gets extremely sensitive when
-    // grabbed near the gizmo's centre (its factor is a ratio of distances from it),
-    // so this is the dependable way to land on an exact size.
     const radiusRow = document.createElement('label');
     radiusRow.style.cssText = 'display:none;gap:6px;align-items:center';
     const radiusLabel = document.createElement('span');
@@ -281,7 +220,7 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
         if (!sphere || !Number.isFinite(value)) return;
         sphere.radius = Math.max(MIN_RADIUS, value);
         applyLive();
-        syncProxy(); // not a gizmo drag, so the proxy is safe to resync immediately
+        syncProxy();
     });
     radiusRow.append(radiusLabel, radiusInput);
     panel.appendChild(radiusRow);
@@ -289,14 +228,11 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
     function refreshRadiusRow(): void {
         const sphere = wind.spheres[selected];
         radiusRow.style.display = sphere ? 'flex' : 'none';
-        // Don't stomp what's being typed mid-edit.
         if (sphere && document.activeElement !== radiusInput) {
             radiusInput.value = String(Number(sphere.radius.toFixed(2)));
         }
     }
 
-    // Tree id of the selected volume. Spheres sharing an id are one tree — stack
-    // several up a tall canopy and they sway together instead of shearing apart.
     const treeRow = document.createElement('label');
     treeRow.style.cssText = 'display:none;gap:6px;align-items:center';
     const treeLabel = document.createElement('span');
@@ -334,8 +270,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
             hint.textContent = `at the ${MAX_SPHERES}-volume limit — remove one first`;
             return;
         }
-        // Drop it into view rather than at the origin, so it's immediately
-        // reachable with the gizmo.
         const forward = new THREE.Vector3();
         camera.getWorldDirection(forward);
         const at = camera.position.clone().addScaledVector(forward, NEW_SPHERE_DISTANCE);
@@ -345,7 +279,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
     });
     panel.appendChild(addButton);
 
-    // Wind parameters
     const paramsBox = document.createElement('div');
     paramsBox.style.cssText = 'display:flex;flex-direction:column;gap:2px;border-top:1px solid #244;padding-top:6px';
     panel.appendChild(paramsBox);
@@ -387,7 +320,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
         paramsBox.appendChild(row);
     }
 
-    // JSON round-trip
     const jsonLabel = document.createElement('div');
     jsonLabel.textContent = 'json — copy over src/wind.json, or paste + apply';
     jsonLabel.style.cssText = 'color:#89a;border-top:1px solid #244;padding-top:6px';
@@ -421,8 +353,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
                 await navigator.clipboard.writeText(json.value);
                 status.textContent = 'copied';
             } catch {
-                // Clipboard is blocked outside a secure context — selecting the text
-                // is the fallback, and a manual ⌘C still works.
                 json.select();
                 status.textContent = 'clipboard blocked — text selected, press ⌘C';
             }
@@ -464,10 +394,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
         );
     }
 
-    // --- Wiring ------------------------------------------------------------
-    // Two paths into the same state. `applyLive` is the per-mouse-move one: it
-    // pushes the uniforms and updates what's on screen without touching the proxy
-    // (see the gizmo note above) or rebuilding the DOM list every frame.
     function applyLive(): void {
         wind.setSpheres(wind.spheres);
         rebuildWireframes();
@@ -479,8 +405,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
         if (row && sphere) row.textContent = describe(selected, sphere);
     }
 
-    // …and `commit` is the structural one, for anything that adds, removes or
-    // selects: push the list into the uniforms, then refresh everything mirroring it.
     function commit(options: { skipJson?: boolean } = {}): void {
         wind.setSpheres(wind.spheres);
         wind.setSelected(selected);
@@ -497,8 +421,6 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
         commit();
     }
 
-    // Click a wireframe to select it. Pointer-down/up with a movement threshold,
-    // so an orbit drag that happens to end on a volume doesn't select it.
     const raycaster = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
     let downX = 0;
@@ -550,15 +472,10 @@ export function createWindEditor({ wind, scene, camera, controls, domElement, or
     return editor;
 }
 
-/**
- * Three great circles on the unit sphere (XY, YZ, XZ) as one LineSegments buffer.
- * Enough to read as a sphere from any angle, at a fraction of a wireframe's clutter.
- */
 function createRingsGeometry(segments: number): THREE.BufferGeometry {
     const points: number[] = [];
     for (let axis = 0; axis < 3; axis++) {
         for (let i = 0; i < segments; i++) {
-            // Emit each span as a pair of endpoints, closing the loop on the last one.
             for (const step of [i, (i + 1) % segments]) {
                 const angle = (step / segments) * Math.PI * 2;
                 const u = Math.cos(angle);

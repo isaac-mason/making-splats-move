@@ -1,14 +1,3 @@
-/**
- * Confetti, nothing captured: you hold the confetti gun. Click and a burst of
- * splat paper fires from it out along where you clicked (confetti.ts), flies
- * off, flutters down and piles up on the floor. Drag to orbit, right-drag or
- * shift-drag to pan, scroll to move in.
- *
- * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
- * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`); nothing here needs
- * compute, so both draw the same.
- */
-
 import { createRenderer, SplatCollection, SplatRenderer, TSL, type TslNode } from 'spark-radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -45,11 +34,6 @@ const colour = (hex: string): TslNode => {
 
 /* the room */
 
-/**
- * A clean, warm, pale studio, in sRGB, so the colours pop: the backdrop a soft
- * gradient, the floor the same warm white, darkening a touch away from you and
- * melting into the backdrop at the horizon.
- */
 const ROOM = { high: '#f7f1e9', low: '#e6d8c8', floor: '#efe6db', far: '#e6d8c8', melt: [6, 40] };
 
 function backdrop(): TslNode {
@@ -71,20 +55,12 @@ function floor(): THREE.Mesh {
 /** Where you stand, and where you look: across the floor at about chest height. */
 const VIEW = { fov: 50, eye: [0, 1.7, 6.5], target: [0, 1.4, 0] };
 
-/**
- * A click, not a drag: the pointer moved less than this (pixels) and was up
- * within this (seconds). The gun's muzzle, held a little right of and below
- * your eye and out in front (metres), aimed at where you clicked this far out.
- */
+/** A click is a press and release moving less than this (pixels) within this (seconds). The muzzle is right of and below your eye (metres). */
 const CLICK = { move: 6, time: 0.35, muzzle: [0.22, -0.2, 0.4], reach: 10 };
 
 /** The dither that keeps the backdrop from banding, about a step of the 8-bit output. */
 const DITHER = 1.5;
 
-/**
- * Splats blend sRGB-encoded but land in the pass decoded to linear: encode back,
- * no tone mapping, and dither.
- */
 function initPost(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera): RenderPipeline {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping;
@@ -104,7 +80,6 @@ async function start() {
     scene.add(floor());
     const camera = new THREE.PerspectiveCamera(VIEW.fov, window.innerWidth / window.innerHeight, 0.05, 1000);
 
-    // WebGPU, or the WebGL2 backend where it's missing. MSAA doesn't help splats.
     const renderer = await createRenderer({ antialias: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -129,7 +104,6 @@ async function start() {
 
     const pipeline = initPost(renderer, scene, camera);
 
-    // A click fires the gun: from its muzzle by your eye, at where you clicked.
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const muzzle = new THREE.Vector3();

@@ -1,8 +1,3 @@
-/**
- * One avatar on a plain stage, for looking at closely: `?view` and `?face` frame it,
- * `?editor` adds the parameter panel, `?crowd=N` lays out a grid for measuring cost.
- */
-
 import type * as THREE from 'three';
 import { type Avatar, initAvatar, updateAvatar } from './avatar';
 import {
@@ -16,10 +11,8 @@ import { CAST } from './avatar-params';
 import type { Options } from './options';
 
 export type Workbench = {
-    /** The one avatar on show. `?editor` swaps it out wholesale on a rebuild. */
     rig: Avatar | null;
     editor: AvatarEditor | null;
-    /** The `?crowd=N` grid. */
     benchmark: Avatar[];
 };
 
@@ -29,7 +22,6 @@ const SOLO_GAIT = 2.9;
 export function initWorkbench(scene: THREE.Scene, camera: THREE.PerspectiveCamera, options: Options): Workbench {
     const bench: Workbench = { rig: null, editor: null, benchmark: [] };
 
-    // `?view` or `?face` on its own: one avatar, framed how they asked.
     if (!options.editor && options.benchmark === 0) {
         bench.rig = initAvatar(castMember(options.seed), options.seed);
         scene.add(bench.rig.mesh);
@@ -75,7 +67,6 @@ export function initWorkbench(scene: THREE.Scene, camera: THREE.PerspectiveCamer
     return bench;
 }
 
-/** `posedTime` is the walk's clock — `?t=` freezes it, so a still pose can be read. */
 export function updateWorkbench(bench: Workbench, options: Options, posedTime: number): void {
     if (bench.editor) updateAvatarEditor(bench.editor);
     if (bench.rig) {
@@ -90,7 +81,6 @@ export function workbenchSplats(bench: Workbench): number {
     return bench.benchmark.reduce((n, a) => n + a.count, bench.rig?.count ?? 0);
 }
 
-/** `?seed=N` picks the Nth of the cast, wrapping. */
 function castMember(seed: number) {
     return CAST[(((seed - 1) % CAST.length) + CAST.length) % CAST.length];
 }

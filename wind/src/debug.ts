@@ -4,35 +4,22 @@ import type { Performance } from './performance';
 
 export type DebugOverlay = {
     element: HTMLDivElement;
-    /** Container holding the readout rows. */
     text: HTMLDivElement;
-    /** Per-line value spans updated each frame; the coord ones are click-to-copy. */
     fields: {
         cam: HTMLSpanElement;
         look: HTMLSpanElement;
         splats: HTMLSpanElement;
     };
-    /** Whether the text panel is shown (toggled with the backtick key). */
     enabled: boolean;
-    /** Whether wind edit mode is on (toggled by the checkbox). */
     editWind: boolean;
-    /**
-     * Free-look. Off by default: the shipped camera is the fixed framing plus the
-     * parallax lean (src/camera-drift.ts), because that's the shot. Orbiting is a
-     * tool for framing and for authoring wind volumes, not a feature of the scene.
-     */
     orbit: boolean;
-    /** Called when the edit-mode checkbox flips; index.ts hooks the wind editor up here. */
     onEditWind?: (enabled: boolean) => void;
-    /** Called when the wind checkbox flips; index.ts turns the wind on and off here. */
     onWindEnabled?: (enabled: boolean) => void;
-    /** Called when the highlight-leaves checkbox flips; index.ts hands it to the wind editor. */
     onHighlightLeaves?: (enabled: boolean) => void;
 };
 
 type Checkbox = {
     el: HTMLLabelElement;
-    /** Tick/untick from code. Fires `onChange` too, so dependent state stays in step. */
     set(checked: boolean): void;
 };
 
@@ -53,7 +40,6 @@ function createCheckbox(label: string, onChange: (checked: boolean) => void): Ch
     };
 }
 
-// An always-on labelled range slider that reports its value live, with a readout.
 function createRange(
     label: string,
     opts: { min: number; max: number; step: number; value: number },
@@ -79,20 +65,16 @@ function createRange(
     return wrapper;
 }
 
-// A monospace readout row: a fixed-width label followed by a value span. The
-// caller updates `value.textContent` each frame.
 function createReadoutRow(label: string): { row: HTMLDivElement; value: HTMLSpanElement } {
     const row = document.createElement('div');
     const lbl = document.createElement('span');
-    lbl.textContent = label.padEnd(8); // align values (monospace + white-space:pre)
+    lbl.textContent = label.padEnd(8);
     const value = document.createElement('span');
     row.style.cssText = 'white-space:pre';
     row.append(lbl, value);
     return { row, value };
 }
 
-// Make a value span click-to-copy: copies its current text to the clipboard and
-// briefly flashes white. Used for the Vec3 coordinate readouts.
 function makeCopyable(value: HTMLSpanElement): void {
     value.style.cursor = 'pointer';
     value.title = 'click to copy';
@@ -102,9 +84,8 @@ function makeCopyable(value: HTMLSpanElement): void {
         try {
             await navigator.clipboard.writeText(text);
         } catch {
-            return; // clipboard blocked (e.g. insecure context) — nothing to flash
+            return;
         }
-        // Flash via colour only; the per-frame textContent update leaves it intact.
         value.style.color = '#fff';
         setTimeout(() => {
             value.style.color = '';
@@ -112,16 +93,7 @@ function makeCopyable(value: HTMLSpanElement): void {
     });
 }
 
-// Minimal debug overlay (plain DOM): a readout of the camera pose and splat count
-// (toggle with the backtick `), the wind edit-mode switch, and the render scale
-// slider. The coordinate rows are click-to-copy, so orbiting to a framing you like
-// and pasting the values back into scene.ts is the authoring loop.
 export type DebugOptions = {
-    /**
-     * Called when free-look is toggled. `false` means the presentation camera is
-     * taking over again, which is the caller's cue to put it back where it belongs
-     * — the orbit camera will have left it wherever the last drag ended.
-     */
     onOrbitChange?: (orbit: boolean) => void;
 };
 
@@ -141,8 +113,6 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
         'z-index:1000',
     ].join(';');
 
-    // Readout rows. The Vec3 lines are click-to-copy — cam + look give you the orbit
-    // camera's pose to paste straight back into scene.ts.
     const text = document.createElement('div');
     text.style.cssText = 'display:flex;flex-direction:column';
     const camRow = createReadoutRow('cam');
@@ -175,9 +145,6 @@ export function createDebugOverlay(perf: Performance, { onOrbitChange }: DebugOp
 
     const windEditCheckbox = createCheckbox('wind edit mode', (checked) => {
         overlay.editWind = checked;
-        // Authoring volumes means flying around to look at them, so edit mode
-        // brings free-look with it rather than leaving you stuck in the framing
-        // wondering why the camera won't move.
         if (checked) orbitCheckbox.set(true);
         overlay.onEditWind?.(checked);
     });

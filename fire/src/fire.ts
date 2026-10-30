@@ -1,16 +1,3 @@
-/**
- * How hard the fire is burning. Flame, smoke, embers, lighting and heat shimmer all
- * read this one state, so they swell together when it's stoked.
- *
- * Two channels, each a value easing toward a store of fuel:
- *
- *   intensity — the sustained level, 0 = resting … 1 = roaring. Its fuel burns back
- *               down to a resting level, never to zero, so an untended fire holds.
- *   pulse     — the flare from one stoke: swells in over ~200ms, gone in about a second.
- *
- * Left alone it crackles every few seconds; a click (interaction.ts) throws a log on.
- */
-
 import * as THREE from 'three';
 
 const { damp, randFloat, clamp } = THREE.MathUtils;
@@ -30,9 +17,7 @@ export type Fire = {
     intensity: number;
     pulseFuel: number;
     pulse: number;
-    /** Debug: pins `intensity` to this value. */
     override: number | null;
-    /** Seconds until the next self-crackle. */
     nextCrackle: number;
 };
 

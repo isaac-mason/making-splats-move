@@ -1,13 +1,3 @@
-/**
- * Long blonde hair in a sea breeze at golden hour, every splat of it procedural
- * (hair.ts): a figure seen from behind, looking out to sea, the sun low off to the
- * right and the wind off the water combing their hair out to the left.
- *
- * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
- * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`). Drag to look round them,
- * scroll to come closer or stand back.
- */
-
 import { createRenderer, SplatCollection, SplatRenderer, TSL } from 'spark-radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -36,21 +26,13 @@ const {
 
 /* the camera */
 
-/**
- * Over the figure's left shoulder, a little behind, at about their eye height: the
- * hair streams across the frame towards you, and the sun is just out of frame to
- * the right. You can come round either side, but never far enough to see their
- * face, which they haven't got.
- */
 const VIEW = {
     target: new THREE.Vector3(0, 1.48, 0.02),
-    /** From the target, before it's scaled to `distance`. */
     from: new THREE.Vector3(-0.574, 0.1, 0.819),
     distance: 1.4,
     near: 0.85,
     far: 1.9,
     fov: 40,
-    /** Round the figure either way from straight behind, radians, and how high and low. */
     around: 1.05,
     polar: [1.25, 1.75],
 };
@@ -68,16 +50,10 @@ const SKY = {
     horizon: srgb(0.99, 0.8, 0.6),
     zenith: srgb(0.36, 0.5, 0.74),
     sun: srgb(1, 0.9, 0.72),
-    /** The sea: pale where it meets the sky, deeper looking down. */
     seaFar: srgb(0.72, 0.62, 0.58),
     seaNear: srgb(0.16, 0.22, 0.3),
 };
 
-/**
- * A golden-hour gradient by elevation, the sun's disc and its glow, and below the
- * horizon the sea, with a path of glitter on it under the sun. Kept soft: it's a
- * backdrop, out of focus behind the hair.
- */
 function skyNode() {
     const dir = normalize(positionWorldDirection);
     const up = dir.y;
@@ -87,8 +63,6 @@ function skyNode() {
     const disc = smoothstep(0.9993, 0.9996, toSun).mul(10);
     const glow = pow(toSun, 40).mul(0.8).add(pow(toSun, 5).mul(0.25));
 
-    // The sea: its colour by depth, with a glitter path under the sun that's
-    // narrow across and long towards you, broken up by the swell.
     const sea = mix(uniform(SKY.seaFar), uniform(SKY.seaNear), pow(smoothstep(0, -0.35, up), 0.6));
     const flat = normalize(vec3(dir.x, 0, dir.z));
     const sunFlat = normalize(vec3(SUN_DIRECTION.x, 0, SUN_DIRECTION.z));
@@ -107,11 +81,6 @@ function skyNode() {
 const BLOOM = { strength: 0.3, radius: 0.55, threshold: 0.8 };
 const VIGNETTE = 0.32;
 
-/**
- * Splats blend sRGB-encoded but land in the pass decoded to linear, so the output
- * encodes back to sRGB with no tone mapping, plus a bloom (the sun through the
- * hair) and a vignette.
- */
 function initPost(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera): RenderPipeline {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.NoToneMapping;
@@ -171,7 +140,6 @@ async function start() {
         last = now;
         controls.update();
         updateHair(hair, dt, camera);
-        // The WebGL2 backend sorts on the CPU and only when asked; everything moves.
         if (splats.sortMode === 'cpu') splats.requestSort();
         pipeline.render();
         // A few frames in, past the first frame's shader compiles.
