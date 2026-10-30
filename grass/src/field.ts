@@ -220,10 +220,9 @@ const CLOUDS = {
 };
 
 const GROUND = {
-    /** Earth under the grass: dark and light, and the odd pale pebble. */
+    /** Earth under the grass: dark and light. */
     earth: [0.24, 0.17, 0.11],
     loam: [0.38, 0.28, 0.18],
-    pebble: [0.62, 0.58, 0.52],
     /** How strongly a flower drift tints the turf far off, where its flowers are too small to see. */
     bloom: 0.2,
 };
@@ -363,6 +362,8 @@ const PATHS = {
     grain: [0.06, 0.09],
     pebbles: 0.1,
     pebbleSize: [0.018, 0.05],
+    /** How far a pebble's slid towards the eye (metres): just past the dirt grains, so they never sort over it, not so far it sorts over the grass. */
+    pebbleNudge: 0.05,
     stone: [0.6, 0.57, 0.52],
 };
 
@@ -1435,8 +1436,8 @@ function butterflies(): SplatObject {
  * flowers on one arm, built from a couple of dozen splat-shelled parts and
  * animated in the shader from a stride clock. Walking is a light bounce. Running
  * is skipping: big and small hops in turn, the leading knee up, the free arm
- * swinging up, a squash on landing and a stretch in the air; the hat bounces a
- * beat late and the basket swings. Standing still, breathing.
+ * swinging up, a gentle squash on landing and stretch in the air; the hat rides
+ * the head and the basket swings. Standing still, breathing.
  */
 /** The sunhat: how far it tips back (radians, negative), and its brim, as the kid's parts and the hair both need it. */
 const HAT = { tip: -0.16, at: 0.255, inner: 0.15, outer: 0.43, droop: 0.075, clear: 0.025 };
@@ -1530,13 +1531,13 @@ function kidPose() {
     const arc = sin(phase).abs();
     const soft = arc.mul(arc);
     const hop = arc
-        .mul(mix(0.018, 0.045, run))
+        .mul(mix(0.016, 0.026, run))
         .mul(moving)
         .mul(ground)
         .sub(landed.mul(0.09));
     const squash = soft
         .sub(0.5)
-        .mul(mix(0.035, 0.055, run))
+        .mul(mix(0.03, 0.036, run))
         .mul(moving)
         .mul(ground)
         .sub(landed.mul(0.12));
@@ -1546,7 +1547,10 @@ function kidPose() {
         .mul(0.02)
         .mul(moving)
         .add(sin(t.mul(0.45)).mul(0.012).mul(still));
-    const rock = sin(phase).mul(0.032).mul(moving).mul(ground);
+    const rock = sin(phase)
+        .mul(mix(0.03, 0.02, run))
+        .mul(moving)
+        .mul(ground);
     const breath = sin(t.mul(1.8)).mul(0.01).mul(still);
 
     // Legs: the thigh swings, and the knee bends as the leg comes through, straight
@@ -1618,8 +1622,13 @@ function kidPose() {
     // The head steadies itself: it undoes most of the chest's twist and the body's
     // lean, nods with the stride and tilts from side to side a beat behind the
     // rock, happily, and standing still, looks about.
-    const nod = sin(phase.mul(2)).mul(0.04).mul(moving);
-    const tip = sin(phase.sub(0.6)).mul(0.05).mul(moving);
+    // (Gently: the wide hat brim rides the head and turns any nod into a see-saw at its edge.)
+    const nod = sin(phase.mul(2))
+        .mul(mix(0.03, 0.015, run))
+        .mul(moving);
+    const tip = sin(phase.sub(0.6))
+        .mul(mix(0.04, 0.02, run))
+        .mul(moving);
     const look = sin(t.mul(0.21))
         .mul(0.45)
         .add(sin(t.mul(0.53).add(1)).mul(0.15))
@@ -1742,7 +1751,7 @@ function kid(simulated: boolean): SplatObject {
         ...[-1, 1].flatMap((side) => onFace(side * 0.062, 0.168, 0.024, 0.013, 0.007, KID.eyes)),
         ...onFace(0, 0.124, 0.011, -0.004, 0.0035, KID.nose),
         ...onFace(0, 0.088, 0.03, -0.012, 0.005, KID.mouth),
-        // the sunhat, tipped back a little: a floppy brim, a round crown and a ribbon, bouncing a beat late
+        // the sunhat, tipped back a little: a floppy brim, a round crown and a ribbon, fixed to the head
         {
             pivot: neck,
             turn: hatTurn,
@@ -1959,9 +1968,9 @@ const HAIR = {
     strands: 900,
     segments: 8,
     thickness: 0.0034,
-    pixel: 0.0011,
+    pixel: 0.0016,
     /** Each strand's opacity: soft enough that where thousands overlap they don't pop in the sort. */
-    opacity: 0.8,
+    opacity: 0.6,
     /**
      * Clumps: one guide each, so they swing independently, with no strand ever
      * stretched between two; strands gather into each towards its tips. How tightly
@@ -1977,8 +1986,6 @@ const HAIR = {
     /** A gentle wave down each clump: how far it swings (metres, at the tip) and how many waves along it. */
     wave: 0.014,
     waves: 1.6,
-    /** The sheen along the hair (Kajiya-Kay). */
-    sheen: [0.12, 0.1, 0.08],
 };
 
 const SUBSTEPS = 4;
@@ -2387,12 +2394,15 @@ function hairStrands(sim: Sim): SplatObject {
         const strayDir = normalize(vec3(h2.z.sub(0.5), 0.15, h2.w.sub(0.5)));
         const pose = kidPose();
         const axis = pose.toWorld(vec3(0, 0.6, 0));
+        // Each clump's frame from its root round the head, the same all down it: worked out from the
+        // guide's own direction instead, it flips as the hair streams out behind you, and the
+        // strands jump from side to side of their clump, which shimmers.
+        const root = guideAt(sim, g, float(0));
+        const out = normalize(vec3(root.x.sub(axis.x), 0, root.z.sub(axis.z)).add(vec3(1e-4, 0, 0))).toVar();
+        const sideways = normalize(cross(vec3(0, 1, 0), out)).toVar();
+        const depthward = out;
         const strandAt = (t: TslNode) => {
             const p = guideAt(sim, g, t);
-            const towards = normalize(guideAt(sim, g, t.add(0.02).min(1)).sub(guideAt(sim, g, t.sub(0.02).max(0))));
-            const out = normalize(vec3(p.x.sub(axis.x), 0, p.z.sub(axis.z)).add(vec3(0, 1e-4, 0)));
-            const across = normalize(cross(towards, out).add(vec3(1e-4, 0, 0)));
-            const depthward = normalize(cross(across, towards));
             const gathered = pow(t, 1.2).mul(HAIR.gather).oneMinus();
             const side = h.y
                 .sub(0.5)
@@ -2407,7 +2417,7 @@ function hairStrands(sim: Sim): SplatObject {
                 .mul(t)
                 .mul(HAIR.wave);
             const placed = p
-                .add(across.mul(side.add(wave)))
+                .add(sideways.mul(side.add(wave)))
                 .add(depthward.mul(depth))
                 .add(strayDir.mul(t.mul(t).mul(0.06).mul(stray)));
             return underBrim(pose, placed, 0.01);
@@ -2423,13 +2433,11 @@ function hairStrands(sim: Sim): SplatObject {
         const t = t0.add(t1).mul(0.5);
         const width = max(float(HAIR.thickness).mul(t.mul(-0.5).add(1)), length(center.sub(eye)).mul(HAIR.pixel));
 
-        // Kajiya-Kay: lit by how much the strand runs across the light, with a sheen.
+        // Kajiya-Kay's diffuse: lit by how much the strand runs across the light. No sheen: as the hair
+        // moved, it made single strands flick bright and dark.
         const lit = sunlight(center);
         const across = dot(tangent, sun);
         const diffuse = across.mul(across).oneMinus().max(0).sqrt();
-        const half = normalize(sun.add(normalize(eye.sub(center))));
-        const runs = dot(tangent, half);
-        const sheen = pow(runs.mul(runs).oneMinus().max(0).sqrt(), 8).mul(lit);
         // Each clump its own shade, a little darker towards its edges, where it meets the next.
         const edge = h.y.sub(0.5).abs().mul(2).mul(t.oneMinus()).mul(0.22).oneMinus();
         const tone = v3(KID.hair)
@@ -2438,7 +2446,7 @@ function hairStrands(sim: Sim): SplatObject {
             .mul(edge)
             .mul(smoothstep(0, 0.3, t).mul(0.3).add(0.7))
             .add(t.mul(0.06));
-        const rgb = tone.mul(v3(SUN).mul(diffuse.mul(0.65)).mul(lit).add(v3(SKYLIGHT).mul(0.6))).add(v3(HAIR.sheen).mul(sheen));
+        const rgb = tone.mul(v3(SUN).mul(diffuse.mul(0.65)).mul(lit).add(v3(SKYLIGHT).mul(0.6)));
         const finish = distance(center, float(0), rgb);
         return GpuSplats.Splat(
             center,
@@ -2463,7 +2471,7 @@ function ground(reach: number = FIELD.reach, count: number = FIELD.ground, from?
         const b = hash4(index, from ? 3 : 1).toVar();
         const { xz, out } = place(a, reach);
         const land = terrain(xz);
-        const center = vec3(xz.x, land.height.add(b.x.mul(0.01)), xz.y).toVar();
+        const center = vec3(xz.x, land.height, xz.y).toVar();
 
         const size = float(share).mul(b.y.mul(0.5).add(0.8));
         const scales = vec3(size, 0.004, size.mul(b.z.mul(0.5).add(0.5)));
@@ -2475,9 +2483,13 @@ function ground(reach: number = FIELD.reach, count: number = FIELD.ground, from?
         // turf painted with the meadow's own fields: deeper where it's lush, gold in
         // the dry patches, and tinted with each drift's flowers, so the distant
         // hills are the same patchwork as the grass you walk into.
+        // Coloured by where it is, not by which splat it is: the floor's splats overlap at the same
+        // depth, and swap places in the sort as the camera moves, so if each had its own shade the
+        // bare earth would shimmer. A finer mottle stands in for the grain they used to give it.
         const mottle = mx_noise_float(xz.mul(0.9)).mul(0.5).add(0.5);
-        const earth = mix(v3(GROUND.earth), v3(GROUND.loam), mottle).mul(a.w.mul(0.25).add(0.88));
-        const soil = b.x.greaterThan(0.995).select(mix(earth, v3(GROUND.pebble), 0.5), earth);
+        const grain = mx_noise_float(xz.mul(7)).mul(0.1).add(1);
+        const earth = mix(v3(GROUND.earth), v3(GROUND.loam), mottle).mul(grain);
+        const soil = earth;
         const green = mix(v3(BLADE.deep), v3(BLADE.fresh), lushAt(xz).oneMinus().mul(0.5).add(0.3));
         const bloom = pick(
             driftKind(xz)
@@ -2487,7 +2499,7 @@ function ground(reach: number = FIELD.reach, count: number = FIELD.ground, from?
         );
         const turf = mix(mix(green, v3(BLADE.straw), dryAt(xz)), bloom, inDriftAt(xz).mul(GROUND.bloom));
         const { core: path, fringe } = paths(xz);
-        const trodden = mix(soil, v3(PATHS.dust).mul(a.w.mul(0.2).add(0.9)), max(path, fringe.mul(0.12)));
+        const trodden = mix(soil, v3(PATHS.dust).mul(grain), max(path, fringe.mul(0.12)));
         const body = mix(trodden, turf, smoothstep(6, 22, length(center.sub(eye))).mul(path.oneMinus()));
         const direct = v3(SUN)
             .mul(max(dot(land.normal, sun), 0))
@@ -2505,13 +2517,13 @@ function ground(reach: number = FIELD.reach, count: number = FIELD.ground, from?
  * for the meadow's depth (the grass is only knee high) for the depth of field. A
  * grid as wide as the far ground, following you a cell at a time.
  */
-export function groundDepth(): THREE.Mesh {
+export function groundDepth(below = 0): THREE.Mesh {
     const span = FIELD.far.reach * 2;
     const cells = 200;
     const step = span / cells;
     const material = new MeshBasicNodeMaterial();
     const xz = positionLocal.xz.add(you.xz.div(step).round().mul(step));
-    material.positionNode = vec3(xz.x, terrain(xz).height, xz.y);
+    material.positionNode = vec3(xz.x, terrain(xz).height.sub(below), xz.y);
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(span, span, cells, cells).rotateX(-Math.PI / 2), material);
     mesh.frustumCulled = false;
     return mesh;
@@ -2707,13 +2719,17 @@ function pathSurface(): SplatObject {
                 mix(PATHS.pebbleSize[0], PATHS.pebbleSize[1], pow(h.w, 2)),
                 mix(PATHS.grain[0], PATHS.grain[1], h.w),
             );
-            // Clear of the ground's big soft splats, or they win the sort half the time and blur it.
-            const lift = pebble.select(size.mul(0.3).add(0.02), float(0.02));
+            // The floor's its own layer underneath now, so nothing needs lifting clear of it: the dirt
+            // lies just on the ground, and a pebble sits bedded into it, its middle barely above,
+            // the way pebbles sink into a trodden path, rather than perched on top.
+            const lift = pebble.select(size.mul(0.12).add(0.004), float(0.003));
             const at = vec3(xz.x, land.height.add(lift), xz.y).toVar();
             const turn = GpuSplatMath.quatMul(alignY(land.normal), yaw(h.x.mul(Math.PI)));
             const scales = pebble.select(vec3(size, size.mul(0.5), size.mul(0.75)), vec3(size, 0.003, size.mul(0.8)));
+            // Coloured by where it is, not by which grain it is: the grains overlap at one height and
+            // swap places in the sort as the camera moves, so each its own shade would shimmer.
             const dirt = v3(PATHS.dust)
-                .mul(h.y.mul(0.3).add(0.8))
+                .mul(mx_noise_float(xz.mul(9)).mul(0.12).add(0.95))
                 .mul(mx_noise_float(xz.mul(2.3)).mul(0.08).add(1));
             const stone = v3(PATHS.stone).mul(h.w.mul(0.35).add(0.75));
             const colour = pebble.select(stone, dirt);
@@ -2723,7 +2739,20 @@ function pathSurface(): SplatObject {
             const rgb = colour.mul(direct.mul(0.8).add(v3(SKYLIGHT).mul(0.55)));
             const finish = distance(at, float(0), rgb);
             const visible = shows.mul(smoothstep(0.35, 0.7, core)).mul(clear(xz));
-            return GpuSplats.Splat(at, scales, turn, finish.rgb.min(0.95), finish.opacity.mul(visible).mul(1.3), uint(index));
+            // A pebble's slid a little towards the eye along the line of sight (the same spot on the
+            // screen), so the dirt grains round it never sort over it and it doesn't blink.
+            const toEye = eye.sub(at).toVar();
+            const far = length(toEye).toVar();
+            const nudge = pebble.select(min(float(PATHS.pebbleNudge), far.mul(0.3)), float(0));
+            return GpuSplats.Splat(
+                at.add(toEye.div(far.max(1e-3)).mul(nudge)),
+                // Shrunk to match, so it's the size it was on the screen.
+                scales.mul(far.sub(nudge).div(far.max(1e-3))),
+                turn,
+                finish.rgb.min(0.95),
+                finish.opacity.mul(visible).mul(1.3),
+                uint(index),
+            );
         },
         true,
     );
@@ -2731,8 +2760,11 @@ function pathSurface(): SplatObject {
 
 /* the field */
 
-/** `objects`: everything; `you`: another copy of the kid, dress and hair, drawn on their own as a mask for the depth of field. */
-export type Field = { objects: SplatObject[]; you: SplatObject[] };
+/**
+ * `floor`: the ground, drawn first, on its own; `objects`: everything on it; `you`: another copy of the
+ * kid, dress and hair, drawn on their own as a mask for the depth of field.
+ */
+export type Field = { floor: SplatObject[]; objects: SplatObject[]; you: SplatObject[] };
 
 /** `clouds` is the cloud picture, already loaded: dark cloud on white. */
 /** `kidOnly`: just the ground and the kid, for looking at the dress and hair without the meadow's cost. */
@@ -2756,18 +2788,11 @@ export function initField(renderer: WebGPURenderer, clouds: THREE.Texture, kidOn
     const you = kidSplats();
     return {
         you: kidSplats(),
+        // The floor's drawn first, as a layer of its own, so nothing sat on it ever sorts behind it.
+        floor: kidOnly ? [ground()] : [ground(), ground(FIELD.far.reach, FIELD.far.ground, FIELD.far.from)],
         objects: kidOnly
-            ? [ground(), ...grass().slice(0, 2), ...you]
-            : [
-                  ground(),
-                  ground(FIELD.far.reach, FIELD.far.ground, FIELD.far.from),
-                  boulders(),
-                  ...grass(),
-                  pathSurface(),
-                  flowers(),
-                  butterflies(),
-                  ...you,
-              ],
+            ? [...grass().slice(0, 2), ...you]
+            : [boulders(), ...grass(), pathSurface(), flowers(), butterflies(), ...you],
     };
 }
 

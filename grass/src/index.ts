@@ -210,6 +210,9 @@ function walk(
 
 /** So a stall or a tab switch can't jump the wind forward. */
 const MAX_DT = 0.1;
+/** How far under the floor's splats the ground's depth is laid, for hills to hide what's behind them (metres). */
+const FLOOR_BELOW = 0.15;
+
 /** Splats are fill-bound: past this, more pixels cost more than they show. */
 const MAX_PIXEL_RATIO = 1.5;
 
@@ -337,9 +340,20 @@ async function start() {
     controls.update();
 
     const field = initField(renderer, await new THREE.TextureLoader().loadAsync(cloudUrl), PREVIEW);
+    // The floor first, a layer of its own, then everything on it: splats are sorted by their middles,
+    // and a big flat floor splat's middle is often nearer than a pebble or a blade's sat on it, so
+    // sorted together they'd swap places as the camera moves and shimmer. Hills still hide what's
+    // behind them: the ground's depth, as a plain mesh drawn into no colour, a little under the
+    // floor's splats so it never hides them.
+    const floorSplats = new SplatRenderer({ renderer });
+    floorSplats.collection = new SplatCollection(field.floor);
+    floorSplats.renderOrder = -1;
     const splats = new SplatRenderer({ renderer });
     splats.collection = new SplatCollection(field.objects);
-    scene.add(splats);
+    const hills = groundDepth(FLOOR_BELOW);
+    (hills.material as THREE.Material).colorWrite = false;
+    hills.renderOrder = -2;
+    scene.add(hills, floorSplats, splats);
 
     // You again, on your own, for the depth of field's mask.
     const you = new SplatRenderer({ renderer });
@@ -370,6 +384,7 @@ async function start() {
         focus.value = camera.position.distanceTo(controls.target);
         // The WebGL2 backend sorts on the CPU and only when asked; everything moves.
         if (splats.sortMode === 'cpu') {
+            floorSplats.requestSort();
             splats.requestSort();
             you.requestSort();
         }
