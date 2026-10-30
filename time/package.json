@@ -1,0 +1,23 @@
+{
+    "name": "time",
+    "private": true,
+    "version": "0.0.0",
+    "description": "The avatars' school courtyard relit through a whole day: sun, shadows, dusk and moonlight on a captured scene.",
+    "license": "MIT",
+    "author": "Isaac Mason",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "spark-radix": "catalog:",
+        "three": "^0.186.0"
+    },
+    "devDependencies": {
+        "@types/three": "^0.186.0",
+        "typescript": "~6.0.2",
+        "vite": "^8.0.12"
+    }
+}
