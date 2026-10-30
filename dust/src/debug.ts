@@ -1,12 +1,6 @@
 import type * as THREE from 'three';
 import type { Performance } from './performance';
 
-/**
- * The debug panel the other examples have: backtick to toggle, click-to-copy
- * coordinates, a switch to take the dust away and see the room without it, and
- * one to add a THREE.Points version alongside to see why the motes are splats.
- */
-
 export type DebugOverlay = {
     element: HTMLDivElement;
     enabled: boolean;
@@ -19,11 +13,8 @@ export type DebugOverlay = {
 };
 
 export type DebugOptions = {
-    /** The live quality settings the render scale slider edits. */
     perf: Performance;
-    /** Called when the splat dust checkbox flips. */
     onDustEnabled?: (enabled: boolean) => void;
-    /** Called when the THREE.Points comparison checkbox flips. */
     onPointsEnabled?: (enabled: boolean) => void;
 };
 
@@ -56,7 +47,6 @@ function createRange(
     const wrapper = document.createElement('label');
     wrapper.style.cssText = 'display:flex;gap:6px;align-items:center;cursor:pointer;user-select:none';
     const input = document.createElement('input');
-    // In order: a range's value has to come after its min and max, or it's clamped to 0..100.
     input.type = 'range';
     input.min = String(min);
     input.max = String(max);
@@ -73,7 +63,6 @@ function createRange(
     return wrapper;
 }
 
-/** Copy a readout to the clipboard on click, and flash to confirm. */
 function makeCopyable(value: HTMLSpanElement): void {
     value.style.cursor = 'pointer';
     value.title = 'click to copy';
@@ -83,7 +72,7 @@ function makeCopyable(value: HTMLSpanElement): void {
         try {
             await navigator.clipboard.writeText(text);
         } catch {
-            return; // clipboard blocked (insecure context) — nothing to flash
+            return;
         }
         value.style.color = '#fff';
         setTimeout(() => {

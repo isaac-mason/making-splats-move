@@ -1,11 +1,3 @@
-/**
- * Dust motes drifting through a captured greenhouse: splats generated on the GPU,
- * sorted and blended in with the capture's own.
- *
- * Drawn by spark-radix on three's WebGPURenderer: WebGPU where there is one, its
- * WebGL2 backend elsewhere (or with `?gpu=webgpu-gl`).
- */
-
 import { type AnySplatObject, createRenderer, SplatCollection, SplatRenderer } from 'spark-radix';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -13,13 +5,15 @@ import { createCameraDrift } from './camera-drift';
 import { createDebugOverlay, updateDebugOverlay } from './debug';
 import { createDust } from './dust';
 import { createDustPoints } from './dust-points';
+import { createFocus } from './focus';
 import { applyPerformance, initPerformance } from './performance';
-import { CAMERA_POSITION, CAMERA_TARGET, DUST_BOX } from './scene';
+import { CAMERA_POSITION, CAMERA_TARGET, DUST_BOX, SPLAT_SCALE } from './scene';
 import { createSplat } from './splat';
 import './style.css';
 
-/** So a stall or a tab switch can't fling the camera across the room on resume. */
 const MAX_DT = 0.1;
+
+const APERTURE_TAN = 0.004;
 
 async function init() {
     const scene = new THREE.Scene();
@@ -33,23 +27,15 @@ async function init() {
     const app = document.querySelector<HTMLDivElement>('#app') ?? document.body;
     app.appendChild(renderer.domElement);
 
-    // Splats are self-lit and the dust motes are splats too, so this scene has no
-    // three.js lights in it at all.
     const splat = await createSplat(renderer);
 
-    // The dust field: one object in the same collection as the greenhouse, so its
-    // motes are sorted and blended together with the greenhouse's own splats.
     const dust = createDust(DUST_BOX);
     console.log(`dust: ${dust.count.toLocaleString()} motes`);
 
-    const splats = new SplatRenderer({ renderer });
+    const splats = new SplatRenderer({ renderer, objectParams: { apertureTan: APERTURE_TAN } });
     splats.raycast = () => {};
     scene.add(splats);
 
-    // The same field as a sprite cloud, hidden unless switched on in the debug
-    // panel — there to show what goes wrong without splats (see the file). It's
-    // spread past the walls on purpose: splat motes out there would be hidden by
-    // the room, so the sprites showing through it is the failure made plain.
     const dustPoints = createDustPoints(DUST_BOX.clone().expandByVector(new THREE.Vector3(15, 3, 15)));
     scene.add(dustPoints.object);
 
@@ -60,11 +46,9 @@ async function init() {
 
     const perf = initPerformance();
 
-    // A gentle lean toward the cursor while hovering (mouse only — see the file).
     const drift = createCameraDrift(camera, controls, renderer.domElement);
+    const focus = createFocus(splat.data, SPLAT_SCALE, camera, controls, renderer.domElement);
 
-    // Debug panel: toggle with the backtick (`) key. Hiding the dust takes its
-    // motes out of the collection entirely, not just off screen.
     const debug = createDebugOverlay({
         perf,
         onDustEnabled: (enabled) => {
@@ -89,12 +73,12 @@ async function init() {
         splat,
         dust,
         dustEnabled: true,
-        /** Which layers the collection was last built from. */
         shown: '',
         dustPoints,
         controls,
         perf,
         drift,
+        focus,
         debug,
     };
     return state;
@@ -102,10 +86,6 @@ async function init() {
 
 type State = Awaited<ReturnType<typeof init>>;
 
-/**
- * The renderer draws an immutable collection, so hiding a layer means a new one.
- * Only when the toggle changes: making one compiles nothing, but it's no per-frame job.
- */
 function syncCollection(state: State) {
     const layers: [boolean, AnySplatObject][] = [
         [true, state.splat.object],
@@ -122,12 +102,12 @@ function update(state: State, time: number, dt: number) {
     state.dust.update(time, dt, state.camera);
     // Drives controls.update() itself, so the lean can't compound into its state.
     state.drift.apply(dt);
+    state.splats.objectParams.focalDistance = state.focus.update(dt);
     applyPerformance(state.perf, state.renderer);
     state.dustPoints.update(dt, state.camera, state.renderer);
     updateDebugOverlay(state.debug, state.camera, state.controls.target, state.splats.collection.count, dt);
 
-    // The GPU sort sees the motes move every frame. The WebGL2 backend's CPU sort
-    // doesn't, so ask it each frame: the dust never stops.
+    // The WebGL2 backend's CPU sort only runs when asked.
     if (state.splats.sortMode === 'cpu') state.splats.requestSort();
     state.renderer.render(state.scene, state.camera);
 }
@@ -136,7 +116,7 @@ function hideLoading() {
     const el = document.getElementById('loading');
     if (!el) return;
     el.classList.add('hidden');
-    setTimeout(() => el.remove(), 700); // after the CSS fade
+    setTimeout(() => el.remove(), 700);
 }
 
 async function start() {
@@ -153,7 +133,6 @@ async function start() {
         elapsed += dt;
         update(state, elapsed, dt);
 
-        // A few frames in, past the first frame's shader compiles.
         if (++frames === 3) hideLoading();
     });
 }
