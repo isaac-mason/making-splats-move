@@ -10,6 +10,7 @@
 | [`avatars-parts/`](avatars-parts) | How the avatars are drawn, in five short files. Read this one first. |
 | [`grass/`](grass) | An endless meadow with nothing captured: walk it in third person and trample a path, through splat grass combed by the wind, drifts of wildflowers, butterflies and cloud shadows. |
 | [`clouds/`](clouds) | A glide under broken cumulus at golden hour, nothing captured. |
+| [`hair/`](hair) | Long blonde hair streaming in a sea breeze at golden hour: simulated guide strands grown into splat hair on the GPU. |
 | [`birds/`](birds) | A murmuration of eight thousand starlings at dusk, simulated on the GPU. |
 | [`tree/`](tree) | A tree grown from a seed, its canopy sprays of splat leaves, blown by the wind. |
 | [`fireworks/`](fireworks) | A fireworks show of eight shell kinds over dark hills, every spark a splat. |
