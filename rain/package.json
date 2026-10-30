@@ -1,0 +1,23 @@
+{
+    "name": "rain",
+    "private": true,
+    "version": "0.0.0",
+    "description": "A storm over the avatars' school courtyard: rain falling, splashing and soaking a captured scene, puddles gathering on the paving.",
+    "license": "MIT",
+    "author": "Isaac Mason",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "spark-radix": "catalog:",
+        "three": "^0.186.0"
+    },
+    "devDependencies": {
+        "@types/three": "^0.186.0",
+        "typescript": "~6.0.2",
+        "vite": "^8.0.12"
+    }
+}
